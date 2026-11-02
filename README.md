@@ -40,8 +40,10 @@ gcc patch into `patches/binutils/` or `patches/gcc/`, then
 `make clean && make`. Delete `work/stamps/src-<component>` too to re-clone.
 
 On the machine this was developed on (8 cores, Apple silicon), `make` from
-nothing takes about 7½ minutes, `check-binutils` about 3½ and
-`check-gcc-smoke` about 12. In Docker on the same machine, `docker-all` plus
+nothing takes about 7½ minutes, `check-binutils` about 3½,
+`check-gcc-smoke` about 12 and `check-gcc` about 55, of which 10½ is
+`pr50865.c` waiting out its timeout seven times. Every other test stops
+QEMU as soon as it has printed its exit status, in about 0.3 s. In Docker on the same machine, `docker-all` plus
 `docker-check-gcc-smoke` took 23 minutes, and every test result was the same
 as the native run.
 
@@ -151,6 +153,7 @@ From 2026-11-01: binutils `8614f56cb25`, gcc `a9f669055c2`, newlib
 | gas | 329 | 0 | 0 | 0 | 10 |
 | ld | 546 | 1 | 15 | 9 | 232 |
 | gcc, `check-gcc-smoke` | 91 | 15 | 0 | 0 | 8 |
+| gcc, `check-gcc` (all of `execute.exp`) | 24498 | 38 | 0 | 0 | 176 |
 
 The failures:
 
@@ -158,9 +161,19 @@ The failures:
   generic howto, which writes the low 16 bits of the address into the `imm`
   instruction and leaves the following one unpatched. Linking to ELF and
   converting with `objcopy` is correct.
-- **gcc `pr50865.c` (7) and `arith-rand-ll.c` (8).** `__moddi3` in libgcc is
-  wrong on MicroBlaze. `pr50865.c` hangs; `arith-rand-ll.c` aborts. Both pass
-  with a fixed `__moddi3` linked ahead of libgcc.
+- **gcc: 30 of the 38 are `__moddi3`.** libgcc's 64-bit signed remainder is
+  wrong on MicroBlaze: `arith-rand-ll.c` (8), `vector-div-neg-pow2.c` (8),
+  `pr50865.c` (7) and `pr33669.c` (1, `-O0` only). `pr50865.c` hangs until the
+  timeout; the others abort. All four pass at `-O0` with a fixed `__moddi3`
+  linked ahead of libgcc, which leaves the other two tests failing.
+- **gcc `pr117432.c` (7): C23 variadic functions with no named parameter.**
+  `void qux (...)` reads garbage from `va_arg` at `-O0` and `-O2`, while
+  `void baz (int, ...)` is right. A compiler bug, and not the IPA problem the
+  PR is about.
+- **gcc `fprintf-2.c` (7): no filesystem.** GCC's `fileio` effective target
+  only checks that `fopen` links, which it does against libgloss's stubs; on
+  bare metal it fails at run time and the test exits 1. A limitation of the
+  environment, not of the compiler.
 - `pr28982b.c` is UNSUPPORTED. It says `dg-require-stack-size "0x80100"`,
   and the board declares `gcc,stack_size 16384`, though the stack it links
   is 4 MB. The board understates it; raising the declared size would let the
