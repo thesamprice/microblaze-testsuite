@@ -1,0 +1,361 @@
+From dd71703bd319cd874a60db1b70a70d755d29956e Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Mon, 12 Oct 2026 21:35:00 -0400
+Subject: [PATCH] Add a microblaze-qemu baseboard
+
+MicroBlaze has no board here, so GCC gets compile-only testing on it.
+The nearest thing is baseboards/qemu.exp, which names microblaze-* and
+microblazeel-* for QEMU user mode, and whose qemu_load calls "array
+size" on local_exec's list return, so it reports pass unconditionally.
+
+This adds a board for QEMU *system* emulation, which needs only a CPU
+and a UART rather than the Linux syscall ABI.  It is the usual *-sim
+shape, with libgloss_include_flags, newlib_include_flags,
+libgloss_link_flags, newlib_link_flags and ldscript "", because libgloss
+and newlib already supply the crt0, the linker script, the C library and
+the syscalls.  setup_sim is not called: MicroBlaze does have a gdb
+simulator, but it implements 107 instructions and cannot cover hard
+float, mulh*, pcmp* or lwx/swx, and lwx/swx are emitted at the default
+-mcpu, so system emulation is what covers the ISA.
+
+Three things differ from a simulator board.
+
+QEMU cannot return a guest exit status, and libgloss's _exit is "bri 0",
+so something has to stop it once the test has reported.  The board sets
+needs_status_wrapper and takes the status from testglue.c's "*** EXIT
+code N" line as arm-sim.exp does, and contrib/microblaze-qemu-run
+watches for that line and then kills QEMU.  The board expects it on PATH
+under that name, or named by $SIM as mmixware-sim.exp allows.
+sim_time_limit is derived from MB_TIMEOUT so that the outer wait cannot
+end up shorter than the wrapper's own.
+
+GCC's MicroBlaze LIB_SPEC links "-lgloss -lxil -lc -lm".  libgloss and
+newlib supply three of those.  The fourth is the board's own library,
+which nothing upstream builds, because in Xilinx's world it comes from
+the tools' board support package, and libgloss's write() and read() are
+loops over an outbyte() and inbyte() that are declared and never
+defined. microblaze-qemu-libxil.c sits beside testglue.c and supplies
+them for the UART; MB_LIBXIL points at the directory holding the
+libxil.a built from it.
+
+libgloss's xilinx.ld defaults to text at 0x50, a 1 KiB stack and no
+heap, which puts everything inside the 128 KiB of BRAM that
+petalogix-s3adsp1800 maps at 0 and leaves malloc failing.  All three are
+DEFINED()-guarded, so the board moves text to the RAM at 0x90000000 and
+gives the stack and heap 4 MB each.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ ChangeLog                      |   9 ++
+ Makefile.am                    |   4 +-
+ baseboards/microblaze-qemu.exp | 145 +++++++++++++++++++++++++++++++++
+ contrib/microblaze-qemu-run    |  51 ++++++++++++
+ microblaze-qemu-libxil.c       |  40 +++++++++
+ 5 files changed, 248 insertions(+), 1 deletion(-)
+ create mode 100644 baseboards/microblaze-qemu.exp
+ create mode 100755 contrib/microblaze-qemu-run
+ create mode 100644 microblaze-qemu-libxil.c
+
+diff --git a/ChangeLog b/ChangeLog
+index 17a2832..ab0d20a 100644
+--- a/ChangeLog
++++ b/ChangeLog
+@@ -1,3 +1,12 @@
++2026-10-12  Samuel Price  <thesamprice@gmail.com>
++
++	* baseboards/microblaze-qemu.exp: New file.
++	* microblaze-qemu-libxil.c: New file.
++	* contrib/microblaze-qemu-run: New file.
++	* Makefile.am (pkgdata_DATA): Add microblaze-qemu-libxil.c.
++	(baseboard_DATA): Add baseboards/microblaze-qemu.exp.
++	(CONTRIB): Add contrib/microblaze-qemu-run.
++
+ 2026-10-17  Jacob Bachmeyer  <jcb@gnu.org>
+ 
+ 	* doc/dejagnu.texi (remote_load procedure): Document.
+diff --git a/Makefile.am b/Makefile.am
+index 9493cc6..b3cf485 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -47,6 +47,7 @@ bin_SCRIPTS = dejagnu runtest
+ include_HEADERS = dejagnu.h
+ 
+ pkgdata_DATA = \
++  microblaze-qemu-libxil.c \
+   stub-loader.c \
+   testglue.c \
+   runtest.exp \
+@@ -122,6 +123,7 @@ baseboard_DATA = \
+ 	baseboards/mips-sim-mti64_n32.exp \
+ 	baseboards/mips-sim-sde32.exp \
+ 	baseboards/mips-sim-sde64.exp \
++	baseboards/microblaze-qemu.exp \
+ 	baseboards/mips-sim.exp \
+ 	baseboards/mmixware-sim.exp \
+ 	baseboards/mn10200-sim.exp \
+@@ -157,7 +159,7 @@ djlibexec_SCRIPTS = config.guess
+ 
+ # Contributed scripts, etc.
+ 
+-CONTRIB = contrib/sum2junit.sh \
++CONTRIB = contrib/sum2junit.sh contrib/microblaze-qemu-run \
+ 	contrib/mysql/create-db.sql contrib/mysql/importxml.sh \
+ 	contrib/mysql/make-datafile.sh contrib/mysql/plot.sh \
+ 	contrib/mysql/README contrib/mysql/sum2xml.sh \
+diff --git a/baseboards/microblaze-qemu.exp b/baseboards/microblaze-qemu.exp
+new file mode 100644
+index 0000000..6d8d2df
+--- /dev/null
++++ b/baseboards/microblaze-qemu.exp
+@@ -0,0 +1,145 @@
++# DejaGnu board: MicroBlaze bare metal under QEMU system emulation.
++#
++#   runtest --tool gcc --target_board=microblaze-qemu[/-mlittle-endian] ...
++#
++# Shaped like DejaGnu's own *-sim boards -- riscv-sim.exp, arm-sim.exp and the
++# other 44 -- because everything a bare-metal target needs already comes from
++# libgloss and newlib.  The crt0, the linker script, the C library and the
++# syscall layer are the toolchain's; this file adds only what QEMU needs that
++# a simulator does not.
++#
++# Two things have to be in place before this board can run.
++#
++#   libxil.a    GCC's MicroBlaze LIB_SPEC links "-lgloss -lxil -lc -lm".
++#               libgloss provides -lgloss and newlib -lc and -lm; -lxil is the
++#               board's own library, which upstream builds nothing for,
++#               because in Xilinx's world it comes from the tools' board
++#               support package.  libgloss's write() and read() are loops over
++#               an outbyte() and inbyte() that are declared and never defined.
++#               microblaze-qemu-libxil.c, beside testglue.c, supplies them for
++#               the UART:
++#
++#                   microblaze-elf-gcc -O2 -ffreestanding \
++#                       -c <datadir>/microblaze-qemu-libxil.c -o libxil.o
++#                   microblaze-elf-ar rc libxil.a libxil.o
++#
++#               Point MB_LIBXIL at the directory holding libxil.a.
++#
++#   the runner  contrib/microblaze-qemu-run, on PATH as microblaze-qemu-run or
++#               named by $SIM.  QEMU cannot return a guest exit status and
++#               libgloss's _exit is "bri 0", so something has to stop it once
++#               the test has reported.
++#
++# Set MB_QEMU to qemu-system-microblaze or -microblazeel.  Stock upstream
++# QEMU: no fork, no patches, and nothing is asked of the machine model but a
++# UART.
++
++load_generic_config "sim"
++load_base_board_description "basic-sim"
++process_multilib_options ""
++
++# setup_sim is deliberately not called.  It would look for a gdb simulator in
++# the build tree.  MicroBlaze has one and it works, but it implements 107
++# instructions, so it cannot cover hard float, mulh*, pcmp* or lwx/swx -- and
++# lwx/swx are emitted at the default -mcpu.  Full ISA coverage is this board's
++# purpose.  See ../sim-evidence/.
++
++if { [info exists env(MB_QEMU)] } {
++    set ::env(MB_QEMU) $env(MB_QEMU)
++} else {
++    set ::env(MB_QEMU) "qemu-system-microblaze"
++}
++if { ![info exists env(MB_TIMEOUT)] } { set ::env(MB_TIMEOUT) 90 }
++
++# A bare name, not a command line: DejaGnu runs the sim string through its
++# "which" check, which a multi-word "env VAR=... prog" does not survive.  The
++# wrapper reads MB_QEMU and MB_TIMEOUT from the environment instead.  $SIM
++# overrides, as it does for mmixware-sim.exp.
++if { [info exists SIM] } {
++    set_board_info sim $SIM
++} else {
++    set_board_info sim "microblaze-qemu-run"
++}
++
++# Two timeouts, and they have to stay in that order: qemu-run gives up on a
++# guest after MB_TIMEOUT and exits, and sim_time_limit is how long generic
++# sim_load waits for qemu-run itself.  Derive the outer one so they cannot
++# drift -- if sim_time_limit were the smaller, DejaGnu would kill the wrapper
++# and leave a QEMU behind.  No board DejaGnu ships sets sim_time_limit, since
++# a simulator exits by itself; config/sim.exp:76 honours it and defaults to
++# 240.
++set_board_info sim_time_limit [expr {$::env(MB_TIMEOUT) + 30}]
++
++# Every other sim board just says "[find_gcc]".  In the combined tree this is
++# meant to be used in, find_gcc and GCC_UNDER_TEST name the same compiler, so
++# the branch changes nothing.  It is for the other case: pointed at an installed
++# compiler there is no build tree for find_gcc to find an xgcc in, so it falls
++# back to [transform gcc] and yields a bare "-gcc".  That matters more than it
++# looks, because this string is also what build_wrapper compiles DejaGnu's
++# testglue.c with; when it is wrong, build_wrapper fails and returns an empty
++# string in silence, no glue is linked, no status line is printed, and every
++# execution test reports 2.
++if { [info exists ::GCC_UNDER_TEST] } {
++    set_board_info compiler "$::GCC_UNDER_TEST"
++} else {
++    set_board_info compiler "[find_gcc]"
++}
++
++set_board_info cflags "[libgloss_include_flags] [newlib_include_flags]"
++
++# xilinx.ld's defaults are text at 0x50, a 1 KiB stack and no heap at all,
++# which puts everything inside the 128 KiB of BRAM that petalogix-s3adsp1800
++# maps at 0 and leaves malloc failing immediately.  All three are
++# DEFINED()-guarded, so move text into the RAM at 0x90000000 and size the
++# stack and heap for the testsuite; memcpy-1 hangs on 256 KB.  The vectors
++# stay at 0 in BRAM, which is where the core resets to.
++set mb_defsyms "-Wl,--defsym,_TEXT_START_ADDR=0x90000000 \
++                -Wl,--defsym,_STACK_SIZE=0x400000 \
++                -Wl,--defsym,_HEAP_SIZE=0x400000"
++
++# Current binutils mis-adjusts __wrap_* symbols while relaxing, which breaks
++# the status wrapper below: testglue.c defines __wrap_exit and calls exit, so
++# one hash entry sits in two elf_sym_hashes slots, microblaze_elf_relax_section
++# subtracts the fixup once per slot, and __wrap_exit resolves before its own
++# first instruction.  No status line is written and every execution test
++# reports 2.  GCC's LINK_SPEC passes -relax unconditionally.
++#
++# Set MB_NO_RELAX=-Wl,--no-relax until the linker carries the fix.  While that
++# is in force the suite does not exercise relaxation at all, which costs
++# little for testing the compiler but means a run cannot catch a relaxation
++# bug.
++set mb_no_relax ""
++if { [info exists env(MB_NO_RELAX)] } { set mb_no_relax $env(MB_NO_RELAX) }
++
++# MB_LIBXIL: the directory holding the libxil.a built from
++# microblaze-qemu-libxil.c.
++set mb_libxil ""
++if { [info exists env(MB_LIBXIL)] } { set mb_libxil "-L$env(MB_LIBXIL)" }
++
++set_board_info ldflags \
++    "[libgloss_link_flags] [newlib_link_flags] $mb_libxil $mb_defsyms $mb_no_relax"
++
++# libgloss supplies the linker script, through LINK_SPEC's
++# "%{!T*: -dT xilinx.ld%s}" (gcc/config/microblaze/microblaze.h:113).
++set_board_info ldscript ""
++
++# QEMU cannot hand a guest exit status back, so the status comes out through
++# DejaGnu's own mechanism: this makes GCC link testglue.c, which wraps
++# exit/_exit/abort/main and writes "*** EXIT code N" through write(1, ...),
++# and check_for_board_status in remote.exp parses it.  qemu-run only has to
++# stop QEMU once that line appears, because libgloss's _exit is "bri 0" and
++# spins forever on hardware.
++#
++# 1, not 0: remote.exp tests this with `ne ""` and targetdb.exp hands back the
++# stored string, so a literal 0 reads as "set" and makes a missing marker mean
++# status 2.  mn10300-sim.exp uses "" when it wants this off.
++set_board_info needs_status_wrapper 1
++
++# Bare metal: no OS services.  Saying so gets tests marked UNSUPPORTED rather
++# than failed.
++set_board_info noargs 1
++set_board_info gdb,nosignals 1
++set_board_info gdb,noinferiorio 1
++set_board_info gdb,no_hardware_watchpoints 1
++set_board_info gcc,stack_size 16384
++set_board_info gcc,timeout 600
+diff --git a/contrib/microblaze-qemu-run b/contrib/microblaze-qemu-run
+new file mode 100755
+index 0000000..c4587c2
+--- /dev/null
++++ b/contrib/microblaze-qemu-run
+@@ -0,0 +1,51 @@
++#!/bin/sh
++# microblaze-qemu-run <program.elf> -- run a bare-metal test under QEMU system
++# emulation and stop QEMU once the program has reported its exit status, so
++# DejaGnu can treat it like any other simulator.
++#
++# Used by baseboards/microblaze-qemu.exp, which expects it on PATH under this
++# name or named by $SIM.
++#
++#   MB_QEMU    path to qemu-system-microblaze or -microblazeel   (required)
++#   MB_TIMEOUT seconds before declaring a hang                   (default 60)
++#
++# The status itself is not this script's business.  The board sets
++# needs_status_wrapper, so GCC links DejaGnu's testglue.c, which wraps
++# exit/_exit/abort/main and writes "*** EXIT code N" through write(1, ...);
++# check_for_board_status in DejaGnu's remote.exp parses that out of the
++# output.  So the marker is passed through untouched -- DejaGnu strips it
++# itself -- and this script's exit code is not what decides pass or fail.
++#
++# What is still needed from out here is stopping QEMU.  testglue's wrapper
++# returns into the real exit(), which on bare metal spins forever, and
++# petalogix-s3adsp1800 has no shutdown device upstream.  Writing to a
++# downstream one would make this board useless to anybody else, so instead
++# QEMU is killed from the outside once the marker shows up.  Nothing is
++# required of the machine model beyond a working UART.
++#
++# A guest that never prints a marker has hung.  That needs no special value
++# here: DejaGnu maps a missing marker to status 2, which is a failure.
++: "${MB_QEMU:?set MB_QEMU to the qemu-system-microblaze[el] binary}"
++prog=$1
++[ -n "$prog" ] || { echo "usage: mb-qemu-run <program.elf>" >&2; exit 2; }
++[ -f "$prog" ] || { echo "mb-qemu-run: no such file: $prog" >&2; exit 2; }
++
++log=$(mktemp "${TMPDIR:-/tmp}/mb-qemu.XXXXXX") || exit 2
++trap 'rm -f "$log"' EXIT
++
++"$MB_QEMU" -M petalogix-s3adsp1800 -nographic -icount 0 \
++           -kernel "$prog" > "$log" 2>/dev/null &
++qpid=$!
++
++limit=$(( ${MB_TIMEOUT:-60} * 10 ))
++i=0
++while [ "$i" -lt "$limit" ]; do
++    grep -q '\*\*\* EXIT code ' "$log" 2>/dev/null && break
++    kill -0 "$qpid" 2>/dev/null || break
++    sleep 0.1
++    i=$((i + 1))
++done
++kill "$qpid" 2>/dev/null
++wait "$qpid" 2>/dev/null
++
++tr -d '\r' < "$log"
+diff --git a/microblaze-qemu-libxil.c b/microblaze-qemu-libxil.c
+new file mode 100644
+index 0000000..d8ff7aa
+--- /dev/null
++++ b/microblaze-qemu-libxil.c
+@@ -0,0 +1,40 @@
++/* Board support for qemu-system-microblaze[el], machine petalogix-s3adsp1800.
++   This is the whole of what libgloss needs from a board.
++
++   GCC's MicroBlaze LIB_SPEC (gcc/config/microblaze/microblaze.h:879) links
++   "-start-group -lgloss -lxil -lc -lm -end-group".  libgloss supplies
++   -lgloss and newlib -lc and -lm, but -lxil is the board's own library and
++   upstream builds nothing for it: in Xilinx's world libxil.a comes from the
++   tools' board support package.  libgloss's generic write() and read()
++   (libgloss/write.c, read.c) are loops over outbyte() and inbyte(), which
++   are declared and never defined for bare metal.
++
++   So this file is libxil.a.  It is not a stub standing in for a real
++   library; it is the interface libgloss is written against, and a QEMU UART
++   is all it takes to satisfy it.  Build it with:
++
++       <target>-gcc -O2 -ffreestanding -c mb-qemu-libxil.c -o outbyte.o
++       <target>-ar  rc libxil.a outbyte.o
++
++   The only device touched is the UART-lite: TX at +4, status at +8, TX-full
++   is bit 3.  Stock upstream QEMU's petalogix-s3adsp1800 provides it, which
++   is why this board needs no QEMU patch.  */
++
++#define UART ((volatile unsigned int *) 0x84000000)
++
++void
++outbyte (char c)
++{
++  while (UART[2] & 0x8)
++    ;
++  UART[1] = (unsigned) (unsigned char) c;
++}
++
++/* Nothing is wired to the receiver.  Returning 0 makes read() report end of
++   input rather than block, which is what the execute tests want: none of
++   them reads, and a test that did would otherwise hang until the timeout.  */
++char
++inbyte (void)
++{
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+
