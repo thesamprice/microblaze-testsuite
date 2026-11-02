@@ -1,4 +1,4 @@
-From dd71703bd319cd874a60db1b70a70d755d29956e Mon Sep 17 00:00:00 2001
+From 7c14b31360c38bef5e9afce57f00ac9a0ea59d6e Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Mon, 12 Oct 2026 21:35:00 -0400
 Subject: [PATCH] Add a microblaze-qemu baseboard
@@ -50,8 +50,8 @@ Assisted-by: Claude <noreply@anthropic.com>
  Makefile.am                    |   4 +-
  baseboards/microblaze-qemu.exp | 145 +++++++++++++++++++++++++++++++++
  contrib/microblaze-qemu-run    |  51 ++++++++++++
- microblaze-qemu-libxil.c       |  40 +++++++++
- 5 files changed, 248 insertions(+), 1 deletion(-)
+ microblaze-qemu-libxil.c       |  46 +++++++++++
+ 5 files changed, 254 insertions(+), 1 deletion(-)
  create mode 100644 baseboards/microblaze-qemu.exp
  create mode 100755 contrib/microblaze-qemu-run
  create mode 100644 microblaze-qemu-libxil.c
@@ -312,10 +312,10 @@ index 0000000..c4587c2
 +tr -d '\r' < "$log"
 diff --git a/microblaze-qemu-libxil.c b/microblaze-qemu-libxil.c
 new file mode 100644
-index 0000000..d8ff7aa
+index 0000000..f6cd21d
 --- /dev/null
 +++ b/microblaze-qemu-libxil.c
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,46 @@
 +/* Board support for qemu-system-microblaze[el], machine petalogix-s3adsp1800.
 +   This is the whole of what libgloss needs from a board.
 +
@@ -331,12 +331,18 @@ index 0000000..d8ff7aa
 +   library; it is the interface libgloss is written against, and a QEMU UART
 +   is all it takes to satisfy it.  Build it with:
 +
-+       <target>-gcc -O2 -ffreestanding -c mb-qemu-libxil.c -o outbyte.o
++       <target>-gcc -O2 -ffreestanding -c microblaze-qemu-libxil.c -o outbyte.o
 +       <target>-ar  rc libxil.a outbyte.o
 +
 +   The only device touched is the UART-lite: TX at +4, status at +8, TX-full
 +   is bit 3.  Stock upstream QEMU's petalogix-s3adsp1800 provides it, which
-+   is why this board needs no QEMU patch.  */
++   is why this board needs no QEMU patch.
++
++   TODO: this belongs in libgloss, not here.  libgloss/microblaze already
++   carries an outbyte() and inbyte() for Linux user mode, linux-outbyte.c
++   and linux-inbyte.c, built into their own libgloss-linux.a; a QEMU pair
++   beside them would let a MicroBlaze toolchain link for QEMU with no
++   library from DejaGnu, and this file and MB_LIBXIL could go.  */
 +
 +#define UART ((volatile unsigned int *) 0x84000000)
 +
