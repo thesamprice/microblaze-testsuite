@@ -115,25 +115,33 @@ dejagnu: $(DEP_DEJAGNU)
 libxil: $(STAMP)/libxil
 qemu: $(DEP_QEMU)
 
-sources: $(if $(OWN_BINUTILS_SRC),,$(STAMP)/src-binutils) \
-	$(if $(OWN_GCC_SRC),,$(STAMP)/src-gcc) \
-	$(if $(OWN_NEWLIB_SRC),,$(STAMP)/src-newlib) \
-	$(if $(OWN_DEJAGNU_SRC),,$(STAMP)/src-dejagnu)
+sources: $(if $(OWN_BINUTILS_SRC),,$(STAMP)/patch-binutils) \
+	$(if $(OWN_GCC_SRC),,$(STAMP)/patch-gcc) \
+	$(if $(OWN_NEWLIB_SRC),,$(STAMP)/patch-newlib) \
+	$(if $(OWN_DEJAGNU_SRC),,$(STAMP)/patch-dejagnu)
 
 # --- sources ------------------------------------------------------------
 
-# apply NAME DIR: any patches/NAME/*.patch, in order.
-define apply
-	set -e; for p in $(sort $(wildcard $(CURDIR)/patches/$(1)/*.patch)); do \
-	  echo "applying $$p"; git -C $(2) apply --index "$$p"; done
-endef
+# patch-NAME: patches/NAME/*.patch applied, in order, to the clone.  Adding,
+# changing or deleting a patch resets the clone to the revision it was cloned
+# at and applies them again, so the source does not move; the builds that
+# depend on it then rerun.  Deleting $(STAMP)/src-NAME re-clones instead.
+PATCHES = $(sort $(wildcard $(CURDIR)/patches/$(1)/*.patch))
 
-# clone NAME URL REF: a shallow clone into $(SRC)/NAME, then its patches.
+.SECONDEXPANSION:
+$(STAMP)/patch-%: $(STAMP)/src-% $(CURDIR)/patches/% \
+		$$(call PATCHES,$$*)
+	git -C $(SRC)/$* reset -q --hard
+	git -C $(SRC)/$* clean -qfd
+	set -e; for p in $(call PATCHES,$*); do \
+	  echo "applying $$p"; git -C $(SRC)/$* apply --index "$$p"; done
+	touch $@
+
+# clone NAME URL REF: a shallow clone into $(SRC)/NAME.
 define clone
 	rm -rf $(SRC)/$(1)
 	mkdir -p $(SRC) $(STAMP)
 	git clone --depth 1 --branch $(3) $(2) $(SRC)/$(1)
-	$(call apply,$(1),$(SRC)/$(1))
 	git -C $(SRC)/$(1) log -1 --format='$(1) %H %cd' --date=short > $(SRC)/$(1).rev
 endef
 
@@ -152,7 +160,6 @@ $(STAMP)/src-newlib:
 	git clone --depth 1 --branch $(NEWLIB_REF) --filter=blob:none --sparse \
 	  $(NEWLIB_GIT) $(SRC)/newlib
 	git -C $(SRC)/newlib sparse-checkout set newlib libgloss
-	$(call apply,newlib,$(SRC)/newlib)
 	git -C $(SRC)/newlib log -1 --format='newlib %H %cd' --date=short > $(SRC)/newlib.rev
 	touch $@
 
@@ -163,7 +170,7 @@ $(STAMP)/src-dejagnu:
 # DejaGnu runs from its source tree, nothing installed.  The site file is
 # what lets runtest find the board.  A DEJAGNU_SRC of your own must already
 # carry the board patch.
-$(STAMP)/dejagnu: $(if $(OWN_DEJAGNU_SRC),,$(STAMP)/src-dejagnu)
+$(STAMP)/dejagnu: $(if $(OWN_DEJAGNU_SRC),,$(STAMP)/patch-dejagnu)
 	@test -f $(DEJAGNU_SRC)/baseboards/$(BOARD).exp || \
 	  { echo "$(DEJAGNU_SRC) has no baseboards/$(BOARD).exp"; exit 1; }
 	mkdir -p $(STAMP)
@@ -172,7 +179,7 @@ $(STAMP)/dejagnu: $(if $(OWN_DEJAGNU_SRC),,$(STAMP)/src-dejagnu)
 
 # --- toolchain ----------------------------------------------------------
 
-$(STAMP)/binutils: $(if $(OWN_BINUTILS_SRC),,$(STAMP)/src-binutils)
+$(STAMP)/binutils: $(if $(OWN_BINUTILS_SRC),,$(STAMP)/patch-binutils)
 	rm -rf $(BINUTILS_BUILD) && mkdir -p $(BINUTILS_BUILD) $(LOGS)
 	cd $(BINUTILS_BUILD) && $(BINUTILS_SRC)/configure \
 	  --target=$(TARGET) --prefix=$(PREFIX) \
@@ -187,8 +194,8 @@ $(STAMP)/binutils: $(if $(OWN_BINUTILS_SRC),,$(STAMP)/src-binutils)
 # builds them: the combined tree DejaGnu's *-sim boards assume.
 # --disable-multilib: t-microblaze otherwise builds ten copies of newlib and
 # the board uses one.
-$(STAMP)/gcc: $(DEP_BINUTILS) $(if $(OWN_GCC_SRC),,$(STAMP)/src-gcc) \
-		$(if $(OWN_NEWLIB_SRC),,$(STAMP)/src-newlib)
+$(STAMP)/gcc: $(DEP_BINUTILS) $(if $(OWN_GCC_SRC),,$(STAMP)/patch-gcc) \
+		$(if $(OWN_NEWLIB_SRC),,$(STAMP)/patch-newlib)
 	ln -sfn $(NEWLIB_SRC)/newlib $(GCC_SRC)/newlib
 	ln -sfn $(NEWLIB_SRC)/libgloss $(GCC_SRC)/libgloss
 	rm -rf $(GCC_BUILD) && mkdir -p $(GCC_BUILD) $(LOGS)
