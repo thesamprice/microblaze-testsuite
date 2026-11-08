@@ -1,6 +1,6 @@
-From 4aa1299b0ed69902459a684b874f64cc314eed29 Mon Sep 17 00:00:00 2001
+From c7b0ae6389f398788bd91831e551784d51dbd8d3 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
-Date: Sat, 7 Nov 2026 22:31:17 -0500
+Date: Sat, 7 Nov 2026 23:52:04 -0500
 Subject: [PATCH 4/7] opcodes: microblaze: annotate mbar sleep modes
 
 With the previous patch, objdump prints mbar 16, 8 and 24 as the
@@ -27,12 +27,12 @@ I have not checked what hardware does with that bit.
 The test the last patch of this series adds has mbar 9, 17, 18, 20, 26
 and 31, with their comments.
 
-Tested on microblaze-elf.  gas stays at 332 expected passes and 10
+Tested on microblaze-elf. gas stays at 332 expected passes and 10
 unsupported, binutils at 245 expected passes, 2 expected failures, 18
 untested and 17 unsupported, and ld at 480 expected passes, 15 expected
 failures, 28 untested and 236 unsupported.  No unexpected failures.
-GDB, which disassembles through print_insn_microblaze, shows the same
-comments; I have not built it.
+With the whole series applied, GDB, which disassembles through
+print_insn_microblaze, shows the same comments.
 
 opcodes/
 	* microblaze-dis.c (print_insn_microblaze) <INST_TYPE_IMM5>: Name

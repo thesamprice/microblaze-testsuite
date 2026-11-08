@@ -1,6 +1,6 @@
-From 5c7ff8a16e382d2dd6818928130c6fe59bed4c8b Mon Sep 17 00:00:00 2001
+From 28790fd43ef1344e7896fa2c54db9f26236d95d4 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
-Date: Sat, 7 Nov 2026 22:45:07 -0500
+Date: Sat, 7 Nov 2026 23:52:05 -0500
 Subject: [PATCH 6/7] opcodes: microblaze: remove pcmpbc
 
 The opcode table has had pcmpbc since MicroBlaze support was added in

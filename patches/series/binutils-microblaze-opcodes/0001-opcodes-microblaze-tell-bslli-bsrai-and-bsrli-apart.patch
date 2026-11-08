@@ -1,6 +1,6 @@
-From c130852f05ebe32c4f2c1a9294f0f8cb9a1ac9f2 Mon Sep 17 00:00:00 2001
+From 509d3d3af0e77c6ee53940ad44b135acb7d29d81 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
-Date: Sat, 7 Nov 2026 20:27:50 -0500
+Date: Sat, 7 Nov 2026 23:52:03 -0500
 Subject: [PATCH 1/7] opcodes: microblaze: tell bslli, bsrai and bsrli apart
 
 The immediate barrel shifts in opcodes/microblaze-opc.h are
@@ -36,9 +36,10 @@ calls get_insn_microblaze for each instruction.  A program that sets r4
 to 1, runs "bslli r3, r4, 4" and exits with r3 exits with 0 under the
 simulator built from master, and with 16 with this change.  With r4 set
 to -32, "bsrai r3, r4, 28" exits with 15 before and 255 after.  GDB
-disassembles through print_insn_microblaze and calls
-get_insn_microblaze and microblaze_decode_insn from microblaze-tdep.c,
-so it is affected as well; I have not built or run GDB.
+disassembles through print_insn_microblaze and calls get_insn_microblaze
+and microblaze_decode_insn from microblaze-tdep.c, so it is affected as
+well.  With the whole series applied, GDB disassembles both correctly;
+GDB from master prints both as bsrli.
 
 The new mask, 0xFC00FFE0, is the high 6 bits and bits 16:26.  These are
 the bits QEMU's target/microblaze/insns.decode fixes for bsrli, bsrai
@@ -70,8 +71,9 @@ after this change:
 	ld:       480 expected passes, 15 expected failures, 28 untested,
 	          236 unsupported, unchanged
 
-No unexpected failures in either run.  I have only tested microblaze-elf
-and have not run the sim testsuite.
+No unexpected failures in either run.  The sim testsuite, which has only
+pass.s and fail.s for MicroBlaze, gives the same results before and
+after.
 
 opcodes/
 	* microblaze-opc.h (OPCODE_MASK_H3B): Include bits 21:22.

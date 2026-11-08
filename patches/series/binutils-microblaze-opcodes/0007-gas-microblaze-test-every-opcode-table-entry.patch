@@ -1,6 +1,6 @@
-From d6681fb379364b074ab0ba55cdfd0d65a6a8869a Mon Sep 17 00:00:00 2001
+From 9af68cb959803a3a2b75b724bd9402aa6937ee30 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
-Date: Sat, 7 Nov 2026 22:37:15 -0500
+Date: Sat, 7 Nov 2026 23:52:05 -0500
 Subject: [PATCH 7/7] gas: microblaze: test every opcode table entry
 
 The gas tests for MicroBlaze disassemble 32 of the 277 instructions in

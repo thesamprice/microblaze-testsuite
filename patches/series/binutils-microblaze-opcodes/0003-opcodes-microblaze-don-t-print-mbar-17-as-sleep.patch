@@ -1,6 +1,6 @@
-From 850710c7d24d706a887b00382c6ff4d5b18fa6a9 Mon Sep 17 00:00:00 2001
+From 5f9a6334cd5c59aedd8983bf046850518634db05 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
-Date: Sat, 7 Nov 2026 22:31:38 -0500
+Date: Sat, 7 Nov 2026 23:52:03 -0500
 Subject: [PATCH 3/7] opcodes: microblaze: don't print mbar 17 as sleep
 
 objdump prints "mbar 17" as "sleep", "mbar 9" as "hibernate" and
@@ -34,12 +34,12 @@ With it they print as mbar, and the next patch adds the comments the
 test also expects.  allinsn, which checks mbar 2 and sleep, still
 passes.
 
-Tested on microblaze-elf.  gas stays at 332 expected passes and 10
+Tested on microblaze-elf. gas stays at 332 expected passes and 10
 unsupported, binutils at 245 expected passes, 2 expected failures, 18
 untested and 17 unsupported, and ld at 480 expected passes, 15 expected
-failures, 28 untested and 236 unsupported.  No unexpected failures.  I
-did not build the simulator or GDB, which use the same table through
-get_insn_microblaze.
+failures, 28 untested and 236 unsupported.  No unexpected failures.
+With the whole series applied, GDB prints mbar 9, 17 and 31 as mbar; GDB
+from master prints them as hibernate, sleep and suspend.
 
 opcodes/
 	* microblaze-opc.h (OPCODE_MASK_HN): Compare every bit but IMM.

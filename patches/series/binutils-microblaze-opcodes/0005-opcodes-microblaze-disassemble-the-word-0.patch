@@ -1,6 +1,6 @@
-From 375e5ac58330ccf464b64a27f9227b3df63e86b3 Mon Sep 17 00:00:00 2001
+From e52b304ebfd32ebc194d9d12e238a2af79d01dda Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
-Date: Sat, 7 Nov 2026 22:18:46 -0500
+Date: Sat, 7 Nov 2026 23:52:04 -0500
 Subject: [PATCH 5/7] opcodes: microblaze: disassemble the word 0
 
 objdump stops disassembling a MicroBlaze section at the first word 0
@@ -35,12 +35,12 @@ The test the last patch of this series adds ends with "add r0, r0, r0"
 and one instruction after it.  Without this change the dump stops at
 the zero word and the test fails; with it, it passes.
 
-Tested on microblaze-elf.  gas stays at 332 expected passes and 10
+Tested on microblaze-elf. gas stays at 332 expected passes and 10
 unsupported, binutils at 245 expected passes, 2 expected failures, 18
 untested and 17 unsupported, and ld at 480 expected passes, 15 expected
-failures, 28 untested and 236 unsupported.  No unexpected failures.  I
-did not build or test GDB, which also disassembles through
-print_insn_microblaze.
+failures, 28 untested and 236 unsupported.  No unexpected failures.  GDB
+from master stops at the zero word too, with "unknown disassembler
+error"; with the whole series applied it goes on.
 
 opcodes/
 	* microblaze-dis.c (read_insn_microblaze): Return a bool and

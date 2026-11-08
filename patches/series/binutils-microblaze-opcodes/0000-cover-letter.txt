@@ -72,6 +72,15 @@ Tested on microblaze-elf, before and after the series:
   ld            480 pass, 15 xfail,           unchanged
                 28 untested, 236 unsupported
 
-The two new passes are bshift and insns.  No run had unexpected
-failures.  I did not build GDB or run the simulator's testsuite, and I
-only tested big-endian microblaze-elf.
+The two new passes are bshift and insns, and each patch was built and
+tested on its own.  On microblazeel-elf, gas goes from 330 to 332 with
+the same two tests, and binutils and ld are unchanged.  No run had
+unexpected failures.
+
+With the series, GDB's disassembly of the insns test object matches
+insns.d line for line.  GDB built from master gets 12 of those lines
+wrong and stops at the zero word with "unknown disassembler error".
+The simulator now runs bslli and bsrai correctly: "bslli r3, r4, 4" with
+r4 = 1 gives 16, where master's simulator gives 0.  The simulator's own
+testsuite has only pass.s and fail.s for MicroBlaze, and gives the same
+results before and after.

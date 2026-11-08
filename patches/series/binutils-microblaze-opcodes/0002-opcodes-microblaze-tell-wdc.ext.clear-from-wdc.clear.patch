@@ -1,6 +1,6 @@
-From 53bbcfad834f5768a9f0ac14a3c2e00236f4b82d Mon Sep 17 00:00:00 2001
+From 37c164bb95579caa0cd424e945a202d9f18507dd Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
-Date: Sat, 7 Nov 2026 22:18:46 -0500
+Date: Sat, 7 Nov 2026 23:52:03 -0500
 Subject: [PATCH 2/7] opcodes: microblaze: tell wdc.ext.clear from wdc.clear
 
 gas assembles "wdc.ext.clear r5, r9" as 0x90054c66, and objdump prints
@@ -15,10 +15,13 @@ Figure 141 of the MicroBlaze Processor Reference Guide (UG984,
 v2026.1), which is the only bit that differs between the two.  The
 encodings gas emits match that figure.
 
-wdc, wdc.flush and wdc.clear.ea have the same mask, so they also match
-a word with the E bit set.  UG984 names no instruction for those words
-(E alone, E with F, E with T and EA), and objdump printed them as the
-form without E.  With this change they print as .long.
+wdc, wdc.flush and wdc.clear.ea have the same mask, so they also match a
+word with the E bit set.  UG984 names no instruction for those words (E
+alone, E with F, E with T and EA), and objdump printed them as the form
+without E.  With this change they print as .long.  The simulator decodes
+through the same table, so one of those words, 0x90000464 (E alone),
+used to run there as wdc, a no-op, and now stops as an unknown
+instruction.
 
 This uses OPCODE_MASK_H35B, which wdc.ext.clear and wdc.ext.flush
 already use, for all six wdc entries.  Its comment said "low 9 bits",
