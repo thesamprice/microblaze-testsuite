@@ -104,7 +104,8 @@ DEP_QEMU     := $(if $(OWN_QEMU),,$(STAMP)/qemu)
 
 .PHONY: all sources toolchain binutils gcc dejagnu libxil qemu \
 	check check-start check-binutils check-gas check-ld check-gcc \
-	check-gcc-smoke summary env clean distclean
+	check-gcc-smoke bench-moddi3 bench-moddi3-host coverage-moddi3 \
+	summary env clean distclean
 
 all: toolchain dejagnu libxil qemu
 
@@ -180,7 +181,7 @@ $(STAMP)/dejagnu: $(if $(OWN_DEJAGNU_SRC),,$(STAMP)/patch-dejagnu)
 # --- toolchain ----------------------------------------------------------
 
 $(STAMP)/binutils: $(if $(OWN_BINUTILS_SRC),,$(STAMP)/patch-binutils)
-	rm -rf $(BINUTILS_BUILD) && mkdir -p $(BINUTILS_BUILD) $(LOGS)
+	rm -rf $(BINUTILS_BUILD) && mkdir -p $(BINUTILS_BUILD) $(LOGS) $(STAMP)
 	cd $(BINUTILS_BUILD) && $(BINUTILS_SRC)/configure \
 	  --target=$(TARGET) --prefix=$(PREFIX) \
 	  --disable-gdb --disable-gdbserver --disable-sim \
@@ -198,7 +199,7 @@ $(STAMP)/gcc: $(DEP_BINUTILS) $(if $(OWN_GCC_SRC),,$(STAMP)/patch-gcc) \
 		$(if $(OWN_NEWLIB_SRC),,$(STAMP)/patch-newlib)
 	ln -sfn $(NEWLIB_SRC)/newlib $(GCC_SRC)/newlib
 	ln -sfn $(NEWLIB_SRC)/libgloss $(GCC_SRC)/libgloss
-	rm -rf $(GCC_BUILD) && mkdir -p $(GCC_BUILD) $(LOGS)
+	rm -rf $(GCC_BUILD) && mkdir -p $(GCC_BUILD) $(LOGS) $(STAMP)
 	cd $(GCC_BUILD) && $(GCC_SRC)/configure \
 	  --target=$(TARGET) --prefix=$(PREFIX) \
 	  --with-newlib --disable-multilib --disable-threads --disable-shared \
@@ -224,12 +225,17 @@ $(STAMP)/libxil: $(DEP_GCC) $(DEP_DEJAGNU)
 	  echo "installed $$lib/libxil.a"
 	touch $@
 
-# Stock upstream QEMU: petalogix-s3adsp1800 is an upstream machine and the
-# board asks nothing of it but a UART.
-$(STAMP)/qemu:
+# Upstream QEMU from the release tarball, plus patches/qemu/*.patch.  The
+# DejaGnu board asks nothing of it but petalogix-s3adsp1800's UART; the
+# patches add the test device bench-moddi3 needs.  Changing a patch unpacks
+# the tarball again.
+$(STAMP)/qemu: $(CURDIR)/patches/qemu $(call PATCHES,qemu)
 	mkdir -p $(SRC) $(LOGS) $(STAMP)
 	rm -rf $(SRC)/qemu-$(QEMU_VERSION)
-	cd $(SRC) && curl -fLO $(QEMU_URL) && tar xf qemu-$(QEMU_VERSION).tar.xz
+	cd $(SRC) && { test -f qemu-$(QEMU_VERSION).tar.xz || curl -fLO $(QEMU_URL); } \
+	  && tar xf qemu-$(QEMU_VERSION).tar.xz
+	set -e; cd $(SRC)/qemu-$(QEMU_VERSION); for p in $(call PATCHES,qemu); do \
+	  echo "applying $$p"; GIT_CEILING_DIRECTORIES=$(SRC) git apply "$$p"; done
 	rm -rf $(BUILD)/qemu && mkdir -p $(BUILD)/qemu
 	cd $(BUILD)/qemu && $(SRC)/qemu-$(QEMU_VERSION)/configure \
 	  --prefix=$(PREFIX) \
@@ -283,6 +289,37 @@ check-gcc: all check-start
 
 check-gcc-smoke: GCC_TESTS = $(GCC_SMOKE)
 check-gcc-smoke: check-gcc
+
+# Instruction counts and estimated cycles for the 64-bit divide and
+# remainder variants; see bench/moddi3/REPORT.md.
+bench-moddi3: all
+	TOOLBIN=$(TOOLBIN) GCC_SRC=$(GCC_SRC) GCC_BUILD=$(GCC_BUILD) \
+	  QEMU=$(QEMU) OUT=$(WORK)/bench/moddi3 $(CURDIR)/bench/moddi3/run.sh
+	@echo; python3 $(CURDIR)/bench/moddi3/summary.py \
+	  $(WORK)/bench/moddi3/results.txt
+
+# The same libgcc2.c change compiled for a host, before and after, in
+# Docker: natively, and for linux/amd64, which on another architecture is
+# emulated, so its timings mean nothing.  Needs patches/gcc applied.
+HOST_PLATFORMS ?= native linux/amd64
+bench-moddi3-host: $(if $(OWN_GCC_SRC),,$(STAMP)/patch-gcc) docker-image
+	set -e; for p in $(HOST_PLATFORMS); do \
+	  case $$p in native) img=$(DOCKER_IMAGE); plat=; inst=: ;; \
+	    *) img=debian:trixie-slim; plat="--platform $$p"; \
+	       inst="apt-get update -qq && apt-get install -y -qq gcc git binutils libc6-dev >/dev/null" ;; esac; \
+	  out=host-$$(echo $$p | tr / -); mkdir -p $(WORK)/bench/$$out; \
+	  $(DOCKER) run --rm $$plat -v $(CURDIR):/repo:ro -v $(GCC_SRC):/gcc:ro \
+	    -v $(WORK)/bench/$$out:/out -e GCC_SRC=/gcc -e OUT=/out $$img \
+	    sh -c "$$inst && sh /repo/bench/moddi3/host/host.sh"; \
+	done
+
+# tcgcov line and branch coverage of libgcc's 64-bit divide and remainder,
+# from gcc.c-torture/execute and from bench-moddi3's vectors.  About an
+# hour.  TCGCOV is a checkout of https://github.com/thesamprice/tcgcov.
+TCGCOV ?= $(HOME)/src/tcgcov
+coverage-moddi3: all
+	TOOLBIN=$(TOOLBIN) GCC_SRC=$(GCC_SRC) QEMU=$(QEMU) TCGCOV=$(TCGCOV) \
+	  OUT=$(WORK)/coverage $(CURDIR)/bench/moddi3/coverage/run.sh
 
 summary:
 	@for f in $(RESULTS)/*.sum; do \

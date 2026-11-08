@@ -1,0 +1,128 @@
+From c6de178a9050db05942b4dc3b6ce6b45a21d2462 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 7 Nov 2026 17:20:49 -0500
+Subject: [PATCH] hw/microblaze: add an exit and instruction-count device
+
+Add a small test device to petalogix-s3adsp1800 at 0xff000000, so that
+a bare-metal program can stop QEMU with an exit status and count the
+instructions it executes.  The real board has nothing there.
+
+  0x0  write  exit QEMU; the value written is the exit status
+  0x4  read   instructions executed, low 32 bits; latches the high half
+  0x8  read   the high 32 bits latched by the last read of 0x4
+
+The count is icount_get_raw(), so it is exact under -icount and reads
+zero without it.  The registers follow the machine's byte order, so a
+big-endian guest does not have to swap what it reads.
+
+Used by bench/moddi3 in microblaze-testsuite to compare __moddi3
+implementations instruction for instruction.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ hw/microblaze/petalogix_s3adsp1800_mmu.c | 61 ++++++++++++++++++++++++
+ 1 file changed, 61 insertions(+)
+
+diff --git a/hw/microblaze/petalogix_s3adsp1800_mmu.c b/hw/microblaze/petalogix_s3adsp1800_mmu.c
+index e8d0ddf..a7c030c 100644
+--- a/hw/microblaze/petalogix_s3adsp1800_mmu.c
++++ b/hw/microblaze/petalogix_s3adsp1800_mmu.c
+@@ -35,6 +35,8 @@
+ #include "hw/misc/unimp.h"
+ #include "system/address-spaces.h"
+ #include "hw/char/xilinx_uartlite.h"
++#include "exec/icount.h"
++#include "system/runstate.h"
+ 
+ #include "boot.h"
+ 
+@@ -50,6 +52,7 @@
+ #define TIMER_BASEADDR 0x83c00000
+ #define UARTLITE_BASEADDR 0x84000000
+ #define ETHLITE_BASEADDR 0x81000000
++#define TESTDEV_BASEADDR 0xff000000
+ 
+ #define TIMER_IRQ           0
+ #define ETHLITE_IRQ         1
+@@ -67,6 +70,59 @@ struct S3Adsp1800MachineState {
+ OBJECT_DECLARE_TYPE(S3Adsp1800MachineState, MachineClass,
+                     PETALOGIX_S3ADSP1800_MACHINE)
+ 
++/*
++ * Not part of the real board: a test device, so that a bare-metal program
++ * can stop QEMU with an exit status and count the instructions it executes.
++ *
++ *   0x0  write  exit QEMU; the value written is the exit status
++ *   0x4  read   instructions executed, low 32 bits; latches the high half
++ *   0x8  read   the high 32 bits latched by the last read of 0x4
++ *
++ * The count is exact only under -icount, and reads as zero without it.
++ * Registers are in the CPU's byte order.
++ */
++static uint32_t testdev_count_hi;
++
++static uint64_t testdev_read(void *opaque, hwaddr addr, unsigned size)
++{
++    uint64_t n;
++
++    switch (addr) {
++    case 4:
++        n = icount_enabled() ? icount_get_raw() : 0;
++        testdev_count_hi = n >> 32;
++        return (uint32_t)n;
++    case 8:
++        return testdev_count_hi;
++    default:
++        return 0;
++    }
++}
++
++static void testdev_write(void *opaque, hwaddr addr, uint64_t val,
++                          unsigned size)
++{
++    if (addr == 0) {
++        qemu_system_shutdown_request_with_code(SHUTDOWN_CAUSE_GUEST_SHUTDOWN,
++                                               (int)val);
++    }
++}
++
++static const MemoryRegionOps testdev_ops[ENDIAN_MODE__MAX] = {
++    [ENDIAN_MODE_BIG] = {
++        .read = testdev_read,
++        .write = testdev_write,
++        .endianness = DEVICE_BIG_ENDIAN,
++        .valid = { .min_access_size = 4, .max_access_size = 4 },
++    },
++    [ENDIAN_MODE_LITTLE] = {
++        .read = testdev_read,
++        .write = testdev_write,
++        .endianness = DEVICE_LITTLE_ENDIAN,
++        .valid = { .min_access_size = 4, .max_access_size = 4 },
++    },
++};
++
+ 
+ static void
+ petalogix_s3adsp1800_init(MachineState *machine)
+@@ -80,6 +136,7 @@ petalogix_s3adsp1800_init(MachineState *machine)
+     hwaddr ddr_base = MEMORY_BASEADDR;
+     MemoryRegion *phys_lmb_bram = g_new(MemoryRegion, 1);
+     MemoryRegion *phys_ram = g_new(MemoryRegion, 1);
++    MemoryRegion *phys_testdev = g_new(MemoryRegion, 1);
+     qemu_irq irq[32];
+     MemoryRegion *sysmem = get_system_memory();
+     EndianMode endianness = psms->endianness;
+@@ -145,6 +202,10 @@ petalogix_s3adsp1800_init(MachineState *machine)
+ 
+     create_unimplemented_device("xps_gpio", GPIO_BASEADDR, 0x10000);
+ 
++    memory_region_init_io(phys_testdev, NULL, &testdev_ops[endianness], NULL,
++                          "petalogix_s3adsp1800.testdev", 0x10);
++    memory_region_add_subregion(sysmem, TESTDEV_BASEADDR, phys_testdev);
++
+     microblaze_load_kernel(cpu, endianness == ENDIAN_MODE_LITTLE, ddr_base,
+                            ram_size, machine->initrd_filename,
+                            BINARY_DEVICE_TREE_FILE,
+-- 
+2.39.5 (Apple Git-154)
+

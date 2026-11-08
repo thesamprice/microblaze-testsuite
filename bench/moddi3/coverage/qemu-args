@@ -1,0 +1,29 @@
+#!/bin/sh
+# Stand-in for qemu-system-microblaze that logs the operands of every call
+# to libgcc's __moddi3, __umoddi3, __divdi3 and __udivdi3, with argcap.c.
+# Like qemu-cov, but what it records is the inputs, so analyse-args.py can
+# say which value corners a test suite reaches.
+#
+#   MBCOV_QEMU    the real qemu-system-microblaze
+#   MBARG_PLUGIN  libargcap.so built against that QEMU's qemu-plugin.h
+#   MBARG_DIR     where the logs go, one per run
+#   MBCOV_NM      microblaze-elf-nm
+: "${MBCOV_QEMU:?}" "${MBARG_PLUGIN:?}" "${MBARG_DIR:?}" "${MBCOV_NM:?}"
+
+prog=
+prev=
+for a in "$@"; do
+  [ "$prev" = -kernel ] && prog=$a
+  prev=$a
+done
+
+if [ -n "$prog" ]; then
+  fns=$("$MBCOV_NM" "$prog" 2>/dev/null |
+	awk '$2=="T" && $3 ~ /^__(u?mod|u?div)di3$/ {printf ",fn=0x%s:%s", $1, $3}')
+  if [ -n "$fns" ]; then
+    mkdir -p "$MBARG_DIR"
+    exec "$MBCOV_QEMU" "$@" -plugin \
+      "$MBARG_PLUGIN,out=$MBARG_DIR/$(basename "$prog" .exe)-$$.args$fns"
+  fi
+fi
+exec "$MBCOV_QEMU" "$@"

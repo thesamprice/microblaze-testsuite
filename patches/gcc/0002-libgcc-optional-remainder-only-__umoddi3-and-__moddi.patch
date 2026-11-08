@@ -1,0 +1,210 @@
+From 1e6dec9bc1ee42381870fe9cd21c5a7ab43c067b Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 8 Nov 2026 02:07:33 -0500
+Subject: [PATCH 2/3] libgcc: optional remainder-only __umoddi3 and __moddi3
+
+With TARGET_HAS_NO_HW_DIVIDE, __umoddi3 and __moddi3 call the shift and
+subtract __udivmoddi4 and discard the quotient.  That loop carries the
+quotient in the low bits of the partial remainder, so the remainder
+still has to be shifted out of it, and the quotient is computed for
+nothing.
+
+Add __umoddi_no_hw_divide, which keeps only the remainder.  It aligns
+the divisor under the dividend as __udivmoddi4 does, runs once per
+quotient bit, and decides each step from the sign of one subtraction
+instead of a double-word unsigned comparison followed by the
+subtraction.  That is sound for any operands because of the alignment;
+the comment on the function gives the argument, and I also checked it
+exhaustively for 8, 10 and 12-bit words.
+
+Whether this is faster depends on the instruction set, so a target opts
+in by defining LIBGCC2_MOD_WITHOUT_QUOTIENT.  The new loop shifts the
+divisor right, where __udivmoddi4's shifts the remainder left.  On
+MicroBlaze, which has no condition flags and, without
+-mxl-barrel-shift, no single-instruction variable shift, it wins.  On
+armv6-m, which shifts a double word left in two instructions and
+compares with flags, __moddi3 and __umoddi3 got 27% and 46% slower,
+measured on QEMU's microbit machine.  The macro is documented in
+tm.texi, next to TARGET_HAS_NO_HW_DIVIDE, with that guidance.  No
+target defines it after this patch; the next one makes MicroBlaze do
+so.
+
+Division by zero returns the dividend, where __udivmoddi4 would call
+__builtin_clzll (0).
+
+Mean instructions per call over 4701 operand pairs, under QEMU with
+-icount, on MicroBlaze built with both macros, as the next patch
+arranges, against libgcc2.c before this series:
+
+	              no options       barrel shifter     every option
+	                               and hw multiply    but the divider
+	              before   after   before   after     before   after
+	__moddi3      1330.6   457.0    332.4   275.3      299.7   238.9
+	__umoddi3      959.3   338.0    238.5   197.2      203.9   170.7
+
+gcc/
+	* doc/tm.texi.in (LIBGCC2_MOD_WITHOUT_QUOTIENT): Document.
+	* doc/tm.texi: Regenerate.
+
+libgcc/
+	* libgcc2.c (__umoddi_no_hw_divide): New, for
+	TARGET_HAS_NO_HW_DIVIDE and LIBGCC2_MOD_WITHOUT_QUOTIENT.
+	(__moddi3, __umoddi3): Use it under those macros.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ gcc/doc/tm.texi    | 15 +++++++++++
+ gcc/doc/tm.texi.in | 15 +++++++++++
+ libgcc/libgcc2.c   | 64 ++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 94 insertions(+)
+
+diff --git a/gcc/doc/tm.texi b/gcc/doc/tm.texi
+index dc022ae8d..2190c38fd 100644
+--- a/gcc/doc/tm.texi
++++ b/gcc/doc/tm.texi
+@@ -5975,6 +5975,21 @@ division.  If the macro is not defined, GCC will use an algorithm which
+ make use of a 64-bit by 32-bit divide primitive.
+ @end defmac
+ 
++@defmac LIBGCC2_MOD_WITHOUT_QUOTIENT
++Define this macro, as well as @code{TARGET_HAS_NO_HW_DIVIDE}, to make
++the double-word remainder routines (@code{__moddi3} and @code{__umoddi3}
++on a 32-bit target) use a shift-and-subtract loop that keeps only the
++remainder, instead of the loop they share with division.  That loop
++shifts the divisor right where the shared loop shifts the remainder
++left, and decides each step from the sign of one subtraction instead of
++an unsigned comparison.  It is faster on targets without condition
++flags, where a double-word unsigned comparison takes several
++instructions, and slower on targets that compare with flags and shift
++a double word left in a couple of instructions.  Measure before
++defining it.  The macro has no effect unless
++@code{TARGET_HAS_NO_HW_DIVIDE} is defined.
++@end defmac
++
+ @cindex @code{EDOM}, implicit usage
+ @findex matherr
+ @defmac TARGET_EDOM
+diff --git a/gcc/doc/tm.texi.in b/gcc/doc/tm.texi.in
+index 3cbaba910..dcdbf949b 100644
+--- a/gcc/doc/tm.texi.in
++++ b/gcc/doc/tm.texi.in
+@@ -4116,6 +4116,21 @@ division.  If the macro is not defined, GCC will use an algorithm which
+ make use of a 64-bit by 32-bit divide primitive.
+ @end defmac
+ 
++@defmac LIBGCC2_MOD_WITHOUT_QUOTIENT
++Define this macro, as well as @code{TARGET_HAS_NO_HW_DIVIDE}, to make
++the double-word remainder routines (@code{__moddi3} and @code{__umoddi3}
++on a 32-bit target) use a shift-and-subtract loop that keeps only the
++remainder, instead of the loop they share with division.  That loop
++shifts the divisor right where the shared loop shifts the remainder
++left, and decides each step from the sign of one subtraction instead of
++an unsigned comparison.  It is faster on targets without condition
++flags, where a double-word unsigned comparison takes several
++instructions, and slower on targets that compare with flags and shift
++a double word left in a couple of instructions.  Measure before
++defining it.  The macro has no effect unless
++@code{TARGET_HAS_NO_HW_DIVIDE} is defined.
++@end defmac
++
+ @cindex @code{EDOM}, implicit usage
+ @findex matherr
+ @defmac TARGET_EDOM
+diff --git a/libgcc/libgcc2.c b/libgcc/libgcc2.c
+index 5f2714034..15bcf3cfc 100644
+--- a/libgcc/libgcc2.c
++++ b/libgcc/libgcc2.c
+@@ -1231,6 +1231,60 @@ __udivmoddi4 (UDWtype n, UDWtype d, UDWtype *rp)
+ #endif
+ #endif
+ 
++#if (defined (L_umoddi3) || defined (L_moddi3)) \
++    && defined (TARGET_HAS_NO_HW_DIVIDE) \
++    && defined (LIBGCC2_MOD_WITHOUT_QUOTIENT)
++/* The remainder of N / D by shift and subtract, for targets without a
++   hardware divide.  __udivmoddi4 above uses the same method, but it shifts
++   the quotient bits into the low end of the remainder as it goes, and
++   shifting the remainder back out afterwards costs a variable shift.
++   Keeping only the remainder avoids that, and frees the loop from
++   carrying the quotient at all.
++
++   The divisor is aligned under the dividend, so the loop runs once per
++   quotient bit.  The aligned divisor Y has its top bit where N has its,
++   so the first R - Y is less than that bit in magnitude, which is in
++   signed range.  After each step R < Y, and once Y is halved R <= 2Y,
++   so every later R - Y lies between -Y and Y, where Y is now at most
++   half the range.  Every difference is therefore in signed range, for
++   any N and D, and its sign settles R >= Y without a separate
++   double-word comparison.
++
++   A target opts in by defining LIBGCC2_MOD_WITHOUT_QUOTIENT as well as
++   TARGET_HAS_NO_HW_DIVIDE.  This loop shifts the divisor right, and the
++   loop in __udivmoddi4 shifts the remainder left.  Which is faster
++   depends on the instruction set: this one wins where a double-word
++   shift and a double-word unsigned comparison are both several
++   instructions, as on MicroBlaze, and loses on armv6-m, which shifts a
++   double word left in two instructions and compares with flags.
++
++   Returns N when D is zero.  */
++static inline __attribute__ ((__always_inline__))
++UDWtype
++__umoddi_no_hw_divide (UDWtype n, UDWtype d)
++{
++  UDWtype r = n;
++
++  /* 1 <= D <= N, or the remainder is N.  */
++  if (d - 1 < n)
++    {
++      UWtype k = __builtin_clzll (d) - __builtin_clzll (n);
++      UDWtype y = d << k;
++
++      do
++	{
++	  UDWtype t = r - y;
++	  if ((DWtype) t >= 0)
++	    r = t;
++	  y >>= 1;
++	}
++      while (k-- != 0);
++    }
++
++  return r;
++}
++#endif
++
+ #ifdef L_divdi3
+ DWtype
+ __divdi3 (DWtype u, DWtype v)
+@@ -1270,7 +1324,12 @@ __moddi3 (DWtype u, DWtype v)
+   if (vv.s.high < 0)
+     vv.ll = -vv.ll;
+ 
++#if defined (TARGET_HAS_NO_HW_DIVIDE) \
++    && defined (LIBGCC2_MOD_WITHOUT_QUOTIENT)
++  w = __umoddi_no_hw_divide (uu.ll, vv.ll);
++#else
+   (void) __udivmoddi4 (uu.ll, vv.ll, (UDWtype*)&w);
++#endif
+   if (c)
+     w = -w;
+ 
+@@ -1310,11 +1369,16 @@ __divmoddi4 (DWtype u, DWtype v, DWtype *rp)
+ UDWtype
+ __umoddi3 (UDWtype u, UDWtype v)
+ {
++#if defined (TARGET_HAS_NO_HW_DIVIDE) \
++    && defined (LIBGCC2_MOD_WITHOUT_QUOTIENT)
++  return __umoddi_no_hw_divide (u, v);
++#else
+   UDWtype w;
+ 
+   (void) __udivmoddi4 (u, v, &w);
+ 
+   return w;
++#endif
+ }
+ #endif
+ 
+-- 
+2.39.5 (Apple Git-154)
+

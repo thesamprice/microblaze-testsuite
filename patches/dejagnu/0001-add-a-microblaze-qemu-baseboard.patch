@@ -1,4 +1,4 @@
-From 7c14b31360c38bef5e9afce57f00ac9a0ea59d6e Mon Sep 17 00:00:00 2001
+From 34329888dc92846bbb4dbd6fc770cff2e21d1e11 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Mon, 12 Oct 2026 21:35:00 -0400
 Subject: [PATCH] Add a microblaze-qemu baseboard
@@ -46,35 +46,17 @@ gives the stack and heap 4 MB each.
 
 Assisted-by: Claude <noreply@anthropic.com>
 ---
- ChangeLog                      |   9 ++
  Makefile.am                    |   4 +-
  baseboards/microblaze-qemu.exp | 145 +++++++++++++++++++++++++++++++++
  contrib/microblaze-qemu-run    |  51 ++++++++++++
  microblaze-qemu-libxil.c       |  46 +++++++++++
- 5 files changed, 254 insertions(+), 1 deletion(-)
+ 4 files changed, 245 insertions(+), 1 deletion(-)
  create mode 100644 baseboards/microblaze-qemu.exp
  create mode 100755 contrib/microblaze-qemu-run
  create mode 100644 microblaze-qemu-libxil.c
 
-diff --git a/ChangeLog b/ChangeLog
-index 17a2832..ab0d20a 100644
---- a/ChangeLog
-+++ b/ChangeLog
-@@ -1,3 +1,12 @@
-+2026-10-12  Samuel Price  <thesamprice@gmail.com>
-+
-+	* baseboards/microblaze-qemu.exp: New file.
-+	* microblaze-qemu-libxil.c: New file.
-+	* contrib/microblaze-qemu-run: New file.
-+	* Makefile.am (pkgdata_DATA): Add microblaze-qemu-libxil.c.
-+	(baseboard_DATA): Add baseboards/microblaze-qemu.exp.
-+	(CONTRIB): Add contrib/microblaze-qemu-run.
-+
- 2026-10-17  Jacob Bachmeyer  <jcb@gnu.org>
- 
- 	* doc/dejagnu.texi (remote_load procedure): Document.
 diff --git a/Makefile.am b/Makefile.am
-index 9493cc6..b3cf485 100644
+index c573616..29d3e00 100644
 --- a/Makefile.am
 +++ b/Makefile.am
 @@ -47,6 +47,7 @@ bin_SCRIPTS = dejagnu runtest
@@ -85,7 +67,7 @@ index 9493cc6..b3cf485 100644
    stub-loader.c \
    testglue.c \
    runtest.exp \
-@@ -122,6 +123,7 @@ baseboard_DATA = \
+@@ -123,6 +124,7 @@ baseboard_DATA = \
  	baseboards/mips-sim-mti64_n32.exp \
  	baseboards/mips-sim-sde32.exp \
  	baseboards/mips-sim-sde64.exp \
@@ -93,7 +75,7 @@ index 9493cc6..b3cf485 100644
  	baseboards/mips-sim.exp \
  	baseboards/mmixware-sim.exp \
  	baseboards/mn10200-sim.exp \
-@@ -157,7 +159,7 @@ djlibexec_SCRIPTS = config.guess
+@@ -158,7 +160,7 @@ djlibexec_SCRIPTS = config.guess
  
  # Contributed scripts, etc.
  

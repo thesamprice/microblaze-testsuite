@@ -1,0 +1,139 @@
+From ccfe26d3ea3d342894c1eb95d39a78ce1036cbc3 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 8 Nov 2026 02:07:33 -0500
+Subject: [PATCH 1/3] libgcc: mask out the quotient bits in __udivdi3
+
+With TARGET_HAS_NO_HW_DIVIDE, __udivmoddi4 divides by shift and
+subtract.  Its loop shifts each quotient bit into the low end of the
+partial remainder, and the tail separates the two:
+
+	q = q + r;
+	r = r >> k;
+	q = q - (r << k);
+
+The low K bits of R are the quotient bits.  When only the quotient is
+wanted, as in __udivdi3 and __divdi3, this is q + (r & (bit - 1)),
+where bit is the 1 << K the first step already computes.  That saves
+two variable double-word shifts, and on a 32-bit target without a
+barrel shifter a variable double-word shift is a loop.
+
+In the objects for __udivdi3 and __divdi3, the only call to
+__udivmoddi4 is inlined and passes a null RP.  This selects the masked
+tail there with the preprocessor, through UDIVMODDI4_QUOTIENT_ONLY.
+The exported __udivmoddi4, and the copies inlined into __umoddi3,
+__moddi3 and __divmoddi4, compile to the same code as before.  I
+checked that on MicroBlaze: only __udivdi3 and __divdi3 change.
+
+An earlier version chose between the two tails at run time.  On
+armv6-m that kept a register live across the loop in the exported
+__udivmoddi4 and made __aeabi_uldivmod, which C's unsigned 64-bit / and
+% call, up to 1.2% slower.
+
+Mean instructions per call over 4701 operand pairs, under QEMU with
+-icount.  MicroBlaze is built with TARGET_HAS_NO_HW_DIVIDE, as the third
+patch of this series arranges; Cortex-M0 (armv6-m) already defines it,
+and its routines were built by arm-none-eabi-gcc 14.2 at -O2 and run on
+QEMU's microbit machine:
+
+	                          before    after
+	MicroBlaze, no options
+	  __divdi3                1405.5   1312.7
+	  __udivdi3               1007.6    951.0
+	MicroBlaze, barrel shifter and hardware multiply
+	  __divdi3                 376.0    338.4
+	  __udivdi3                242.6    245.4
+	Cortex-M0
+	  __aeabi_ldivmod          487.7    483.6
+	  __udivdi3                229.9    207.3
+	  __divdi3                 406.5    402.3
+
+__udivdi3 with a barrel shifter on MicroBlaze is 1% worse; the rest is
+better.  On Cortex-M0, __aeabi_ldivmod is what C's signed 64-bit / and
+% call.  __aeabi_uldivmod, __moddi3 and __umoddi3 use the exported or
+other inlined copies of __udivmoddi4, which compile to the same code as
+before, and their counts are unchanged.
+
+libgcc/
+	* libgcc2.c (UDIVMODDI4_QUOTIENT_ONLY): Define for L_udivdi3 and
+	L_divdi3.
+	(__udivmoddi4) [TARGET_HAS_NO_HW_DIVIDE]: With it, take the low
+	quotient bits from R with a mask.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ libgcc/libgcc2.c | 27 ++++++++++++++++++++++++++-
+ 1 file changed, 26 insertions(+), 1 deletion(-)
+
+diff --git a/libgcc/libgcc2.c b/libgcc/libgcc2.c
+index 2d4434c6f..5f2714034 100644
+--- a/libgcc/libgcc2.c
++++ b/libgcc/libgcc2.c
+@@ -918,6 +918,13 @@ __parityDI2 (UDWtype x)
+ #ifdef L_udivmoddi4
+ #ifdef TARGET_HAS_NO_HW_DIVIDE
+ 
++/* In the objects for __udivdi3 and __divdi3, their only call to
++   __udivmoddi4 is inlined and passes a null RP: only the quotient is
++   wanted.  */
++#if defined (L_udivdi3) || defined (L_divdi3)
++#define UDIVMODDI4_QUOTIENT_ONLY
++#endif
++
+ #if (defined (L_udivdi3) || defined (L_divdi3) || \
+      defined (L_umoddi3) || defined (L_moddi3) || \
+      defined (L_divmoddi4))
+@@ -928,6 +935,9 @@ __udivmoddi4 (UDWtype n, UDWtype d, UDWtype *rp)
+ {
+   UDWtype q = 0, r = n, y = d;
+   UWtype lz1, lz2, i, k;
++#ifdef UDIVMODDI4_QUOTIENT_ONLY
++  UDWtype bit;
++#endif
+ 
+   /* Implements align divisor shift dividend method. This algorithm
+      aligns the divisor under the dividend and then perform number of
+@@ -944,6 +954,9 @@ __udivmoddi4 (UDWtype n, UDWtype d, UDWtype *rp)
+ 
+       k = lz1 - lz2;
+       y = (y << k);
++#ifdef UDIVMODDI4_QUOTIENT_ONLY
++      bit = (UDWtype) 1 << k;
++#endif
+ 
+       /* Dividend can exceed 2 ^ (width - 1) - 1 but still be less than the
+ 	 aligned divisor. Normal iteration can drops the high order bit
+@@ -953,7 +966,11 @@ __udivmoddi4 (UDWtype n, UDWtype d, UDWtype *rp)
+       if (r >= y)
+ 	{
+ 	  r = r - y;
++#ifdef UDIVMODDI4_QUOTIENT_ONLY
++	  q = bit;
++#else
+ 	  q =  (1ULL << k);
++#endif
+ 	}
+ 
+       if (k > 0)
+@@ -973,10 +990,18 @@ __udivmoddi4 (UDWtype n, UDWtype d, UDWtype *rp)
+ 	    } while (i != 0);
+ 
+ 	  /* First quotient bit is combined with the quotient bits resulting
+-	     from the k regular iterations.  */
++	     from the k regular iterations, which are the low K bits of R.  */
++#ifdef UDIVMODDI4_QUOTIENT_ONLY
++	  /* Without the remainder, mask them out rather than shift R down
++	     and back up: that saves two variable shifts, which matters
++	     where those are loops.  R is then not the remainder, but RP is
++	     null.  */
++	  q = q + (r & (bit - 1));
++#else
+ 	  q = q + r;
+ 	  r = r >> k;
+ 	  q = q - (r << k);
++#endif
+ 	}
+     }
+ 
+-- 
+2.39.5 (Apple Git-154)
+

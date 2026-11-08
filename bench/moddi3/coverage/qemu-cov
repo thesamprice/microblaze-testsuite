@@ -1,0 +1,35 @@
+#!/bin/sh
+# Stand-in for qemu-system-microblaze that records tcgcov coverage of the
+# runs that reach libgcc's 64-bit divide and remainder.  Point MB_QEMU at
+# it (run.sh here does) and it passes its arguments to the real QEMU,
+# adding the tcgcov plugin when the -kernel ELF links __moddi3, __umoddi3,
+# __divdi3, __udivdi3, __divmoddi4 or __udivmoddi4.  Other runs are not
+# recorded.
+#
+#   MBCOV_QEMU    the real qemu-system-microblaze
+#   MBCOV_PLUGIN  libtcgcov.so built against that QEMU's qemu-plugin.h
+#   MBCOV_DIR     where the artifacts go
+#   MBCOV_NM      microblaze-elf-nm
+#
+# DejaGnu deletes each test binary after running it, and the host tools
+# need the ELF afterwards, so a recorded ELF is copied beside its artifact.
+# Names carry the PID because every optimization level reuses the same
+# executable name.
+: "${MBCOV_QEMU:?}" "${MBCOV_PLUGIN:?}" "${MBCOV_DIR:?}" "${MBCOV_NM:?}"
+
+prog=
+prev=
+for a in "$@"; do
+  [ "$prev" = -kernel ] && prog=$a
+  prev=$a
+done
+
+if [ -n "$prog" ] && "$MBCOV_NM" "$prog" 2>/dev/null |
+     grep -qE ' T __(u?mod|u?div)di3$| T __u?divmoddi4$'; then
+  base=$(basename "$prog" .exe)-$$
+  mkdir -p "$MBCOV_DIR"
+  cp "$prog" "$MBCOV_DIR/$base.elf"
+  exec "$MBCOV_QEMU" "$@" \
+    -plugin "$MBCOV_PLUGIN,out=$MBCOV_DIR/$base.cov,elf=$MBCOV_DIR/$base.elf"
+fi
+exec "$MBCOV_QEMU" "$@"

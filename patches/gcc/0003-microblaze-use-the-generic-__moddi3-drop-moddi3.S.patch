@@ -1,0 +1,364 @@
+From 25c56b1197bf193ac463b05bf9677362d75b9fa8 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 8 Nov 2026 02:07:34 -0500
+Subject: [PATCH 3/3] microblaze: use the generic __moddi3, drop moddi3.S
+
+MicroBlaze's divide unit is optional, and no multilib in
+gcc/config/microblaze/t-microblaze passes -mno-xl-soft-div.  Without it,
+libgcc2.c's double-word division and remainder do long division by
+32-bit digits, which calls the software __udivsi3, __umodsi3 and
+__mulsi3.  __moddi3 comes from config/microblaze/moddi3.S instead, a
+shift and subtract loop, and it does so even in a libgcc built with
+-mno-xl-soft-div, where it cannot use the divider.
+
+Define TARGET_HAS_NO_HW_DIVIDE and LIBGCC2_MOD_WITHOUT_QUOTIENT unless
+__HAVE_HW_DIV__, so that without a divider all four routines divide by
+shift and subtract, __moddi3 and __umoddi3 use the remainder-only loop,
+and __moddi3 comes from libgcc2.c.  With -mno-xl-soft-div the C uses the
+divider.
+
+Estimated clock cycles per call, mean over 4701 operand pairs, on QEMU,
+big-endian, for MicroBlaze with C_AREA_OPTIMIZED=0 (the five-stage
+pipeline).  "Before" for __moddi3 is moddi3.S in every column:
+
+	              no options       barrel shifter     every option,
+	                               and hw multiply    with the divider
+	              before   after   before   after     before   after
+	__moddi3       700.2   530.4    700.2   310.0      700.2   171.8
+	__umoddi3     1219.2   392.6    847.8   220.7      104.2   104.2
+	__divdi3      1717.2  1397.7   1222.9   377.2      168.0   168.0
+	__udivdi3     1176.3  1012.9    848.3   271.0       93.5    93.5
+
+The three-stage pipeline (C_AREA_OPTIMIZED=1) gives the same picture;
+with no options __moddi3 goes from 708.2 to 547.1.  Nothing is slower on
+average, but the worst case is: with no options the slowest __divdi3
+call rises from 4047 to 5527 cycles, and the slowest __udivdi3 from 4021
+to 5601.  Shift and subtract costs more than long division when the
+quotient is long, and less when it is short.
+
+The cycle counts are estimates: a QEMU plugin counts the instructions
+each call executes and costs them with UG984's per-instruction
+latencies, assuming single-cycle local memory, no branch target cache
+and no data hazard stalls.  I have not measured cycles on hardware.
+
+moddi3.S rewritten to align the divisor as libgcc2.c does, with no stack
+frame, runs at 257.5 cycles per call, faster than the generic code
+without a divider.  This patch prefers one generic routine that can use
+the divider when there is one.
+
+Tested with gcc.c-torture/execute.exp on qemu-system-microblaze,
+machine petalogix-s3adsp1800, against gcc master df809a029, in three
+configurations, each with 24536 passes and the same 14 failures, none
+of them in division (fprintf-2.c needs a filesystem; pr117432.c is a
+separate variadic-argument bug):
+
+	microblaze-elf, default multilib
+	microblazeel-elf, default multilib
+	microblaze-elf with libgcc, newlib and the tests built with
+	  -mno-xl-soft-div -mxl-barrel-shift -mno-xl-soft-mul
+	  -mxl-multiply-high -mxl-pattern-compare -mcpu=v11.00.a
+
+arith-rand-ll.c, pr50865.c, pr33669.c and vector-div-neg-pow2.c, which
+fail with a broken __moddi3, pass at every optimization level.  With
+the divider, __moddi3 uses idivu and comes from libgcc2.c.  libgcc also
+builds for microblaze-rtems7 (12 multilibs) and microblaze-linux (6),
+with microblaze-lib.h in every libgcc_tm.h and __moddi3 from
+libgcc2.c.
+
+libgcc/
+	* config/microblaze/microblaze-lib.h: New file.
+	* config.host (microblaze*-linux*, microblaze*-*-elf)
+	(microblaze*-*-rtems*): Add it to tm_file.
+	* config/microblaze/t-microblaze (LIB2FUNCS_EXCLUDE): Remove
+	_moddi3.
+	(LIB2ADD): Remove moddi3.S.
+	* config/microblaze/moddi3.S: Remove.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ libgcc/config.host                        |   3 +
+ libgcc/config/microblaze/microblaze-lib.h |  37 +++++
+ libgcc/config/microblaze/moddi3.S         | 190 ----------------------
+ libgcc/config/microblaze/t-microblaze     |   3 +-
+ 4 files changed, 41 insertions(+), 192 deletions(-)
+ create mode 100644 libgcc/config/microblaze/microblaze-lib.h
+ delete mode 100644 libgcc/config/microblaze/moddi3.S
+
+diff --git a/libgcc/config.host b/libgcc/config.host
+index 319d6cfe0..81d722968 100644
+--- a/libgcc/config.host
++++ b/libgcc/config.host
+@@ -1050,14 +1050,17 @@ mcore-*-elf)
+ 	;;
+ microblaze*-linux*)
+ 	tmake_file="${tmake_file} microblaze/t-microblaze t-fdpbit t-slibgcc-libgcc"
++	tm_file="$tm_file microblaze/microblaze-lib.h"
+ 	md_unwind_header=microblaze/linux-unwind.h
+ 	;;
+ microblaze*-*-elf)
+ 	tmake_file="${tmake_file} microblaze/t-microblaze t-fdpbit"
++	tm_file="$tm_file microblaze/microblaze-lib.h"
+ 	extra_parts="$extra_parts crtbeginS.o crtendS.o crtbeginT.o crti.o crtn.o"
+ 	;;
+ microblaze*-*-rtems*)
+ 	tmake_file="${tmake_file} microblaze/t-microblaze t-fdpbit"
++	tm_file="$tm_file microblaze/microblaze-lib.h"
+ 	extra_parts="$extra_parts crtbeginS.o crtendS.o crtbeginT.o crti.o crtn.o"
+ 	;;
+ mips*-*-netbsd*)			# NetBSD/mips, either endian.
+diff --git a/libgcc/config/microblaze/microblaze-lib.h b/libgcc/config/microblaze/microblaze-lib.h
+new file mode 100644
+index 000000000..75cb367ba
+--- /dev/null
++++ b/libgcc/config/microblaze/microblaze-lib.h
+@@ -0,0 +1,37 @@
++/* libgcc configuration for MicroBlaze.
++
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++   This file is free software; you can redistribute it and/or modify it
++   under the terms of the GNU General Public License as published by the
++   Free Software Foundation; either version 3, or (at your option) any
++   later version.
++
++   GCC is distributed in the hope that it will be useful, but WITHOUT
++   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
++   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
++   License for more details.
++
++   Under Section 7 of GPL version 3, you are granted additional
++   permissions described in the GCC Runtime Library Exception, version
++   3.1, as published by the Free Software Foundation.
++
++   You should have received a copy of the GNU General Public License and
++   a copy of the GCC Runtime Library Exception along with this program;
++   see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
++   <http://www.gnu.org/licenses/>.  */
++
++/* The divide unit is optional, and absent unless -mno-xl-soft-div, which
++   defines __HAVE_HW_DIV__.  Without it, libgcc2.c's double-word division
++   and remainder otherwise do long division by 32-bit digits, which calls
++   the software __udivsi3, __umodsi3 and __mulsi3.  Shift and subtract
++   makes no calls, and lets __moddi3 replace moddi3.S.
++
++   MicroBlaze has no condition flags, and without -mxl-barrel-shift a
++   variable shift is a loop, so the remainder-only loop that
++   LIBGCC2_MOD_WITHOUT_QUOTIENT selects beats __udivmoddi4's for
++   __moddi3 and __umoddi3, with or without the barrel shifter.  */
++#ifndef __HAVE_HW_DIV__
++#define TARGET_HAS_NO_HW_DIVIDE
++#define LIBGCC2_MOD_WITHOUT_QUOTIENT
++#endif
+diff --git a/libgcc/config/microblaze/moddi3.S b/libgcc/config/microblaze/moddi3.S
+deleted file mode 100644
+index b63e16117..000000000
+--- a/libgcc/config/microblaze/moddi3.S
++++ /dev/null
+@@ -1,190 +0,0 @@
+-###################################
+-# 
+-#  Copyright (C) 2009-2026 Free Software Foundation, Inc.
+-#
+-#  Contributed by Sam Price <thesamprice@gmail.com>
+-#
+-#  This file is free software; you can redistribute it and/or modify it
+-#  under the terms of the GNU General Public License as published by the
+-#  Free Software Foundation; either version 3, or (at your option) any
+-#  later version.
+-#
+-#  GCC is distributed in the hope that it will be useful, but WITHOUT
+-#  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+-#  or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+-#  License for more details.
+-#
+-#  Under Section 7 of GPL version 3, you are granted additional
+-#  permissions described in the GCC Runtime Library Exception, version
+-#  3.1, as published by the Free Software Foundation.
+-#
+-#  You should have received a copy of the GNU General Public License and
+-#  a copy of the GCC Runtime Library Exception along with this program;
+-#  see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+-#  <http://www.gnu.org/licenses/>. 
+-#
+-#  moddi3.S
+-#
+-#  64-bit signed remainder.
+-#
+-#  Binary restoring division, one quotient bit per iteration:
+-#
+-#      r[i] = 2*r[i-1] - q[i]*D          (r[0] = X)
+-#
+-#  Each step shifts one dividend bit into the partial remainder and
+-#  subtracts the divisor, keeping the result only when it does not go
+-#  negative.  The restore is implicit: the trial subtraction lands in
+-#  scratch and is copied back only when kept, so a rejected step costs
+-#  nothing.  The shift needs one bit more than the register width, which is
+-#  the carry flag -- hence the ADD/ADDC chain rather than a shift.
+-#
+-#  The quotient the recurrence produces is not kept: this function returns
+-#  the remainder, so the bit is tested and discarded.
+-#
+-#  The operands are reduced to unsigned magnitudes first, and the remainder
+-#  takes the sign of the dividend alone, not the exclusive or of the operand
+-#  signs -- that is the quotient's rule.
+-#
+-#  Koren, Computer Arithmetic Algorithms, section 3.2 is the reference.
+-# 
+-#######################################
+-
+-
+-/* An executable stack is *not* required for these functions.  */
+-#ifdef __linux__
+-.section .note.GNU-stack,"",%progbits
+-.previous
+-#endif
+-
+-/* A 64-bit value passed in a register pair keeps its high word in the
+-   lower-numbered register on big-endian and the higher-numbered one on
+-   little-endian, so name the halves and let the body read the same either
+-   way.  Letters are Koren's: X dividend, D divisor, R remainder.
+-
+-     OPX   X.  The loop consumes it from the top, so once it is running OPX
+-           holds only the bits of X not yet shifted into the remainder.
+-     OPD   D.  Not modified after the sign fix-up.
+-     RES   R, the return value; during the loop the partial remainder r[i],
+-           with RES:OPX the double-length remainder register.  */
+-#ifdef __MICROBLAZEEL__
+-# define OPX_L	r5
+-# define OPX_H	r6
+-# define OPD_L	r7
+-# define OPD_H	r8
+-# define RES_L	r3
+-# define RES_H	r4
+-#else
+-# define OPX_H	r5
+-# define OPX_L	r6
+-# define OPD_H	r7
+-# define OPD_L	r8
+-# define RES_H	r3
+-# define RES_L	r4
+-#endif
+-
+-/* Working registers.  A pair only needs the endianness treatment above when
+-   it crosses an ABI boundary; TRIAL does not, so its halves are fixed.  What
+-   does matter is instruction order: low half first, since ADD and RSUB set
+-   the carry ADDC and RSUBC consume.  */
+-#define TRIAL_H	r25	/* The trial subtraction 2*r[i-1] - D.  */
+-#define TRIAL_L	r26
+-#define SIGN	r27	/* Sign of X, kept as the whole high word because only
+-			   BGEI reads it and that tests the sign.  */
+-#define COUNT	r28	/* Iterations remaining, 64 less whatever
+-			   normalization skipped.  */
+-#define ZERO_T	r9	/* Scratch for the two zero tests.  An argument
+-			   register, so caller-saved: free to clobber, and it
+-			   needs no slot in the frame below.  */
+-
+-	.globl	__moddi3
+-	.ent	__moddi3
+-__moddi3:
+-	.frame	r1,0,r15
+-
+-	# Allocate the stack frame and save callee-saved registers.
+-	addik	r1,r1,-16
+-	swi	TRIAL_H,r1,0
+-	swi	TRIAL_L,r1,4
+-	swi	SIGN,r1,8
+-	swi	COUNT,r1,12
+-
+-	ADDIK	RES_L,r0,0	# Clear the remainder.
+-	ADDIK	RES_H,r0,0
+-
+-	# Handle a zero dividend and a zero divisor.
+-	OR	ZERO_T,OPX_H,OPX_L
+-	BEQID	ZERO_T,$LaRETURN_HERE	# 0 % n == 0.  The delay-slot OR only
+-					# clobbers ZERO_T, dead at the target.
+-	OR	ZERO_T,OPD_H,OPD_L
+-	BEQI	ZERO_T,$LaDiv_By_Zero
+-	# Reduce to unsigned magnitudes.  Negating LLONG_MIN leaves it negative
+-	# as a signed value, but the bit pattern is 2^63, which is the
+-	# magnitude the loop wants -- so "Abs" holds when read as unsigned.
+-	BGEId	OPX_H,$LaX_Abs
+-	OR	SIGN,r0,OPX_H		# Save the sign of X.
+-	RSUBI	OPX_L,OPX_L,0
+-	RSUBIC	OPX_H,OPX_H,0
+-$LaX_Abs:
+-	BGEI	OPD_H,$LaD_Abs
+-	RSUBI	OPD_L,OPD_L,0
+-	RSUBIC	OPD_H,OPD_H,0
+-$LaD_Abs:
+-	ADDIK	COUNT,r0,64		# One iteration per bit of X.
+-	# Already normalized: all 64 bits count.  Skipping this check would
+-	# hang on LLONG_MIN, whose magnitude has only the top bit set --
+-	# normalization would shift it out and never see a clear sign bit.
+-	BLTi	OPX_H,$LaRecurrence
+-
+-	# Skip the dividend's leading zero bits, dropping the loop count to
+-	# match.  This changes no value; it only passes over iterations whose
+-	# quotient bits are known to be zero.
+-$LaNormalize:
+-	ADD	OPX_L,OPX_L,OPX_L
+-	ADDC	OPX_H,OPX_H,OPX_H
+-	BGEID	OPX_H,$LaNormalize
+-	ADDIK	COUNT,COUNT,-1
+-$LaRecurrence:
+-	# Form 2*r[i-1]: shift the RES:OPX pair left one bit, so the dividend's
+-	# top bit leaves OPX through the carry and enters RES at the bottom.
+-	# Order matters -- the carry flows low half to high.
+-	ADD	OPX_L,OPX_L,OPX_L
+-	ADDC	OPX_H,OPX_H,OPX_H
+-	ADDC	RES_L,RES_L,RES_L
+-	ADDC	RES_H,RES_H,RES_H
+-	# Subtract D into scratch and read the sign: q[i] = 1 when the result
+-	# is non-negative.  BLTi is a signed test settling an unsigned
+-	# comparison, which holds because D <= 2^63 and the loop keeps
+-	# 0 <= RES < D, so RES - D lands in [-D, D-1] -- always in signed
+-	# range, where the sign bit is the sign of the true difference.  That
+-	# bound is also why RES needs no 65th bit.
+-	RSUB	TRIAL_L,OPD_L,RES_L
+-	RSUBC	TRIAL_H,OPD_H,RES_H
+-	BLTi	TRIAL_H,$LaQ_Bit_Is_Zero	# q[i] = 0; RES still holds
+-					# r[i-1], nothing to restore.
+-	OR	RES_H,r0,TRIAL_H	# q[i] = 1.  Keep 2*r[i-1] - D.
+-	OR	RES_L,r0,TRIAL_L
+-$LaQ_Bit_Is_Zero:
+-	ADDIK	COUNT,COUNT,-1
+-	BNEi	COUNT,$LaRecurrence
+-	BGEI	SIGN,$LaRETURN_HERE
+-	# The remainder takes the sign of the dividend, not the exclusive or
+-	# of the operand signs -- that is the quotient's rule.
+-	RSUBI	RES_L,RES_L,0
+-	RSUBIC	RES_H,RES_H,0
+-	# Falls through: $LaDiv_By_Zero holds no instructions.
+-$LaDiv_By_Zero:
+-	# Division by zero is undefined in C.  Return zero, as divsi3.S,
+-	# modsi3.S, udivsi3.S and umodsi3.S do.  Note this does not match a
+-	# core with hardware divide, where a % b is a - (a / b) * b and a
+-	# zero quotient makes the remainder a; that divergence predates this
+-	# file and is discussed in the commit message.
+-$LaRETURN_HERE:
+-	# Restore the callee-saved registers and release the stack frame.
+-	lwi	TRIAL_H,r1,0
+-	lwi	TRIAL_L,r1,4
+-	lwi	SIGN,r1,8
+-	lwi	COUNT,r1,12
+-	rtsd	r15,8
+-	addik	r1,r1,16
+-        .end __moddi3
+-	
+diff --git a/libgcc/config/microblaze/t-microblaze b/libgcc/config/microblaze/t-microblaze
+index 96959f029..8d954a495 100644
+--- a/libgcc/config/microblaze/t-microblaze
++++ b/libgcc/config/microblaze/t-microblaze
+@@ -1,8 +1,7 @@
+-LIB2FUNCS_EXCLUDE += _divsi3 _modsi3 _moddi3 _mulsi3 _udivsi3 _umodsi3
++LIB2FUNCS_EXCLUDE += _divsi3 _modsi3 _mulsi3 _udivsi3 _umodsi3
+ 
+ LIB2ADD += \
+         $(srcdir)/config/microblaze/divsi3.S \
+-        $(srcdir)/config/microblaze/moddi3.S \
+         $(srcdir)/config/microblaze/modsi3.S \
+         $(srcdir)/config/microblaze/muldi3_hard.S \
+         $(srcdir)/config/microblaze/mulsi3.S \
+-- 
+2.39.5 (Apple Git-154)
+
