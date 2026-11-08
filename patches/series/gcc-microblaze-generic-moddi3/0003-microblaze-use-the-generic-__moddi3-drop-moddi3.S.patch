@@ -1,4 +1,4 @@
-From 0e7f48c83f298858b0b4bfe9f70b074c7cb7a825 Mon Sep 17 00:00:00 2001
+From 25c56b1197bf193ac463b05bf9677362d75b9fa8 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 8 Nov 2026 02:07:34 -0500
 Subject: [PATCH 3/3] microblaze: use the generic __moddi3, drop moddi3.S
@@ -17,29 +17,34 @@ shift and subtract, __moddi3 and __umoddi3 use the remainder-only loop,
 and __moddi3 comes from libgcc2.c.  With -mno-xl-soft-div the C uses the
 divider.
 
-Mean instructions per call over 4701 operand pairs, under QEMU with
--icount, big-endian; little-endian is within 1%.  "Before" for __moddi3
-is moddi3.S in every column:
+Estimated clock cycles per call, mean over 4701 operand pairs, on QEMU,
+big-endian, for MicroBlaze with C_AREA_OPTIMIZED=0 (the five-stage
+pipeline).  "Before" for __moddi3 is moddi3.S in every column:
 
 	              no options       barrel shifter     every option,
 	                               and hw multiply    with the divider
 	              before   after   before   after     before   after
-	__moddi3       522.5   457.0    522.5   275.3      522.5    91.7
-	__umoddi3      921.1   338.0    625.6   197.2       54.3    54.3
-	__divdi3      1303.3  1312.7    903.7   338.4       88.4    88.4
-	__udivdi3      891.1   951.0    626.7   245.4       44.2    44.2
+	__moddi3       700.2   530.4    700.2   310.0      700.2   171.8
+	__umoddi3     1219.2   392.6    847.8   220.7      104.2   104.2
+	__divdi3      1717.2  1397.7   1222.9   377.2      168.0   168.0
+	__udivdi3     1176.3  1012.9    848.3   271.0       93.5    93.5
 
-With no options __divdi3 is 0.7% and __udivdi3 6.7% slower on average,
-and the worst case rises from 3072 to 5302 and from 3064 to 5376
-instructions: shift and subtract costs more than long division when the
-quotient is long, and less when it is short.  Long division calls the
-software __udivsi3, whose loop branches heavily, so in cycles the
-balance may differ; I have not measured cycles on hardware.
+The three-stage pipeline (C_AREA_OPTIMIZED=1) gives the same picture;
+with no options __moddi3 goes from 708.2 to 547.1.  Nothing is slower on
+average, but the worst case is: with no options the slowest __divdi3
+call rises from 4047 to 5527 cycles, and the slowest __udivdi3 from 4021
+to 5601.  Shift and subtract costs more than long division when the
+quotient is long, and less when it is short.
+
+The cycle counts are estimates: a QEMU plugin counts the instructions
+each call executes and costs them with UG984's per-instruction
+latencies, assuming single-cycle local memory, no branch target cache
+and no data hazard stalls.  I have not measured cycles on hardware.
 
 moddi3.S rewritten to align the divisor as libgcc2.c does, with no stack
-frame, runs at 220.0 instructions per call, faster than the generic
-code without a divider.  This patch prefers one generic routine that
-can use the divider when there is one.
+frame, runs at 257.5 cycles per call, faster than the generic code
+without a divider.  This patch prefers one generic routine that can use
+the divider when there is one.
 
 Tested with gcc.c-torture/execute.exp on qemu-system-microblaze,
 machine petalogix-s3adsp1800, against gcc master df809a029, in three

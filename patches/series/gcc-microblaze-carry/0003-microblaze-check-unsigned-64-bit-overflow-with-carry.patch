@@ -1,0 +1,291 @@
+From 5a9e256a46e1112b52ebedec5ef8cd866b6fb3c2 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 8 Nov 2026 15:22:38 -0500
+Subject: [PATCH 3/3] microblaze: check unsigned 64-bit overflow with carry
+
+The port has no uaddv or usubv patterns, so __builtin_add_overflow and
+__builtin_sub_overflow on unsigned 64-bit values, and the overflow
+checks GCC recognizes in plain C such as a + b < a, compute the result
+and then compare it with an operand as double words: a cmpu and up to
+three branches.  The carry out of the high word already holds the
+answer.
+
+Add uaddvdi4 and usubvdi4.  Each emits adddi3_carry or subdi3_nborrow,
+which does the double-word add or subtract and copies the carry into a
+register with addc rD, r0, r0, then branches on that register.  For a
+subtract the carry is set when there is no borrow, so usubvdi4 branches
+when it is zero.  A function returning __builtin_add_overflow (a, b, &r)
+on unsigned long long goes from 19 instructions to 15, and the
+subtraction likewise.
+
+There are no SImode patterns.  I tried them: a 32-bit check is already a
+cmpu and one branch, and with uaddvsi4 the C udiv_qrnnd in longlong.h,
+whose r1 += d; if (r1 >= d) GCC recognizes as an overflow check, became
+longer when combined with the comparison after it.  __udivdi3 with the
+divider went from 44.2 to 44.8 instructions per call; without the SImode
+patterns it is unchanged.
+
+As in the first patch of this series, the low word of the result is
+written before the high words of the operands are read, so a one-word
+overlap goes through r18.
+
+isa/overflow-carry.c checks that both builtins read the carry and no
+cmpu remains.  others/carry-run.c runs the patterns of this series:
+shifts by one and by 31 against variable-count shifts, and the overflow
+builtins, 32-bit and 64-bit, against carries computed bit by bit.
+
+gcc/
+	* config/microblaze/microblaze.md (adddi3_carry, subdi3_nborrow):
+	New insns.
+	(uaddvdi4, usubvdi4): New expanders.
+
+gcc/testsuite/
+	* gcc.target/microblaze/isa/overflow-carry.c: New test.
+	* gcc.target/microblaze/others/carry-run.c: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ gcc/config/microblaze/microblaze.md           |  80 +++++++++++++
+ .../microblaze/isa/overflow-carry.c           |  18 +++
+ .../gcc.target/microblaze/others/carry-run.c  | 113 ++++++++++++++++++
+ 3 files changed, 211 insertions(+)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/overflow-carry.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/carry-run.c
+
+diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
+index 916fa9665..ed7d25476 100644
+--- a/gcc/config/microblaze/microblaze.md
++++ b/gcc/config/microblaze/microblaze.md
+@@ -550,6 +550,86 @@
+   (set_attr "mode"	"DI")
+   (set_attr "length"	"8")])
+ 
++;;----------------------------------------------------------------
++;; Unsigned 64-bit add and subtract with overflow check
++;;----------------------------------------------------------------
++
++;; addc and rsubc leave the carry out of the high word in MSR[C], and
++;; addc rD,r0,r0 copies it to a register.  For an add the carry is the
++;; overflow; for a subtract it is set when there is no borrow.  The
++;; branch then tests the register, where comparing the double words
++;; would take a cmpu and up to three branches.  In 32 bits a cmpu and
++;; one branch do as well, so there are no SImode patterns.  The carry is
++;; not modelled, so the arithmetic and its addc are one pattern.
++
++(define_insn "adddi3_carry"
++  [(set (match_operand:DI 0 "register_operand" "=d")
++	(plus:DI (match_operand:DI 1 "register_operand" "d")
++		 (match_operand:DI 2 "register_operand" "d")))
++   (set (match_operand:SI 3 "register_operand" "=d")
++	(ltu:SI (plus:DI (match_dup 1) (match_dup 2)) (match_dup 1)))]
++  ""
++  {
++    /* The low word is written before the high words are read.  */
++    if (microblaze_dword_overlap_p (operands[0], false, operands[1], true)
++	|| microblaze_dword_overlap_p (operands[0], false, operands[2], true))
++      return "add\tr18,%L1,%L2\;addc\t%M0,%M1,%M2\;addc\t%3,r0,r0\;"
++	     "addk\t%L0,r18,r0";
++    return "add\t%L0,%L1,%L2\;addc\t%M0,%M1,%M2\;addc\t%3,r0,r0";
++  }
++  [(set_attr "type"	"darith")
++   (set_attr "mode"	"DI")
++   (set_attr "length"	"16")])
++
++(define_insn "subdi3_nborrow"
++  [(set (match_operand:DI 0 "register_operand" "=d")
++	(minus:DI (match_operand:DI 1 "register_operand" "d")
++		  (match_operand:DI 2 "register_operand" "d")))
++   (set (match_operand:SI 3 "register_operand" "=d")
++	(geu:SI (match_dup 1) (match_dup 2)))]
++  ""
++  {
++    /* The low word is written before the high words are read.  */
++    if (microblaze_dword_overlap_p (operands[0], false, operands[1], true)
++	|| microblaze_dword_overlap_p (operands[0], false, operands[2], true))
++      return "rsub\tr18,%L2,%L1\;rsubc\t%M0,%M2,%M1\;addc\t%3,r0,r0\;"
++	     "addk\t%L0,r18,r0";
++    return "rsub\t%L0,%L2,%L1\;rsubc\t%M0,%M2,%M1\;addc\t%3,r0,r0";
++  }
++  [(set_attr "type"	"darith")
++   (set_attr "mode"	"DI")
++   (set_attr "length"	"16")])
++
++(define_expand "uaddvdi4"
++  [(match_operand:DI 0 "register_operand")
++   (match_operand:DI 1 "register_operand")
++   (match_operand:DI 2 "register_operand")
++   (label_ref (match_operand 3))]
++  ""
++  {
++    rtx c = gen_reg_rtx (SImode);
++    emit_insn (gen_adddi3_carry (operands[0], operands[1], operands[2], c));
++    emit_cmp_and_jump_insns (c, const0_rtx, NE, NULL_RTX, SImode, 1,
++			     operands[3]);
++    DONE;
++  }
++)
++
++(define_expand "usubvdi4"
++  [(match_operand:DI 0 "register_operand")
++   (match_operand:DI 1 "register_operand")
++   (match_operand:DI 2 "register_operand")
++   (label_ref (match_operand 3))]
++  ""
++  {
++    rtx c = gen_reg_rtx (SImode);
++    emit_insn (gen_subdi3_nborrow (operands[0], operands[1], operands[2], c));
++    emit_cmp_and_jump_insns (c, const0_rtx, EQ, NULL_RTX, SImode, 1,
++			     operands[3]);
++    DONE;
++  }
++)
++
+ 
+ ;;----------------------------------------------------------------
+ ;; Multiplication
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/overflow-carry.c b/gcc/testsuite/gcc.target/microblaze/isa/overflow-carry.c
+new file mode 100644
+index 000000000..af43760db
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/overflow-carry.c
+@@ -0,0 +1,18 @@
++/* Unsigned 64-bit overflow checks read the carry rather than compare
++   the double words.  */
++/* { dg-options "-O2 -mcpu=v10.0" } */
++
++int
++uadd64 (unsigned long long a, unsigned long long b, unsigned long long *r)
++{
++  return __builtin_add_overflow (a, b, r);
++}
++
++int
++usub64 (unsigned long long a, unsigned long long b, unsigned long long *r)
++{
++  return __builtin_sub_overflow (a, b, r);
++}
++
++/* { dg-final { scan-assembler-times {\taddc\tr[0-9]+,r0,r0} 2 } } */
++/* { dg-final { scan-assembler-not {\tcmpu\t} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/carry-run.c b/gcc/testsuite/gcc.target/microblaze/others/carry-run.c
+new file mode 100644
+index 000000000..507417f45
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/carry-run.c
+@@ -0,0 +1,113 @@
++/* Check the shift-by-one, shift-by-31 and unsigned overflow patterns
++   against variable-count shifts and carries computed bit by bit.  */
++/* { dg-do run } */
++
++extern void abort (void);
++
++typedef unsigned long long u64;
++typedef long long s64;
++
++volatile int one = 1, thirtyone = 31;
++
++static const u64 vals[] = {
++  0, 1, 2, 3, 0x7fffffffULL, 0x80000000ULL, 0xffffffffULL, 0x100000000ULL,
++  0x180000001ULL, 0x7fffffffffffffffULL, 0x8000000000000000ULL,
++  0x8000000180000001ULL, 0xfffffffffffffffeULL, 0xffffffffffffffffULL,
++  0x0123456789abcdefULL, 0xfedcba9876543210ULL
++};
++#define N (sizeof vals / sizeof vals[0])
++
++__attribute__ ((noipa)) u64 lshr1 (u64 x) { return x >> 1; }
++__attribute__ ((noipa)) s64 ashr1 (s64 x) { return x >> 1; }
++__attribute__ ((noipa)) u64 ashl1 (u64 x) { return x << 1; }
++__attribute__ ((noipa)) unsigned lshr31 (unsigned x) { return x >> 31; }
++__attribute__ ((noipa)) int ashr31 (int x) { return x >> 31; }
++__attribute__ ((noipa)) unsigned ashl31 (unsigned x) { return x << 31; }
++
++__attribute__ ((noipa)) int
++uadd64 (u64 a, u64 b, u64 *r)
++{
++  return __builtin_add_overflow (a, b, r);
++}
++
++__attribute__ ((noipa)) int
++usub64 (u64 a, u64 b, u64 *r)
++{
++  return __builtin_sub_overflow (a, b, r);
++}
++
++__attribute__ ((noipa)) int
++uadd32 (unsigned a, unsigned b, unsigned *r)
++{
++  return __builtin_add_overflow (a, b, r);
++}
++
++__attribute__ ((noipa)) int
++usub32 (unsigned a, unsigned b, unsigned *r)
++{
++  return __builtin_sub_overflow (a, b, r);
++}
++
++/* The carry out of X + Y = S and the borrow out of X - Y = D, from the
++   top bits, written so that they are not recognized as overflow checks.  */
++static int
++carry64 (u64 x, u64 y, u64 s)
++{
++  return ((x & y) | ((x | y) & ~s)) >> (63 * one);
++}
++
++static int
++borrow64 (u64 x, u64 y, u64 d)
++{
++  return ((~x & y) | (~(x ^ y) & d)) >> (63 * one);
++}
++
++static int
++carry32 (unsigned x, unsigned y, unsigned s)
++{
++  return ((x & y) | ((x | y) & ~s)) >> thirtyone;
++}
++
++static int
++borrow32 (unsigned x, unsigned y, unsigned d)
++{
++  return ((~x & y) | (~(x ^ y) & d)) >> thirtyone;
++}
++
++int
++main (void)
++{
++  unsigned i, j;
++
++  for (i = 0; i < N; i++)
++    {
++      u64 x = vals[i];
++      unsigned w = (unsigned) x, h = (unsigned) (x >> 32);
++
++      if (lshr1 (x) != x >> one
++	  || ashr1 ((s64) x) != (s64) x >> one
++	  || ashl1 (x) != x << one)
++	abort ();
++      if (lshr31 (w) != w >> thirtyone || lshr31 (h) != h >> thirtyone
++	  || ashr31 ((int) w) != (int) w >> thirtyone
++	  || ashr31 ((int) h) != (int) h >> thirtyone
++	  || ashl31 (w) != w << thirtyone || ashl31 (h) != h << thirtyone)
++	abort ();
++
++      for (j = 0; j < N; j++)
++	{
++	  u64 y = vals[j], r;
++	  unsigned v = (unsigned) y, s;
++
++	  if (uadd64 (x, y, &r) != carry64 (x, y, x + y) || r != x + y)
++	    abort ();
++	  if (usub64 (x, y, &r) != borrow64 (x, y, x - y) || r != x - y)
++	    abort ();
++	  if (uadd32 (w, v, &s) != carry32 (w, v, w + v) || s != w + v)
++	    abort ();
++	  if (usub32 (w, v, &s) != borrow32 (w, v, w - v) || s != w - v)
++	    abort ();
++	}
++    }
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

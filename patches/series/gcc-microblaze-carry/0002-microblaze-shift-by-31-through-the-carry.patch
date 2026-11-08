@@ -1,0 +1,139 @@
+From 6198c9f4042374bac759e46c36dd5ebba143e3dc Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 8 Nov 2026 15:22:37 -0500
+Subject: [PATCH 2/3] microblaze: shift by 31 through the carry
+
+Without a barrel shifter, *lshrsi_inline and *ashrsi_inline emit one srl
+or sra per bit, so x >> 31 is 31 instructions, plus a copy when the
+destination is not the source.  x << 31 is *ashlsi3_with_rotate: two
+src, then an andi whose 32-bit mask needs an imm prefix.  Shifts by 31
+are common: the sign of a word is x >> 31, and expand_doubleword_shift
+moves the bit between words with one.
+
+Add patterns for the three shifts by 31 when there is no barrel shifter:
+
+	x >> 31, unsigned	add	rD, rA, rA	carry = bit 31
+				addc	rD, r0, r0
+	x >> 31, signed		the same, then rsubk rD, rD, r0
+	x << 31			srl	rD, rA		carry = bit 0
+				src	rD, r0
+
+A function that returns unsigned x >> 31 goes from 34 instructions to
+4, the signed shift from 34 to 5, and x << 31 from 6 to 4, counting the
+return and its delay slot.  With a barrel shifter nothing changes.
+
+isa/shiftsi-31.c checks the sequences; others/carry-run.c, added with
+the next patch, runs them.
+
+gcc/
+	* config/microblaze/microblaze.md (*ashlsi3_31, *ashrsi3_31)
+	(*lshrsi3_31): New insns.
+
+gcc/testsuite/
+	* gcc.target/microblaze/isa/shiftsi-31.c: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ gcc/config/microblaze/microblaze.md           | 39 +++++++++++++++++++
+ .../gcc.target/microblaze/isa/shiftsi-31.c    | 25 ++++++++++++
+ 2 files changed, 64 insertions(+)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/shiftsi-31.c
+
+diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
+index 2d86bd3d3..916fa9665 100644
+--- a/gcc/config/microblaze/microblaze.md
++++ b/gcc/config/microblaze/microblaze.md
+@@ -1355,6 +1355,19 @@
+   (set_attr "length"	"4,4")]
+ )
+ 
++;; Without a barrel shifter, shifts by 31 go through the carry: srl puts
++;; bit 0 there and src moves it to bit 31.
++(define_insn "*ashlsi3_31"
++  [(set (match_operand:SI 0 "register_operand" "=d")
++	(ashift:SI (match_operand:SI 1 "register_operand" "d")
++		   (const_int 31)))]
++  "!TARGET_BARREL_SHIFT"
++  "srl\t%0,%1\;src\t%0,r0"
++  [(set_attr "type"	"multi")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"8")]
++)
++
+ ;; The following patterns apply when there is no barrel shifter present
+ 
+ (define_insn "*ashlsi3_with_mul_delay"
+@@ -1516,6 +1529,19 @@
+   (set_attr "length"	"4,4")]
+ )
+ 
++;; Without a barrel shifter: add puts bit 31 in the carry, addc makes it
++;; 0 or 1, and negating that gives 0 or -1.
++(define_insn "*ashrsi3_31"
++  [(set (match_operand:SI 0 "register_operand" "=d")
++	(ashiftrt:SI (match_operand:SI 1 "register_operand" "d")
++		     (const_int 31)))]
++  "!TARGET_BARREL_SHIFT"
++  "add\t%0,%1,%1\;addc\t%0,r0,r0\;rsubk\t%0,%0,r0"
++  [(set_attr "type"	"multi")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"12")]
++)
++
+ (define_insn "*ashrsi_inline"
+   [(set (match_operand:SI 0 "register_operand" "=&d")
+        (ashiftrt:SI (match_operand:SI 1 "register_operand"  "d")
+@@ -1605,6 +1631,19 @@
+   (set_attr "length"	"4,4")]
+ )
+ 
++;; Without a barrel shifter: add puts bit 31 in the carry, and addc
++;; copies it to bit 0.
++(define_insn "*lshrsi3_31"
++  [(set (match_operand:SI 0 "register_operand" "=d")
++	(lshiftrt:SI (match_operand:SI 1 "register_operand" "d")
++		     (const_int 31)))]
++  "!TARGET_BARREL_SHIFT"
++  "add\t%0,%1,%1\;addc\t%0,r0,r0"
++  [(set_attr "type"	"multi")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"8")]
++)
++
+ (define_insn "*lshrsi_inline"
+   [(set (match_operand:SI 0 "register_operand" "=&d")
+        (lshiftrt:SI (match_operand:SI 1 "register_operand"  "d")
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/shiftsi-31.c b/gcc/testsuite/gcc.target/microblaze/isa/shiftsi-31.c
+new file mode 100644
+index 000000000..bfdb58c75
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/shiftsi-31.c
+@@ -0,0 +1,25 @@
++/* Without a barrel shifter, shifts by 31 use the carry rather than 31
++   single-bit shifts.  */
++/* { dg-options "-O2 -mcpu=v10.0" } */
++
++unsigned int
++lshr31 (unsigned int x)
++{
++  return x >> 31;
++}
++
++int
++ashr31 (int x)
++{
++  return x >> 31;
++}
++
++unsigned int
++ashl31 (unsigned int x)
++{
++  return x << 31;
++}
++
++/* { dg-final { scan-assembler-times {\taddc\tr[0-9]+,r0,r0} 2 } } */
++/* { dg-final { scan-assembler-times {\tsrc\tr[0-9]+,r0} 1 } } */
++/* { dg-final { scan-assembler-times {\tsr[la]\t} 1 } } */
+-- 
+2.39.5 (Apple Git-154)
+
