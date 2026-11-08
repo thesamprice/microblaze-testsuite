@@ -1,0 +1,84 @@
+From 850710c7d24d706a887b00382c6ff4d5b18fa6a9 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 7 Nov 2026 22:31:38 -0500
+Subject: [PATCH 3/7] opcodes: microblaze: don't print mbar 17 as sleep
+
+objdump prints "mbar 17" as "sleep", "mbar 9" as "hibernate" and
+"mbar 31" as "suspend".  The four entries share one mask:
+
+	#define OPCODE_MASK_HN 0xFF020004 /* High 16 bits and bits 14, 29.  */
+
+0xFF020004 compares the opcode, the top two bits of the five-bit IMM
+field (bits 6:7), bit 14 and bit 29.  The low three IMM bits, and the
+rest of the fixed bits, are not compared.  So every mbar whose IMM is 8
+or more matches the hibernate, sleep or suspend entry, and objdump
+drops the low IMM bits.  Those bits change what the instruction does:
+in the pseudocode on the mbar page of UG984, IMM & 2 skips the wait for
+data side accesses and IMM & 1 the wait for instruction side accesses.
+The comment on the mask did not describe it either.
+
+UG984 Table 69 lists sleep, hibernate and suspend as assembler
+pseudo-instructions for exactly mbar 16, mbar 8 and mbar 24, which is
+also what gas emits for them.  A pseudo-instruction stands for one
+encoding, so mbar 17 is not sleep.
+
+This makes OPCODE_MASK_HN 0xFC1FFFFF, every bit but IMM, so mbar
+matches every IMM value.  The three aliases now compare all 32 bits
+(OPCODE_MASK_H1234) and come before mbar in the table, so mbar 16, 8
+and 24 still print as sleep, hibernate and suspend.  gas looks
+mnemonics up by name, so the order does not change what it emits.
+
+The test the last patch of this series adds has lines for mbar 9, 17 and
+31.  Without this change they print as hibernate, sleep and suspend.
+With it they print as mbar, and the next patch adds the comments the
+test also expects.  allinsn, which checks mbar 2 and sleep, still
+passes.
+
+Tested on microblaze-elf.  gas stays at 332 expected passes and 10
+unsupported, binutils at 245 expected passes, 2 expected failures, 18
+untested and 17 unsupported, and ld at 480 expected passes, 15 expected
+failures, 28 untested and 236 unsupported.  No unexpected failures.  I
+did not build the simulator or GDB, which use the same table through
+get_insn_microblaze.
+
+opcodes/
+	* microblaze-opc.h (OPCODE_MASK_HN): Compare every bit but IMM.
+	Correct the comment.
+	(microblaze_opcodes): Move sleep, hibernate and suspend before
+	mbar and use OPCODE_MASK_H1234 for them.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ opcodes/microblaze-opc.h | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/opcodes/microblaze-opc.h b/opcodes/microblaze-opc.h
+index 756a41a18c2..fe435ad5a88 100644
+--- a/opcodes/microblaze-opc.h
++++ b/opcodes/microblaze-opc.h
+@@ -103,7 +103,7 @@
+ /* New Mask for msrset, msrclr insns.  */
+ #define OPCODE_MASK_H23N  0xFC1F8000 /* High 6 and bits 11 - 16.  */
+ /* Mask for mbar insn.  */
+-#define OPCODE_MASK_HN 0xFF020004 /* High 16 bits and bits 14, 29.  */
++#define OPCODE_MASK_HN 0xFC1FFFFF /* High 6 bits and bits 11:31.  */
+ 
+ #define DELAY_SLOT 1
+ #define NO_DELAY_SLOT 0
+@@ -420,10 +420,10 @@ const struct op_code_struct
+   {"necaputd",  INST_TYPE_R1_R2, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x4C000760, OPCODE_MASK_H34C, necaputd,  anyware_inst },
+   {"tnecaputd", INST_TYPE_R2,    INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x4C0007E0, OPCODE_MASK_H34C, tnecaputd, anyware_inst },
+   {"clz",       INST_TYPE_RD_R1, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x900000E0, OPCODE_MASK_H34,  clz,       special_inst },
++  {"sleep",     INST_TYPE_NONE,  INST_PC_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0xBA020004, OPCODE_MASK_H1234, invalid_inst, special_inst }, /* translates to mbar 16.  */
++  {"hibernate", INST_TYPE_NONE,  INST_PC_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0xB9020004, OPCODE_MASK_H1234, invalid_inst, special_inst }, /* translates to mbar 8.   */
++  {"suspend",   INST_TYPE_NONE,  INST_PC_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0xBB020004, OPCODE_MASK_H1234, invalid_inst, special_inst }, /* translates to mbar 24.  */
+   {"mbar",      INST_TYPE_IMM5,  INST_PC_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0xB8020004, OPCODE_MASK_HN,   mbar,      special_inst },
+-  {"sleep",     INST_TYPE_NONE,  INST_PC_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0xBA020004, OPCODE_MASK_HN,   invalid_inst, special_inst }, /* translates to mbar 16.  */
+-  {"hibernate", INST_TYPE_NONE,  INST_PC_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0xB9020004, OPCODE_MASK_HN,   invalid_inst, special_inst }, /* translates to mbar 8.   */
+-  {"suspend",   INST_TYPE_NONE,  INST_PC_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0xBB020004, OPCODE_MASK_HN,   invalid_inst, special_inst }, /* translates to mbar 24.  */
+   {"swapb",     INST_TYPE_RD_R1, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x900001E0, OPCODE_MASK_H4,   swapb,     arithmetic_inst },
+   {"swaph",     INST_TYPE_RD_R1, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x900001E2, OPCODE_MASK_H4,   swaph,     arithmetic_inst },
+   {NULL, 0, 0, 0, 0, 0, 0, 0, 0},
+-- 
+2.39.5 (Apple Git-154)
+

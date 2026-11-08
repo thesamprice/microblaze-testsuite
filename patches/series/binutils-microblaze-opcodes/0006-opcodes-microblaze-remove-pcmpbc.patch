@@ -1,0 +1,87 @@
+From 5c7ff8a16e382d2dd6818928130c6fe59bed4c8b Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 7 Nov 2026 22:45:07 -0500
+Subject: [PATCH 6/7] opcodes: microblaze: remove pcmpbc
+
+The opcode table has had pcmpbc since MicroBlaze support was added in
+7ba29e2a41a:
+
+	{"pcmpbc", INST_TYPE_RD_R1_R2, ..., 0x84000400, OPCODE_MASK_H4, ...
+
+No MicroBlaze documentation defines it.  It is not in the MicroBlaze
+Processor Reference Guide (UG984 v2026.1), or in the guide before it
+(UG081 v13.2, for EDK 13.2, 2011).  Both list three pattern compare
+instructions, pcmpbf, pcmpeq and pcmpne, and both give the low 11 bits
+of and as zero, so 0x84000400 is not a valid and either.  QEMU's decoder
+(target/microblaze/insns.decode) has no pattern for it, and raises an
+illegal instruction exception for it when those are enabled.  Gideon
+Zweijtzer's VHDL model of the MicroBlaze, in the 1541 Ultimate project,
+runs it as an and and warns that the modifier bits are not zero.  GCC
+never emits pcmpbc, and nothing in libgcc, newlib or this tree uses it.
+
+The encodings suggest how it got into the table.  Each of the three
+real pattern compare instructions is a logical instruction's opcode
+with 0x400 set: pcmpbf is or with that bit, pcmpeq is xor and pcmpne is
+andn.  pcmpbc fills the one slot left, and.  I could not find out
+whether it was ever planned or built; the MicroBlaze RTL is not
+public, and I have not tried the word on hardware.
+
+So gas would assemble pcmpbc into a word that no documented MicroBlaze
+defines.  This removes it from the table and from enum microblaze_instr,
+and makes MAX_OPCODES one smaller.  gas now rejects it with "unknown
+opcode", and objdump prints 0x84000400 as .long.  The test the last
+patch of this series adds checks the objdump side.
+
+Tested on microblaze-elf.  gas stays at 332 expected passes and 10
+unsupported, binutils at 245 expected passes, 2 expected failures, 18
+untested and 17 unsupported, and ld at 480 expected passes, 15 expected
+failures, 28 untested and 236 unsupported.  No unexpected failures.
+
+opcodes/
+	* microblaze-opc.h (MAX_OPCODES): Decrease to 290.
+	(microblaze_opcodes): Remove pcmpbc.
+	* microblaze-opcm.h (microblaze_instr): Remove pcmpbc.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ opcodes/microblaze-opc.h  | 3 +--
+ opcodes/microblaze-opcm.h | 2 +-
+ 2 files changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/opcodes/microblaze-opc.h b/opcodes/microblaze-opc.h
+index fe435ad5a88..ceb726866d2 100644
+--- a/opcodes/microblaze-opc.h
++++ b/opcodes/microblaze-opc.h
+@@ -108,7 +108,7 @@
+ #define DELAY_SLOT 1
+ #define NO_DELAY_SLOT 0
+ 
+-#define MAX_OPCODES 291
++#define MAX_OPCODES 290
+ 
+ const struct op_code_struct
+ {
+@@ -172,7 +172,6 @@ const struct op_code_struct
+   {"xor",   INST_TYPE_RD_R1_R2, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x88000000, OPCODE_MASK_H4, microblaze_xor, logical_inst },
+   {"andn",  INST_TYPE_RD_R1_R2, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x8C000000, OPCODE_MASK_H4, andn, logical_inst },
+   {"pcmpbf",INST_TYPE_RD_R1_R2, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x80000400, OPCODE_MASK_H4, pcmpbf, logical_inst },
+-  {"pcmpbc",INST_TYPE_RD_R1_R2, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x84000400, OPCODE_MASK_H4, pcmpbc, logical_inst },
+   {"pcmpeq",INST_TYPE_RD_R1_R2, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x88000400, OPCODE_MASK_H4, pcmpeq, logical_inst },
+   {"pcmpne",INST_TYPE_RD_R1_R2, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x8C000400, OPCODE_MASK_H4, pcmpne, logical_inst },
+   {"sra",   INST_TYPE_RD_R1, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x90000001, OPCODE_MASK_H34, sra, logical_inst },
+diff --git a/opcodes/microblaze-opcm.h b/opcodes/microblaze-opcm.h
+index f95ef1492b9..439c4735ff8 100644
+--- a/opcodes/microblaze-opcm.h
++++ b/opcodes/microblaze-opcm.h
+@@ -32,7 +32,7 @@ enum microblaze_instr
+   ncget, ncput, muli, bslli, bsrai, bsrli, bsefi, bsifi, mului,
+   /* 'or/and/xor' are C++ keywords.  */
+   microblaze_or, microblaze_and, microblaze_xor,
+-  andn, pcmpbf, pcmpbc, pcmpeq, pcmpne, sra, src, srl, sext8, sext16,
++  andn, pcmpbf, pcmpeq, pcmpne, sra, src, srl, sext8, sext16,
+   wic, wdc, wdcclear, wdcextclear, wdcflush, wdcextflush, wdcclearea, mts, mtse,
+   mfs, mfse, mbar, br, brd, brld, bra, brad, brald, microblaze_brk, beq, beqd,
+   bne, bned, blt, bltd, ble, bled, bgt, bgtd, bge, bged, ori, andi, xori, andni,
+-- 
+2.39.5 (Apple Git-154)
+

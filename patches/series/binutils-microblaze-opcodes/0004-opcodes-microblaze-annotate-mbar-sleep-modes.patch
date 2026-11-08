@@ -1,0 +1,81 @@
+From 4aa1299b0ed69902459a684b874f64cc314eed29 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 7 Nov 2026 22:31:17 -0500
+Subject: [PATCH 4/7] opcodes: microblaze: annotate mbar sleep modes
+
+With the previous patch, objdump prints mbar 16, 8 and 24 as the
+sleep, hibernate and suspend pseudo-instructions, and every other mbar
+as mbar with its immediate.  Some of those others also enter a sleep
+mode.  On the mbar page of UG984, IMM & 24 selects the mode, and IMM & 1
+and IMM & 2 skip the waits for instruction-side and data-side accesses.
+So mbar 17 is a sleep that does not wait for instruction-side
+accesses, and a reader who sees "mbar 17" has to work that out from
+the manual.
+
+This adds a comment after the immediate in that case, in the "// " form
+the disassembler already uses for branch targets:
+
+	mbar	17		// sleep, without the instruction-side wait
+	mbar	26		// suspend, without the data-side wait
+	mbar	31		// suspend, without either wait
+
+mbar 16, 8 and 24 still print as sleep, hibernate and suspend.  An mbar
+that enters no sleep mode, where IMM & 24 is zero, prints as before.
+The pseudocode does not use IMM & 4, so mbar 20 gets a plain "// sleep";
+I have not checked what hardware does with that bit.
+
+The test the last patch of this series adds has mbar 9, 17, 18, 20, 26
+and 31, with their comments.
+
+Tested on microblaze-elf.  gas stays at 332 expected passes and 10
+unsupported, binutils at 245 expected passes, 2 expected failures, 18
+untested and 17 unsupported, and ld at 480 expected passes, 15 expected
+failures, 28 untested and 236 unsupported.  No unexpected failures.
+GDB, which disassembles through print_insn_microblaze, shows the same
+comments; I have not built it.
+
+opcodes/
+	* microblaze-dis.c (print_insn_microblaze) <INST_TYPE_IMM5>: Name
+	the sleep mode and the skipped waits of an mbar that enters one.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ opcodes/microblaze-dis.c | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/opcodes/microblaze-dis.c b/opcodes/microblaze-dis.c
+index c4fa6e2e493..6e0957c029f 100644
+--- a/opcodes/microblaze-dis.c
++++ b/opcodes/microblaze-dis.c
+@@ -439,6 +439,28 @@ print_insn_microblaze (bfd_vma memaddr, struct disassemble_info * info)
+ 	  /* For mbar insn.  */
+ 	case INST_TYPE_IMM5:
+ 	  print_func (stream, "\t%s", get_field_imm5_mbar (&buf, inst));
++	  {
++	    /* When IMM & 24 is nonzero, mbar enters a sleep mode (UG984,
++	       mbar): 16 is sleep, 8 hibernate and 24 suspend.  mbar 16, 8
++	       and 24 themselves match the sleep, hibernate and suspend
++	       pseudo-instructions, which come earlier in microblaze_opcodes,
++	       so an IMM with those bits set that gets here also has some of
++	       its low bits set.  Name the mode, and say which waits the low
++	       bits skip: IMM & 1 skips the wait for instruction-side
++	       accesses, and IMM & 2 the wait for data-side accesses.  */
++	    static const char *const mode[] = {
++	      NULL, "hibernate", "sleep", "suspend"
++	    };
++	    static const char *const skips[] = {
++	      "", ", without the instruction-side wait",
++	      ", without the data-side wait", ", without either wait"
++	    };
++	    unsigned int imm = (inst & IMM5_MBAR_MASK) >> IMM_MBAR;
++
++	    if ((imm & 0x18) != 0)
++	      print_func (stream, "\t\t// %s%s", mode[(imm >> 3) & 3],
++			  skips[imm & 3]);
++	  }
+ 	  break;
+ 	  /* For mbar 16 or sleep insn.  */
+ 	case INST_TYPE_NONE:
+-- 
+2.39.5 (Apple Git-154)
+

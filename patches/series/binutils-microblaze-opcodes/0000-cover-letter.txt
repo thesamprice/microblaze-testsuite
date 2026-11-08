@@ -1,0 +1,77 @@
+microblaze: fix decoding bugs, test every instruction
+
+The MicroBlaze opcode table in opcodes/microblaze-opc.h is written by
+hand.  It lists 278 instructions and 12 pseudo-instructions, but the gas
+testsuite only checks how 26 of the instructions disassemble.  This
+series fixes four bugs in the table and the disassembler, adds comments
+that explain some mbar forms, removes one instruction that no
+documentation defines, then adds a test that covers every instruction.
+The test's expected results were not copied from the table.  They were
+checked against QEMU's MicroBlaze instruction decoder and against UG984,
+AMD's MicroBlaze reference guide.
+
+The bugs are all on the decoding side.  gas encodes every instruction
+correctly.  objdump and GDB print some of them wrong.  The first bug
+also affects the MicroBlaze simulator in this tree (sim/microblaze, run
+as microblaze-elf-run or GDB's "target sim").  It decodes instructions
+through the same table, so it runs two of them wrongly.  QEMU is not
+affected: it has its own decoder.
+
+1/7 fixes the mask for bslli, bsrai and bsrli.  The mask leaves out the
+two bits that tell these three shifts apart, so all of them decode as
+bsrli.  The simulator in sim/microblaze therefore runs bslli and bsrai
+as bsrli.  This came in with commit 2d1777b530d, first released in
+binutils 2.42.  The patch adds a small test, gas/microblaze/bshift.
+
+2/7 makes objdump print wdc.ext.clear correctly.  It used to print it
+as wdc.clear, because the mask for the wdc forms ignored the E bit
+(UG984 v2026.1, p. 341).
+
+3/7 makes objdump print mbar 9, 17 and 31 as mbar.  It used to print
+them as hibernate, sleep and suspend.  UG984 Table 69 lists those three
+names as assembler pseudo-instructions for exactly mbar 8, 16 and 24, so
+now they match only those words.
+
+4/7 adds a comment to an mbar that enters a sleep mode but is not one of
+the three pseudo-instructions.  The comment names the mode and the
+memory waits the instruction skips, for example "mbar 17 // sleep,
+without the instruction-side wait".  This is not a bug fix.  It makes up
+for 3/7 no longer printing those forms as sleep, hibernate or suspend.
+
+5/7 makes objdump keep going past a zero word.  A zero word is a valid
+instruction, add r0, r0, r0, but objdump used to stop disassembling the
+section there.
+
+6/7 removes pcmpbc.  It has been in the opcode table since the
+MicroBlaze port was added in 2009, but neither reference guide I checked
+defines it (UG081 v13.2 from 2011, and UG984 v2026.1), and QEMU does not
+decode it.  Its encoding is the and opcode with 0x400 set.  That is the
+one slot the three real pattern compare instructions leave empty in that
+pattern, which suggests it was added to fill the pattern.  gas now
+rejects it, and objdump prints the word as .long.  If anyone knows of a
+MicroBlaze that implements pcmpbc, please say so and I will drop this
+patch.  Someone at AMD/Xilinx should look to see if this is undocumented
+before removal.  Maybe this should be marked as reserved?
+
+7/7 adds gas/testsuite/gas/microblaze/insns.  It covers all 277
+instructions the table has left, plus the sleep, hibernate and suspend
+pseudo-instructions, and checks the objdump -d output.  It is the
+largest patch to review, and it fixes nothing on its own, so it comes
+last.  The expected encodings were not generated from the table.  Each
+one was checked against QEMU's MicroBlaze decoder
+(target/microblaze/insns.decode) and against UG984, the MicroBlaze
+reference guide.  Without patches 1-6, the test fails on exactly the
+lines they fix or change.
+
+Tested on microblaze-elf, before and after the series:
+
+                before                        after
+  gas           331 pass, 10 unsupported      333 pass, 10 unsupported
+  binutils      245 pass, 2 xfail,            unchanged
+                18 untested, 17 unsupported
+  ld            480 pass, 15 xfail,           unchanged
+                28 untested, 236 unsupported
+
+The two new passes are bshift and insns.  No run had unexpected
+failures.  I did not build GDB or run the simulator's testsuite, and I
+only tested big-endian microblaze-elf.

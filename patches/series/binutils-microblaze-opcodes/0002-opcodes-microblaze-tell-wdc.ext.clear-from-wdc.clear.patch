@@ -1,0 +1,84 @@
+From 53bbcfad834f5768a9f0ac14a3c2e00236f4b82d Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 7 Nov 2026 22:18:46 -0500
+Subject: [PATCH 2/7] opcodes: microblaze: tell wdc.ext.clear from wdc.clear
+
+gas assembles "wdc.ext.clear r5, r9" as 0x90054c66, and objdump prints
+it back as "wdc.clear r5, r9".  The disassembler takes the first table
+entry whose bits match under its mask, and wdc.clear comes first:
+
+	{"wdc.clear", ..., 0x90000066, OPCODE_MASK_H34B, ...
+	{"wdc.ext.clear", ..., 0x90000466, OPCODE_MASK_H35B, ...
+
+OPCODE_MASK_H34B is 0xFC0000FF.  It leaves out 0x400, the E bit in
+Figure 141 of the MicroBlaze Processor Reference Guide (UG984,
+v2026.1), which is the only bit that differs between the two.  The
+encodings gas emits match that figure.
+
+wdc, wdc.flush and wdc.clear.ea have the same mask, so they also match
+a word with the E bit set.  UG984 names no instruction for those words
+(E alone, E with F, E with T and EA), and objdump printed them as the
+form without E.  With this change they print as .long.
+
+This uses OPCODE_MASK_H35B, which wdc.ext.clear and wdc.ext.flush
+already use, for all six wdc entries.  Its comment said "low 9 bits",
+but 0x4FF is bit 21 and bits 24:31 in the numbering the other comments
+use, so I corrected it.  wic keeps OPCODE_MASK_H34B; UG984 has no E bit
+for wic.
+
+QEMU (target/microblaze/insns.decode) decodes all the wdc forms with a
+single pattern and executes them as no-ops, so it cannot tell them
+apart.  UG984 is the only reference I checked these encodings against.
+
+The test the last patch of this series adds has a wdc.ext.clear line.
+Without this change that line fails, disassembling as wdc.clear; with
+it, it passes.
+
+Tested on microblaze-elf.  gas stays at 332 expected passes and 10
+unsupported, binutils at 245 expected passes, 2 expected failures, 18
+untested and 17 unsupported, and ld at 480 expected passes, 15 expected
+failures, 28 untested and 236 unsupported.  No unexpected failures.
+
+opcodes/
+	* microblaze-opc.h (OPCODE_MASK_H35B): Correct the comment.
+	(microblaze_opcodes): Use OPCODE_MASK_H35B for wdc, wdc.clear,
+	wdc.flush and wdc.clear.ea.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ opcodes/microblaze-opc.h | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/opcodes/microblaze-opc.h b/opcodes/microblaze-opc.h
+index fde7b94e694..756a41a18c2 100644
+--- a/opcodes/microblaze-opc.h
++++ b/opcodes/microblaze-opc.h
+@@ -97,7 +97,7 @@
+ #define OPCODE_MASK_H32B  0xFC00F820 /* High 6 bits and bits 16:20 and
+ 					bit 26 */
+ #define OPCODE_MASK_H34B  0xFC0000FF /* High 6 bits and low 8 bits.  */
+-#define OPCODE_MASK_H35B  0xFC0004FF /* High 6 bits and low 9 bits.  */
++#define OPCODE_MASK_H35B  0xFC0004FF /* High 6 bits and bits 21, 24:31.  */
+ #define OPCODE_MASK_H34C  0xFC0007E0 /* High 6 bits and bits 21-26.  */
+ 
+ /* New Mask for msrset, msrclr insns.  */
+@@ -181,12 +181,12 @@ const struct op_code_struct
+   {"sext8", INST_TYPE_RD_R1, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x90000060, OPCODE_MASK_H34, sext8, logical_inst },
+   {"sext16",INST_TYPE_RD_R1, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x90000061, OPCODE_MASK_H34, sext16, logical_inst },
+   {"wic",   INST_TYPE_R1_R2_SPECIAL, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x90000068, OPCODE_MASK_H34B, wic, special_inst },
+-  {"wdc",   INST_TYPE_R1_R2_SPECIAL, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x90000064, OPCODE_MASK_H34B, wdc, special_inst },
+-  {"wdc.clear", INST_TYPE_R1_R2_SPECIAL, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x90000066, OPCODE_MASK_H34B, wdcclear, special_inst },
++  {"wdc",   INST_TYPE_R1_R2_SPECIAL, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x90000064, OPCODE_MASK_H35B, wdc, special_inst },
++  {"wdc.clear", INST_TYPE_R1_R2_SPECIAL, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x90000066, OPCODE_MASK_H35B, wdcclear, special_inst },
+   {"wdc.ext.clear", INST_TYPE_R1_R2_SPECIAL, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x90000466, OPCODE_MASK_H35B, wdcextclear, special_inst },
+-  {"wdc.flush", INST_TYPE_R1_R2_SPECIAL, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x90000074, OPCODE_MASK_H34B, wdcflush, special_inst },
++  {"wdc.flush", INST_TYPE_R1_R2_SPECIAL, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x90000074, OPCODE_MASK_H35B, wdcflush, special_inst },
+   {"wdc.ext.flush", INST_TYPE_R1_R2_SPECIAL, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x90000476, OPCODE_MASK_H35B, wdcextflush, special_inst },
+-  {"wdc.clear.ea", INST_TYPE_R1_R2_SPECIAL, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x900000E6, OPCODE_MASK_H34B, wdcclearea, special_inst },
++  {"wdc.clear.ea", INST_TYPE_R1_R2_SPECIAL, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_NON_SPECIAL, 0x900000E6, OPCODE_MASK_H35B, wdcclearea, special_inst },
+   {"mts",   INST_TYPE_SPECIAL_R1, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_MTS, 0x9400C000, OPCODE_MASK_H13S, mts, special_inst },
+   {"mtse",  INST_TYPE_SPECIAL_R1, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_MTS, 0x9500C000, OPCODE_MASK_H13S, mtse,special_inst },
+   {"mfs",   INST_TYPE_RD_SPECIAL, INST_NO_OFFSET, NO_DELAY_SLOT, IMMVAL_MASK_MFS, 0x94008000, OPCODE_MASK_H23S, mfs, special_inst },
+-- 
+2.39.5 (Apple Git-154)
+

@@ -1,0 +1,766 @@
+From d6681fb379364b074ab0ba55cdfd0d65a6a8869a Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 7 Nov 2026 22:37:15 -0500
+Subject: [PATCH 7/7] gas: microblaze: test every opcode table entry
+
+The gas tests for MicroBlaze disassemble 32 of the 277 instructions in
+opcodes/microblaze-opc.h (26 before the bshift test), and the sleep
+pseudo-instruction.  Mask mistakes in the table, where an entry also
+matches the encoding of a later entry, show up only when someone
+disassembles the later instruction.
+
+The new test covers all 277 instructions, and the sleep, hibernate and
+suspend pseudo-instructions, and checks the objdump -d output.  Each
+gets one line, except mfs, mfse, mts and mtse, which get one line for
+each special register UG984 lists for them.  imm has no line of its own,
+because gas does not accept it in source; it appears as the prefix gas
+inserts for a large immediate.  The operands put a different value in
+each register field (r28, r17, r30), and the immediates set bits at both
+ends of their fields.
+
+The expected encodings were not generated from the opcode table.  I
+checked every word against the decoder in QEMU 10.2.4
+(target/microblaze/insns.decode), which was written independently and
+executes the code: QEMU decodes each word to the same instruction with
+the same operands in the same fields.  QEMU treats all the wdc forms
+as one cache operation, so for those I checked the E, EA, F and T bits
+against Figure 141 of the MicroBlaze Processor Reference Guide (UG984,
+v2026.1).  sleep, hibernate and suspend are checked against UG984
+Table 69, which lists them as assembler pseudo-instructions for mbar 16,
+8 and 24.
+
+It also checks that 0x84000400, which objdump printed as pcmpbc until
+the previous patch removed it, now prints as .long.
+
+It also has the cases the earlier patches of this series fix or change:
+wdc.ext.clear; mbar 9, 17 and 31, with the comments the fourth patch
+adds, and mbar 18, 26 and 20 for the rest of that patch's cases; the old
+pcmpbc word; and a zero word followed by another instruction.  Against
+the tree before the series it fails on exactly those lines and on bslli
+and bsrai; with the series it passes.
+
+Tested on microblaze-elf.  gas goes from 332 to 333 expected passes,
+with 10 unsupported.  binutils stays at 245 expected passes, 2 expected
+failures, 18 untested and 17 unsupported, and ld at 480 expected passes,
+15 expected failures, 28 untested and 236 unsupported.  No unexpected
+failures.
+
+gas/
+	* testsuite/gas/microblaze/insns.exp: New file.
+	* testsuite/gas/microblaze/insns.s: New file.
+	* testsuite/gas/microblaze/insns.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ gas/testsuite/gas/microblaze/insns.d   | 325 ++++++++++++++++++++++++
+ gas/testsuite/gas/microblaze/insns.exp |  22 ++
+ gas/testsuite/gas/microblaze/insns.s   | 336 +++++++++++++++++++++++++
+ 3 files changed, 683 insertions(+)
+ create mode 100644 gas/testsuite/gas/microblaze/insns.d
+ create mode 100644 gas/testsuite/gas/microblaze/insns.exp
+ create mode 100644 gas/testsuite/gas/microblaze/insns.s
+
+diff --git a/gas/testsuite/gas/microblaze/insns.d b/gas/testsuite/gas/microblaze/insns.d
+new file mode 100644
+index 00000000000..29b35d356e9
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/insns.d
+@@ -0,0 +1,325 @@
++#as:
++#objdump: -d
++
++.*: +file format .*
++
++Disassembly of section .text:
++
++00000000 <.text>:
++   0:	0391f000 	add	r28, r17, r30
++   4:	0791f000 	rsub	r28, r17, r30
++   8:	0b91f000 	addc	r28, r17, r30
++   c:	0f91f000 	rsubc	r28, r17, r30
++  10:	1391f000 	addk	r28, r17, r30
++  14:	1791f000 	rsubk	r28, r17, r30
++  18:	1791f001 	cmp	r28, r17, r30
++  1c:	1791f003 	cmpu	r28, r17, r30
++  20:	1b91f000 	addkc	r28, r17, r30
++  24:	1f91f000 	rsubkc	r28, r17, r30
++  28:	2391fff8 	addi	r28, r17, -8
++  2c:	2791fff8 	rsubi	r28, r17, -8
++  30:	2b91fff8 	addic	r28, r17, -8
++  34:	2f91fff8 	rsubic	r28, r17, -8
++  38:	3391fff8 	addik	r28, r17, -8
++  3c:	3791fff8 	rsubik	r28, r17, -8
++  40:	3b91fff8 	addikc	r28, r17, -8
++  44:	3f91fff8 	rsubikc	r28, r17, -8
++  48:	4391f000 	mul	r28, r17, r30
++  4c:	4391f001 	mulh	r28, r17, r30
++  50:	4391f003 	mulhu	r28, r17, r30
++  54:	4391f002 	mulhsu	r28, r17, r30
++  58:	4b91f000 	idiv	r28, r17, r30
++  5c:	4b91f002 	idivu	r28, r17, r30
++  60:	4791f400 	bsll	r28, r17, r30
++  64:	4791f200 	bsra	r28, r17, r30
++  68:	4791f000 	bsrl	r28, r17, r30
++  6c:	6f80000f 	get	r28, rfsl15
++  70:	6c11800f 	put	r17, rfsl15
++  74:	6f80400f 	nget	r28, rfsl15
++  78:	6c11c00f 	nput	r17, rfsl15
++  7c:	6f80200f 	cget	r28, rfsl15
++  80:	6c11a00f 	cput	r17, rfsl15
++  84:	6f80600f 	ncget	r28, rfsl15
++  88:	6c11e00f 	ncput	r17, rfsl15
++  8c:	6391fff8 	muli	r28, r17, -8
++  90:	6791041f 	bslli	r28, r17, 31
++  94:	6791021f 	bsrai	r28, r17, 31
++  98:	6791001f 	bsrli	r28, r17, 31
++  9c:	679147c1 	bsefi	r28, r17, 31, 1
++  a0:	679187df 	bsifi	r28, r17, 1, 31
++  a4:	8391f000 	or	r28, r17, r30
++  a8:	8791f000 	and	r28, r17, r30
++  ac:	8b91f000 	xor	r28, r17, r30
++  b0:	8f91f000 	andn	r28, r17, r30
++  b4:	8391f400 	pcmpbf	r28, r17, r30
++  b8:	8b91f400 	pcmpeq	r28, r17, r30
++  bc:	8f91f400 	pcmpne	r28, r17, r30
++  c0:	93910001 	sra	r28, r17
++  c4:	93910021 	src	r28, r17
++  c8:	93910041 	srl	r28, r17
++  cc:	93910060 	sext8	r28, r17
++  d0:	93910061 	sext16	r28, r17
++  d4:	9011f068 	wic	r17, r30
++  d8:	9011f064 	wdc	r17, r30
++  dc:	9011f066 	wdc.clear	r17, r30
++  e0:	9011f074 	wdc.flush	r17, r30
++  e4:	9011f476 	wdc.ext.flush	r17, r30
++  e8:	9011f0e6 	wdc.clear.ea	r17, r30
++  ec:	9405c001 	mts	rmsr, r5
++  f0:	9411c007 	mts	rfsr, r17
++  f4:	9405c800 	mts	rslr, r5
++  f8:	9411c802 	mts	rshr, r17
++  fc:	9405d000 	mts	rpid, r5
++ 100:	9411d001 	mts	rzpr, r17
++ 104:	9405d002 	mts	rtlbx, r5
++ 108:	9411d003 	mts	rtlblo, r17
++ 10c:	9405d004 	mts	rtlbhi, r5
++ 110:	9411d005 	mts	rtlbsx, r17
++ 114:	9505d003 	mtse	rtlblo, r5
++ 118:	94608000 	mfs	r3, rpc
++ 11c:	97808001 	mfs	r28, rmsr
++ 120:	94608003 	mfs	r3, rear
++ 124:	97808005 	mfs	r28, resr
++ 128:	94608007 	mfs	r3, rfsr
++ 12c:	9780800b 	mfs	r28, rbtr
++ 130:	9460800d 	mfs	r3, redr
++ 134:	97808800 	mfs	r28, rslr
++ 138:	94608802 	mfs	r3, rshr
++ 13c:	97809000 	mfs	r28, rpid
++ 140:	94609001 	mfs	r3, rzpr
++ 144:	97809002 	mfs	r28, rtlbx
++ 148:	94609003 	mfs	r3, rtlblo
++ 14c:	97809004 	mfs	r28, rtlbhi
++ 150:	9460a000 	mfs	r3, rpvr0
++ 154:	9780a00b 	mfs	r28, rpvr11
++ 158:	94688003 	mfse	r3, rear
++ 15c:	97889003 	mfse	r28, rtlblo
++ 160:	9468a006 	mfse	r3, rpvr6
++ 164:	9788a009 	mfse	r28, rpvr9
++ 168:	9800f000 	br	r30
++ 16c:	9810f000 	brd	r30
++ 170:	9b94f000 	brld	r28, r30
++ 174:	9808f000 	bra	r30
++ 178:	9818f000 	brad	r30
++ 17c:	9b9cf000 	brald	r28, r30
++ 180:	9b8cf000 	brk	r28, r30
++ 184:	9c11f000 	beq	r17, r30
++ 188:	9e11f000 	beqd	r17, r30
++ 18c:	9c31f000 	bne	r17, r30
++ 190:	9e31f000 	bned	r17, r30
++ 194:	9c51f000 	blt	r17, r30
++ 198:	9e51f000 	bltd	r17, r30
++ 19c:	9c71f000 	ble	r17, r30
++ 1a0:	9e71f000 	bled	r17, r30
++ 1a4:	9c91f000 	bgt	r17, r30
++ 1a8:	9e91f000 	bgtd	r17, r30
++ 1ac:	9cb1f000 	bge	r17, r30
++ 1b0:	9eb1f000 	bged	r17, r30
++ 1b4:	a391fff8 	ori	r28, r17, -8
++ 1b8:	a791fff8 	andi	r28, r17, -8
++ 1bc:	ab91fff8 	xori	r28, r17, -8
++ 1c0:	af91fff8 	andni	r28, r17, -8
++ 1c4:	b0008765 	imm	-30875
++ 1c8:	33915678 	addik	r28, r17, 22136
++ 1cc:	b611fff8 	rtsd	r17, -8
++ 1d0:	b631fff8 	rtid	r17, -8
++ 1d4:	b651fff8 	rtbd	r17, -8
++ 1d8:	b691fff8 	rted	r17, -8
++ 1dc:	b800fff8 	bri	-8		// 1d4
++ 1e0:	b810fff8 	brid	-8		// 1d8
++ 1e4:	bb94fff8 	brlid	r28, -8
++ 1e8:	b808fff8 	brai	-8
++ 1ec:	b818fff8 	braid	-8
++ 1f0:	bb9cfff8 	bralid	r28, -8
++ 1f4:	bb8cfff8 	brki	r28, -8
++ 1f8:	bc11fff8 	beqi	r17, -8		// 1f0
++ 1fc:	be11fff8 	beqid	r17, -8		// 1f4
++ 200:	bc31fff8 	bnei	r17, -8		// 1f8
++ 204:	be31fff8 	bneid	r17, -8		// 1fc
++ 208:	bc51fff8 	blti	r17, -8		// 200
++ 20c:	be51fff8 	bltid	r17, -8		// 204
++ 210:	bc71fff8 	blei	r17, -8		// 208
++ 214:	be71fff8 	bleid	r17, -8		// 20c
++ 218:	bc91fff8 	bgti	r17, -8		// 210
++ 21c:	be91fff8 	bgtid	r17, -8		// 214
++ 220:	bcb1fff8 	bgei	r17, -8		// 218
++ 224:	beb1fff8 	bgeid	r17, -8		// 21c
++ 228:	c391f000 	lbu	r28, r17, r30
++ 22c:	c391f200 	lbur	r28, r17, r30
++ 230:	c391f080 	lbuea	r28, r17, r30
++ 234:	c791f000 	lhu	r28, r17, r30
++ 238:	c791f200 	lhur	r28, r17, r30
++ 23c:	c791f080 	lhuea	r28, r17, r30
++ 240:	cb91f000 	lw	r28, r17, r30
++ 244:	cb91f200 	lwr	r28, r17, r30
++ 248:	cb91f400 	lwx	r28, r17, r30
++ 24c:	cb91f080 	lwea	r28, r17, r30
++ 250:	d391f000 	sb	r28, r17, r30
++ 254:	d391f200 	sbr	r28, r17, r30
++ 258:	d391f080 	sbea	r28, r17, r30
++ 25c:	d791f000 	sh	r28, r17, r30
++ 260:	d791f200 	shr	r28, r17, r30
++ 264:	d791f080 	shea	r28, r17, r30
++ 268:	db91f000 	sw	r28, r17, r30
++ 26c:	db91f200 	swr	r28, r17, r30
++ 270:	db91f400 	swx	r28, r17, r30
++ 274:	db91f080 	swea	r28, r17, r30
++ 278:	e391fff8 	lbui	r28, r17, -8
++ 27c:	e791fff8 	lhui	r28, r17, -8
++ 280:	eb91fff8 	lwi	r28, r17, -8
++ 284:	f391fff8 	sbi	r28, r17, -8
++ 288:	f791fff8 	shi	r28, r17, -8
++ 28c:	fb91fff8 	swi	r28, r17, -8
++ 290:	97907ffe 	msrset	r28, 32766
++ 294:	97917ffe 	msrclr	r28, 32766
++ 298:	5b91f000 	fadd	r28, r17, r30
++ 29c:	5b91f080 	frsub	r28, r17, r30
++ 2a0:	5b91f100 	fmul	r28, r17, r30
++ 2a4:	5b91f180 	fdiv	r28, r17, r30
++ 2a8:	5b91f210 	fcmp.lt	r28, r17, r30
++ 2ac:	5b91f220 	fcmp.eq	r28, r17, r30
++ 2b0:	5b91f230 	fcmp.le	r28, r17, r30
++ 2b4:	5b91f240 	fcmp.gt	r28, r17, r30
++ 2b8:	5b91f250 	fcmp.ne	r28, r17, r30
++ 2bc:	5b91f260 	fcmp.ge	r28, r17, r30
++ 2c0:	5b91f200 	fcmp.un	r28, r17, r30
++ 2c4:	5b910280 	flt	r28, r17
++ 2c8:	5b910300 	fint	r28, r17
++ 2cc:	5b910380 	fsqrt	r28, r17
++ 2d0:	6f80100f 	tget	r28, rfsl15
++ 2d4:	6f80300f 	tcget	r28, rfsl15
++ 2d8:	6f80500f 	tnget	r28, rfsl15
++ 2dc:	6f80700f 	tncget	r28, rfsl15
++ 2e0:	6c00900f 	tput	rfsl15
++ 2e4:	6c00b00f 	tcput	rfsl15
++ 2e8:	6c00d00f 	tnput	rfsl15
++ 2ec:	6c00f00f 	tncput	rfsl15
++ 2f0:	6f80040f 	eget	r28, rfsl15
++ 2f4:	6f80240f 	ecget	r28, rfsl15
++ 2f8:	6f80440f 	neget	r28, rfsl15
++ 2fc:	6f80640f 	necget	r28, rfsl15
++ 300:	6c11840f 	eput	r17, rfsl15
++ 304:	6c11a40f 	ecput	r17, rfsl15
++ 308:	6c11c40f 	neput	r17, rfsl15
++ 30c:	6c11e40f 	necput	r17, rfsl15
++ 310:	6f80140f 	teget	r28, rfsl15
++ 314:	6f80340f 	tecget	r28, rfsl15
++ 318:	6f80540f 	tneget	r28, rfsl15
++ 31c:	6f80740f 	tnecget	r28, rfsl15
++ 320:	6c00940f 	teput	rfsl15
++ 324:	6c00b40f 	tecput	rfsl15
++ 328:	6c00d40f 	tneput	rfsl15
++ 32c:	6c00f40f 	tnecput	rfsl15
++ 330:	6f80080f 	aget	r28, rfsl15
++ 334:	6f80280f 	caget	r28, rfsl15
++ 338:	6f80480f 	naget	r28, rfsl15
++ 33c:	6f80680f 	ncaget	r28, rfsl15
++ 340:	6c11880f 	aput	r17, rfsl15
++ 344:	6c11a80f 	caput	r17, rfsl15
++ 348:	6c11c80f 	naput	r17, rfsl15
++ 34c:	6c11e80f 	ncaput	r17, rfsl15
++ 350:	6f80180f 	taget	r28, rfsl15
++ 354:	6f80380f 	tcaget	r28, rfsl15
++ 358:	6f80580f 	tnaget	r28, rfsl15
++ 35c:	6f80780f 	tncaget	r28, rfsl15
++ 360:	6c00980f 	taput	rfsl15
++ 364:	6c00b80f 	tcaput	rfsl15
++ 368:	6c00d80f 	tnaput	rfsl15
++ 36c:	6c00f80f 	tncaput	rfsl15
++ 370:	6f800c0f 	eaget	r28, rfsl15
++ 374:	6f802c0f 	ecaget	r28, rfsl15
++ 378:	6f804c0f 	neaget	r28, rfsl15
++ 37c:	6f806c0f 	necaget	r28, rfsl15
++ 380:	6c118c0f 	eaput	r17, rfsl15
++ 384:	6c11ac0f 	ecaput	r17, rfsl15
++ 388:	6c11cc0f 	neaput	r17, rfsl15
++ 38c:	6c11ec0f 	necaput	r17, rfsl15
++ 390:	6f801c0f 	teaget	r28, rfsl15
++ 394:	6f803c0f 	tecaget	r28, rfsl15
++ 398:	6f805c0f 	tneaget	r28, rfsl15
++ 39c:	6f807c0f 	tnecaget	r28, rfsl15
++ 3a0:	6c009c0f 	teaput	rfsl15
++ 3a4:	6c00bc0f 	tecaput	rfsl15
++ 3a8:	6c00dc0f 	tneaput	rfsl15
++ 3ac:	6c00fc0f 	tnecaput	rfsl15
++ 3b0:	4f80f000 	getd	r28, r30
++ 3b4:	4f80f080 	tgetd	r28, r30
++ 3b8:	4f80f100 	cgetd	r28, r30
++ 3bc:	4f80f180 	tcgetd	r28, r30
++ 3c0:	4f80f200 	ngetd	r28, r30
++ 3c4:	4f80f280 	tngetd	r28, r30
++ 3c8:	4f80f300 	ncgetd	r28, r30
++ 3cc:	4f80f380 	tncgetd	r28, r30
++ 3d0:	4c11f400 	putd	r17, r30
++ 3d4:	4c00f480 	tputd	r30
++ 3d8:	4c11f500 	cputd	r17, r30
++ 3dc:	4c00f580 	tcputd	r30
++ 3e0:	4c11f600 	nputd	r17, r30
++ 3e4:	4c00f680 	tnputd	r30
++ 3e8:	4c11f700 	ncputd	r17, r30
++ 3ec:	4c00f780 	tncputd	r30
++ 3f0:	4f80f020 	egetd	r28, r30
++ 3f4:	4f80f0a0 	tegetd	r28, r30
++ 3f8:	4f80f120 	ecgetd	r28, r30
++ 3fc:	4f80f1a0 	tecgetd	r28, r30
++ 400:	4f80f220 	negetd	r28, r30
++ 404:	4f80f2a0 	tnegetd	r28, r30
++ 408:	4f80f320 	necgetd	r28, r30
++ 40c:	4f80f3a0 	tnecgetd	r28, r30
++ 410:	4c11f420 	eputd	r17, r30
++ 414:	4c00f4a0 	teputd	r30
++ 418:	4c11f520 	ecputd	r17, r30
++ 41c:	4c00f5a0 	tecputd	r30
++ 420:	4c11f620 	neputd	r17, r30
++ 424:	4c00f6a0 	tneputd	r30
++ 428:	4c11f720 	necputd	r17, r30
++ 42c:	4c00f7a0 	tnecputd	r30
++ 430:	4f80f040 	agetd	r28, r30
++ 434:	4f80f0c0 	tagetd	r28, r30
++ 438:	4f80f140 	cagetd	r28, r30
++ 43c:	4f80f1c0 	tcagetd	r28, r30
++ 440:	4f80f240 	nagetd	r28, r30
++ 444:	4f80f2c0 	tnagetd	r28, r30
++ 448:	4f80f340 	ncagetd	r28, r30
++ 44c:	4f80f3c0 	tncagetd	r28, r30
++ 450:	4c11f440 	aputd	r17, r30
++ 454:	4c00f4c0 	taputd	r30
++ 458:	4c11f540 	caputd	r17, r30
++ 45c:	4c00f5c0 	tcaputd	r30
++ 460:	4c11f640 	naputd	r17, r30
++ 464:	4c00f6c0 	tnaputd	r30
++ 468:	4c11f740 	ncaputd	r17, r30
++ 46c:	4c00f7c0 	tncaputd	r30
++ 470:	4f80f060 	eagetd	r28, r30
++ 474:	4f80f0e0 	teagetd	r28, r30
++ 478:	4f80f160 	ecagetd	r28, r30
++ 47c:	4f80f1e0 	tecagetd	r28, r30
++ 480:	4f80f260 	neagetd	r28, r30
++ 484:	4f80f2e0 	tneagetd	r28, r30
++ 488:	4f80f360 	necagetd	r28, r30
++ 48c:	4f80f3e0 	tnecagetd	r28, r30
++ 490:	4c11f460 	eaputd	r17, r30
++ 494:	4c00f4e0 	teaputd	r30
++ 498:	4c11f560 	ecaputd	r17, r30
++ 49c:	4c00f5e0 	tecaputd	r30
++ 4a0:	4c11f660 	neaputd	r17, r30
++ 4a4:	4c00f6e0 	tneaputd	r30
++ 4a8:	4c11f760 	necaputd	r17, r30
++ 4ac:	4c00f7e0 	tnecaputd	r30
++ 4b0:	939100e0 	clz	r28, r17
++ 4b4:	ba020004 	sleep
++ 4b8:	b9020004 	hibernate
++ 4bc:	bb020004 	suspend
++ 4c0:	b8220004 	mbar	1
++ 4c4:	939101e0 	swapb	r28, r17
++ 4c8:	939101e2 	swaph	r28, r17
++ 4cc:	9011f466 	wdc.ext.clear	r17, r30
++ 4d0:	b9220004 	mbar	9		// hibernate, without the instruction-side wait
++ 4d4:	ba220004 	mbar	17		// sleep, without the instruction-side wait
++ 4d8:	bbe20004 	mbar	31		// suspend, without either wait
++ 4dc:	ba420004 	mbar	18		// sleep, without the data-side wait
++ 4e0:	bb420004 	mbar	26		// suspend, without the data-side wait
++ 4e4:	ba820004 	mbar	20		// sleep
++ 4e8:	84000400 	.long 0x84000400
++ 4ec:	00000000 	add	r0, r0, r0
++ 4f0:	0391f000 	add	r28, r17, r30
+diff --git a/gas/testsuite/gas/microblaze/insns.exp b/gas/testsuite/gas/microblaze/insns.exp
+new file mode 100644
+index 00000000000..5225f4ae256
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/insns.exp
+@@ -0,0 +1,22 @@
++# Copyright (C) 2026 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.
++
++# MicroBlaze test for the encoding and disassembly of every
++# instruction.
++
++if [istarget microblaze*-*-*] {
++    run_dump_test "insns"
++}
+diff --git a/gas/testsuite/gas/microblaze/insns.s b/gas/testsuite/gas/microblaze/insns.s
+new file mode 100644
+index 00000000000..b82759c94d4
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/insns.s
+@@ -0,0 +1,336 @@
++# Every MicroBlaze instruction in opcodes/microblaze-opc.h, with
++# operands that put a different value in each field.  The expected
++# encodings were checked against QEMU's decoder
++# (target/microblaze/insns.decode) and the MicroBlaze Processor
++# Reference Guide (UG984), not generated from the opcode table.
++
++	.text
++	add r28, r17, r30
++	rsub r28, r17, r30
++	addc r28, r17, r30
++	rsubc r28, r17, r30
++	addk r28, r17, r30
++	rsubk r28, r17, r30
++	cmp r28, r17, r30
++	cmpu r28, r17, r30
++	addkc r28, r17, r30
++	rsubkc r28, r17, r30
++	addi r28, r17, -8
++	rsubi r28, r17, -8
++	addic r28, r17, -8
++	rsubic r28, r17, -8
++	addik r28, r17, -8
++	rsubik r28, r17, -8
++	addikc r28, r17, -8
++	rsubikc r28, r17, -8
++	mul r28, r17, r30
++	mulh r28, r17, r30
++	mulhu r28, r17, r30
++	mulhsu r28, r17, r30
++	idiv r28, r17, r30
++	idivu r28, r17, r30
++	bsll r28, r17, r30
++	bsra r28, r17, r30
++	bsrl r28, r17, r30
++	get r28, rfsl15
++	put r17, rfsl15
++	nget r28, rfsl15
++	nput r17, rfsl15
++	cget r28, rfsl15
++	cput r17, rfsl15
++	ncget r28, rfsl15
++	ncput r17, rfsl15
++	muli r28, r17, -8
++	bslli r28, r17, 31
++	bsrai r28, r17, 31
++	bsrli r28, r17, 31
++	bsefi r28, r17, 31, 1
++	bsifi r28, r17, 1, 31
++	or r28, r17, r30
++	and r28, r17, r30
++	xor r28, r17, r30
++	andn r28, r17, r30
++	pcmpbf r28, r17, r30
++	pcmpeq r28, r17, r30
++	pcmpne r28, r17, r30
++	sra r28, r17
++	src r28, r17
++	srl r28, r17
++	sext8 r28, r17
++	sext16 r28, r17
++	wic r17, r30
++	wdc r17, r30
++	wdc.clear r17, r30
++	wdc.flush r17, r30
++	wdc.ext.flush r17, r30
++	wdc.clear.ea r17, r30
++	mts rmsr, r5
++	mts rfsr, r17
++	mts rslr, r5
++	mts rshr, r17
++	mts rpid, r5
++	mts rzpr, r17
++	mts rtlbx, r5
++	mts rtlblo, r17
++	mts rtlbhi, r5
++	mts rtlbsx, r17
++	mtse rtlblo, r5
++	mfs r3, rpc
++	mfs r28, rmsr
++	mfs r3, rear
++	mfs r28, resr
++	mfs r3, rfsr
++	mfs r28, rbtr
++	mfs r3, redr
++	mfs r28, rslr
++	mfs r3, rshr
++	mfs r28, rpid
++	mfs r3, rzpr
++	mfs r28, rtlbx
++	mfs r3, rtlblo
++	mfs r28, rtlbhi
++	mfs r3, rpvr0
++	mfs r28, rpvr11
++	mfse r3, rear
++	mfse r28, rtlblo
++	mfse r3, rpvr6
++	mfse r28, rpvr9
++	br r30
++	brd r30
++	brld r28, r30
++	bra r30
++	brad r30
++	brald r28, r30
++	brk r28, r30
++	beq r17, r30
++	beqd r17, r30
++	bne r17, r30
++	bned r17, r30
++	blt r17, r30
++	bltd r17, r30
++	ble r17, r30
++	bled r17, r30
++	bgt r17, r30
++	bgtd r17, r30
++	bge r17, r30
++	bged r17, r30
++	ori r28, r17, -8
++	andi r28, r17, -8
++	xori r28, r17, -8
++	andni r28, r17, -8
++	addik r28, r17, 0x87655678
++	rtsd r17, -8
++	rtid r17, -8
++	rtbd r17, -8
++	rted r17, -8
++	bri -8
++	brid -8
++	brlid r28, -8
++	brai -8
++	braid -8
++	bralid r28, -8
++	brki r28, -8
++	beqi r17, -8
++	beqid r17, -8
++	bnei r17, -8
++	bneid r17, -8
++	blti r17, -8
++	bltid r17, -8
++	blei r17, -8
++	bleid r17, -8
++	bgti r17, -8
++	bgtid r17, -8
++	bgei r17, -8
++	bgeid r17, -8
++	lbu r28, r17, r30
++	lbur r28, r17, r30
++	lbuea r28, r17, r30
++	lhu r28, r17, r30
++	lhur r28, r17, r30
++	lhuea r28, r17, r30
++	lw r28, r17, r30
++	lwr r28, r17, r30
++	lwx r28, r17, r30
++	lwea r28, r17, r30
++	sb r28, r17, r30
++	sbr r28, r17, r30
++	sbea r28, r17, r30
++	sh r28, r17, r30
++	shr r28, r17, r30
++	shea r28, r17, r30
++	sw r28, r17, r30
++	swr r28, r17, r30
++	swx r28, r17, r30
++	swea r28, r17, r30
++	lbui r28, r17, -8
++	lhui r28, r17, -8
++	lwi r28, r17, -8
++	sbi r28, r17, -8
++	shi r28, r17, -8
++	swi r28, r17, -8
++	msrset r28, 32766
++	msrclr r28, 32766
++	fadd r28, r17, r30
++	frsub r28, r17, r30
++	fmul r28, r17, r30
++	fdiv r28, r17, r30
++	fcmp.lt r28, r17, r30
++	fcmp.eq r28, r17, r30
++	fcmp.le r28, r17, r30
++	fcmp.gt r28, r17, r30
++	fcmp.ne r28, r17, r30
++	fcmp.ge r28, r17, r30
++	fcmp.un r28, r17, r30
++	flt r28, r17
++	fint r28, r17
++	fsqrt r28, r17
++	tget r28, rfsl15
++	tcget r28, rfsl15
++	tnget r28, rfsl15
++	tncget r28, rfsl15
++	tput rfsl15
++	tcput rfsl15
++	tnput rfsl15
++	tncput rfsl15
++	eget r28, rfsl15
++	ecget r28, rfsl15
++	neget r28, rfsl15
++	necget r28, rfsl15
++	eput r17, rfsl15
++	ecput r17, rfsl15
++	neput r17, rfsl15
++	necput r17, rfsl15
++	teget r28, rfsl15
++	tecget r28, rfsl15
++	tneget r28, rfsl15
++	tnecget r28, rfsl15
++	teput rfsl15
++	tecput rfsl15
++	tneput rfsl15
++	tnecput rfsl15
++	aget r28, rfsl15
++	caget r28, rfsl15
++	naget r28, rfsl15
++	ncaget r28, rfsl15
++	aput r17, rfsl15
++	caput r17, rfsl15
++	naput r17, rfsl15
++	ncaput r17, rfsl15
++	taget r28, rfsl15
++	tcaget r28, rfsl15
++	tnaget r28, rfsl15
++	tncaget r28, rfsl15
++	taput rfsl15
++	tcaput rfsl15
++	tnaput rfsl15
++	tncaput rfsl15
++	eaget r28, rfsl15
++	ecaget r28, rfsl15
++	neaget r28, rfsl15
++	necaget r28, rfsl15
++	eaput r17, rfsl15
++	ecaput r17, rfsl15
++	neaput r17, rfsl15
++	necaput r17, rfsl15
++	teaget r28, rfsl15
++	tecaget r28, rfsl15
++	tneaget r28, rfsl15
++	tnecaget r28, rfsl15
++	teaput rfsl15
++	tecaput rfsl15
++	tneaput rfsl15
++	tnecaput rfsl15
++	getd r28, r30
++	tgetd r28, r30
++	cgetd r28, r30
++	tcgetd r28, r30
++	ngetd r28, r30
++	tngetd r28, r30
++	ncgetd r28, r30
++	tncgetd r28, r30
++	putd r17, r30
++	tputd r30
++	cputd r17, r30
++	tcputd r30
++	nputd r17, r30
++	tnputd r30
++	ncputd r17, r30
++	tncputd r30
++	egetd r28, r30
++	tegetd r28, r30
++	ecgetd r28, r30
++	tecgetd r28, r30
++	negetd r28, r30
++	tnegetd r28, r30
++	necgetd r28, r30
++	tnecgetd r28, r30
++	eputd r17, r30
++	teputd r30
++	ecputd r17, r30
++	tecputd r30
++	neputd r17, r30
++	tneputd r30
++	necputd r17, r30
++	tnecputd r30
++	agetd r28, r30
++	tagetd r28, r30
++	cagetd r28, r30
++	tcagetd r28, r30
++	nagetd r28, r30
++	tnagetd r28, r30
++	ncagetd r28, r30
++	tncagetd r28, r30
++	aputd r17, r30
++	taputd r30
++	caputd r17, r30
++	tcaputd r30
++	naputd r17, r30
++	tnaputd r30
++	ncaputd r17, r30
++	tncaputd r30
++	eagetd r28, r30
++	teagetd r28, r30
++	ecagetd r28, r30
++	tecagetd r28, r30
++	neagetd r28, r30
++	tneagetd r28, r30
++	necagetd r28, r30
++	tnecagetd r28, r30
++	eaputd r17, r30
++	teaputd r30
++	ecaputd r17, r30
++	tecaputd r30
++	neaputd r17, r30
++	tneaputd r30
++	necaputd r17, r30
++	tnecaputd r30
++	clz r28, r17
++	sleep
++	hibernate
++	suspend
++	mbar 1
++	swapb r28, r17
++	swaph r28, r17
++
++# wdc.ext.clear is wdc.clear with the E bit set (UG984, wdc).
++	wdc.ext.clear r17, r30
++
++# sleep, hibernate and suspend are mbar 16, 8 and 24 only
++# (UG984, Table 69).
++	mbar 9
++	mbar 17
++	mbar 31
++
++# Other mbar immediates that enter a sleep mode get a comment naming
++# the mode and the waits they skip.
++	mbar 18
++	mbar 26
++	mbar 20
++
++# 0x84000400 was pcmpbc, which no MicroBlaze documentation defines.
++	.long 0x84000400
++
++# The word 0 is add r0, r0, r0, and the disassembly goes on
++# after it.
++	add r0, r0, r0
++	add r28, r17, r30
+-- 
+2.39.5 (Apple Git-154)
+

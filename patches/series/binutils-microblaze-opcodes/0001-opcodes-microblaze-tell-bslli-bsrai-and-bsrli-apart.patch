@@ -1,0 +1,177 @@
+From c130852f05ebe32c4f2c1a9294f0f8cb9a1ac9f2 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 7 Nov 2026 20:27:50 -0500
+Subject: [PATCH 1/7] opcodes: microblaze: tell bslli, bsrai and bsrli apart
+
+The immediate barrel shifts in opcodes/microblaze-opc.h are
+
+	#define OPCODE_MASK_H3B   0xFC00F9E0 /* High 6 bits and bits 16:20 and
+						bits 23:26. */
+	{"bslli", ..., 0x64000400, OPCODE_MASK_H3B, bslli, ... },
+	{"bsrai", ..., 0x64000200, OPCODE_MASK_H3B, bsrai, ... },
+	{"bsrli", ..., 0x64000000, OPCODE_MASK_H3B, bsrli, ... },
+
+The mask leaves out bits 21 and 22 (0x600), the only bits that tell the
+three apart: 0x400 selects a left shift and 0x200 an arithmetic one.
+The bit_sequence of bslli and bsrai therefore has bits outside its
+opcode_mask, so the test "op->bit_sequence == (inst & op->opcode_mask)"
+in read_insn_microblaze, get_insn_microblaze and
+microblaze_get_target_address can never succeed for them.  Every
+immediate barrel shift decodes as bsrli:
+
+	   0:	64e4041f 	bsrli	r7, r4, 31	(bslli)
+	   4:	64e4001f 	bsrli	r7, r4, 31
+	   8:	64e4021f 	bsrli	r7, r4, 31	(bsrai)
+
+gas encodes all three correctly.  It does not read opcode_mask, and the
+object file it writes is byte-identical with and without this change.
+
+The mask came in with commit 2d1777b530d ("opcodes: microblaze: Fix bit
+masking bug"), first released in binutils 2.42.  Before that the three
+entries used OPCODE_MASK_H3 (0xFC000600), which has bits 21:22 but none
+of the bits that must be zero.
+
+The simulator decodes through the same table: sim/microblaze/interp.c
+calls get_insn_microblaze for each instruction.  A program that sets r4
+to 1, runs "bslli r3, r4, 4" and exits with r3 exits with 0 under the
+simulator built from master, and with 16 with this change.  With r4 set
+to -32, "bsrai r3, r4, 28" exits with 15 before and 255 after.  GDB
+disassembles through print_insn_microblaze and calls
+get_insn_microblaze and microblaze_decode_insn from microblaze-tdep.c,
+so it is affected as well; I have not built or run GDB.
+
+The new mask, 0xFC00FFE0, is the high 6 bits and bits 16:26.  These are
+the bits QEMU's target/microblaze/insns.decode fixes for bsrli, bsrai
+and bslli.  OPCODE_MASK_H3B has no other users, so I changed its value
+and comment rather than add a new macro.  The register forms bsll, bsra
+and bsrl (OPCODE_MASK_H3) and bsefi and bsifi (OPCODE_MASK_H32B) already
+include bits 21:22 and disassemble correctly.
+
+I also checked every entry in microblaze_opcodes for bits outside its
+own mask, and for an entry that an earlier one always matches.  With
+this change the only hits are the pseudo-instructions whose instr is
+invalid_inst (nop, la, not, neg, sub, lmi, smi, tuqula, rtb), which are
+expected, and wdc.ext.clear: gas assembles "wdc.ext.clear r4, r5" as
+0x90042c66 and objdump prints it as "wdc.clear r4, r5", because
+wdc.clear comes first and OPCODE_MASK_H34B leaves out bit 21.  A
+later patch in this series fixes that.
+
+The new test gas/microblaze/bshift assembles bslli, bsrai and bsrli
+with shift counts 31 and 3, and bsll, bsra and bsrl, and checks the
+objdump -d output.  Without the opcodes change it fails on the four
+bslli and bsrai lines; with it, it passes.
+
+Tested on microblaze-elf, built on aarch64-apple-darwin, before and
+after this change:
+
+	gas:      331 -> 332 expected passes, 10 unsupported
+	binutils: 245 expected passes, 2 expected failures, 18 untested,
+	          17 unsupported, unchanged
+	ld:       480 expected passes, 15 expected failures, 28 untested,
+	          236 unsupported, unchanged
+
+No unexpected failures in either run.  I have only tested microblaze-elf
+and have not run the sim testsuite.
+
+opcodes/
+	* microblaze-opc.h (OPCODE_MASK_H3B): Include bits 21:22.
+
+gas/
+	* testsuite/gas/microblaze/bshift.exp: New file.
+	* testsuite/gas/microblaze/bshift.s: New file.
+	* testsuite/gas/microblaze/bshift.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ gas/testsuite/gas/microblaze/bshift.d   | 17 +++++++++++++++++
+ gas/testsuite/gas/microblaze/bshift.exp | 21 +++++++++++++++++++++
+ gas/testsuite/gas/microblaze/bshift.s   | 10 ++++++++++
+ opcodes/microblaze-opc.h                |  3 +--
+ 4 files changed, 49 insertions(+), 2 deletions(-)
+ create mode 100644 gas/testsuite/gas/microblaze/bshift.d
+ create mode 100644 gas/testsuite/gas/microblaze/bshift.exp
+ create mode 100644 gas/testsuite/gas/microblaze/bshift.s
+
+diff --git a/gas/testsuite/gas/microblaze/bshift.d b/gas/testsuite/gas/microblaze/bshift.d
+new file mode 100644
+index 00000000000..45b855c0786
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/bshift.d
+@@ -0,0 +1,17 @@
++#as:
++#objdump: -d
++
++.*: +file format .*
++
++Disassembly of section .text:
++
++00000000 <.text>:
++   0:	64e4041f 	bslli	r7, r4, 31
++   4:	64e4021f 	bsrai	r7, r4, 31
++   8:	64e4001f 	bsrli	r7, r4, 31
++   c:	64e40403 	bslli	r7, r4, 3
++  10:	64e40203 	bsrai	r7, r4, 3
++  14:	64e40003 	bsrli	r7, r4, 3
++  18:	44e42c00 	bsll	r7, r4, r5
++  1c:	44e42a00 	bsra	r7, r4, r5
++  20:	44e42800 	bsrl	r7, r4, r5
+diff --git a/gas/testsuite/gas/microblaze/bshift.exp b/gas/testsuite/gas/microblaze/bshift.exp
+new file mode 100644
+index 00000000000..259ba14b6f1
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/bshift.exp
+@@ -0,0 +1,21 @@
++# Copyright (C) 2026 Free Software Foundation, Inc.
++
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation; either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, USA.
++
++# MicroBlaze test for barrel shift disassembly.
++
++if [istarget microblaze*-*-*] {
++    run_dump_test "bshift"
++}
+diff --git a/gas/testsuite/gas/microblaze/bshift.s b/gas/testsuite/gas/microblaze/bshift.s
+new file mode 100644
+index 00000000000..235d3d6f312
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/bshift.s
+@@ -0,0 +1,10 @@
++    .text
++    bslli r7, r4, 31
++    bsrai r7, r4, 31
++    bsrli r7, r4, 31
++    bslli r7, r4, 3
++    bsrai r7, r4, 3
++    bsrli r7, r4, 3
++    bsll r7, r4, r5
++    bsra r7, r4, r5
++    bsrl r7, r4, r5
+diff --git a/opcodes/microblaze-opc.h b/opcodes/microblaze-opc.h
+index 849769dbadc..fde7b94e694 100644
+--- a/opcodes/microblaze-opc.h
++++ b/opcodes/microblaze-opc.h
+@@ -92,8 +92,7 @@
+ #define OPCODE_MASK_H124  0xFFFF07FF /* High 16, and low 11 bits.  */
+ #define OPCODE_MASK_H1234 0xFFFFFFFF /* All 32 bits.  */
+ #define OPCODE_MASK_H3    0xFC000600 /* High 6 bits and bits 21, 22.  */
+-#define OPCODE_MASK_H3B   0xFC00F9E0 /* High 6 bits and bits 16:20 and
+-					bits 23:26. */
++#define OPCODE_MASK_H3B   0xFC00FFE0 /* High 6 bits and bits 16:26.  */
+ #define OPCODE_MASK_H32   0xFC00FC00 /* High 6 bits and bit 16-21.  */
+ #define OPCODE_MASK_H32B  0xFC00F820 /* High 6 bits and bits 16:20 and
+ 					bit 26 */
+-- 
+2.39.5 (Apple Git-154)
+

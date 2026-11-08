@@ -1,0 +1,114 @@
+From 375e5ac58330ccf464b64a27f9227b3df63e86b3 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 7 Nov 2026 22:18:46 -0500
+Subject: [PATCH 5/7] opcodes: microblaze: disassemble the word 0
+
+objdump stops disassembling a MicroBlaze section at the first word 0
+it meets.  For example, ".align 3" after one instruction pads .text with
+a zero word, and objdump -d shows only the first instruction:
+
+	   0:	00642800 	add	r3, r4, r5
+	   4:
+
+read_insn_microblaze returns the instruction word, and returns 0 when
+the read fails.  print_insn_microblaze cannot tell the two apart:
+
+	inst = read_insn_microblaze (memaddr, info, &op);
+	if (inst == 0)
+	  return -1;
+
+and objdump gives up on the section when the disassembler returns -1.
+The read of the previous word, which looks for an imm prefix, has the
+same test.
+
+The word 0 is "add r0, r0, r0".  UG984 says it is an illegal opcode
+only when the core is built with C_OPCODE_0x0_ILLEGAL, and QEMU
+executes it as add unless the opcode-0x0-illegal property is set.
+
+This makes read_insn_microblaze return false when the read fails and
+pass the word back through a new argument, and changes both callers to
+test that.  A failed read still reports the memory error and returns
+-1, as before.  The two checks have been there since the port was
+added in 7ba29e2a41a.
+
+The test the last patch of this series adds ends with "add r0, r0, r0"
+and one instruction after it.  Without this change the dump stops at
+the zero word and the test fails; with it, it passes.
+
+Tested on microblaze-elf.  gas stays at 332 expected passes and 10
+unsupported, binutils at 245 expected passes, 2 expected failures, 18
+untested and 17 unsupported, and ld at 480 expected passes, 15 expected
+failures, 28 untested and 236 unsupported.  No unexpected failures.  I
+did not build or test GDB, which also disassembles through
+print_insn_microblaze.
+
+opcodes/
+	* microblaze-dis.c (read_insn_microblaze): Return a bool and
+	store the instruction through a new INSTP argument.
+	(print_insn_microblaze): Adjust.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ opcodes/microblaze-dis.c | 17 ++++++++++-------
+ 1 file changed, 10 insertions(+), 7 deletions(-)
+
+diff --git a/opcodes/microblaze-dis.c b/opcodes/microblaze-dis.c
+index 6e0957c029f..3158ef74fb0 100644
+--- a/opcodes/microblaze-dis.c
++++ b/opcodes/microblaze-dis.c
+@@ -197,9 +197,13 @@ get_field_special (struct string_buf *buf, long instr,
+    return p;
+ }
+ 
+-static unsigned long
++/* Read the instruction at MEMADDR into *INSTP and find its table entry.
++   Return false if the memory cannot be read.  */
++
++static bool
+ read_insn_microblaze (bfd_vma memaddr,
+ 		      struct disassemble_info *info,
++		      unsigned long *instp,
+ 		      const struct op_code_struct **opr)
+ {
+   unsigned char       ibytes[4];
+@@ -212,7 +216,7 @@ read_insn_microblaze (bfd_vma memaddr,
+   if (status != 0)
+     {
+       info->memory_error_func (status, memaddr, info);
+-      return 0;
++      return false;
+     }
+ 
+   if (info->endian == BFD_ENDIAN_BIG)
+@@ -230,7 +234,8 @@ read_insn_microblaze (bfd_vma memaddr,
+       break;
+ 
+   *opr = op;
+-  return inst;
++  *instp = inst;
++  return true;
+ }
+ 
+ 
+@@ -251,16 +256,14 @@ print_insn_microblaze (bfd_vma memaddr, struct disassemble_info * info)
+   buf.which = 0;
+   info->bytes_per_chunk = 4;
+ 
+-  inst = read_insn_microblaze (memaddr, info, &op);
+-  if (inst == 0)
++  if (!read_insn_microblaze (memaddr, info, &inst, &op))
+     return -1;
+ 
+   if (prev_insn_vma == curr_insn_vma)
+     {
+       if (memaddr-(info->bytes_per_chunk) == prev_insn_addr)
+ 	{
+-	  prev_inst = read_insn_microblaze (prev_insn_addr, info, &pop);
+-	  if (prev_inst == 0)
++	  if (!read_insn_microblaze (prev_insn_addr, info, &prev_inst, &pop))
+ 	    return -1;
+ 	  if (pop->instr == imm)
+ 	    {
+-- 
+2.39.5 (Apple Git-154)
+
