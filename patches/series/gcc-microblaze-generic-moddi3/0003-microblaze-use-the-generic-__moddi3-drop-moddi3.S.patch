@@ -1,6 +1,6 @@
-From 1934e7f1f53ad5e63dd7b7ce1425c94278819e5a Mon Sep 17 00:00:00 2001
+From 17ec0bcb3f889c3f604ef0639b0eb1da5960bd7d Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
-Date: Sat, 7 Nov 2026 23:48:41 -0500
+Date: Sun, 8 Nov 2026 00:03:24 -0500
 Subject: [PATCH 3/3] microblaze: use the generic __moddi3, drop moddi3.S
 
 MicroBlaze's divide unit is optional, and no multilib in

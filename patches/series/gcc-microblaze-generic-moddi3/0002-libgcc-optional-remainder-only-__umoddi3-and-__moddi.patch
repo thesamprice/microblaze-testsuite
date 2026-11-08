@@ -1,6 +1,6 @@
-From 5e8111330d7d0fb149a2cf566ff8e1ad03f7dbb7 Mon Sep 17 00:00:00 2001
+From b9f0fad9370365f54bf4dae3b174a97f153aa217 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
-Date: Sat, 7 Nov 2026 23:48:39 -0500
+Date: Sun, 8 Nov 2026 00:03:22 -0500
 Subject: [PATCH 2/3] libgcc: optional remainder-only __umoddi3 and __moddi3
 
 With TARGET_HAS_NO_HW_DIVIDE, __umoddi3 and __moddi3 call the shift and
@@ -24,13 +24,19 @@ MicroBlaze, which has no condition flags and, without
 -mxl-barrel-shift, no single-instruction variable shift, it wins.  On
 armv6-m, which shifts a double word left in two instructions and
 compares with flags, __moddi3 and __umoddi3 got 27% and 46% slower,
-measured on QEMU's microbit machine.  No target defines the macro
-after this patch; the next one makes MicroBlaze do so.
+measured on QEMU's microbit machine.  The macro is documented in
+tm.texi, next to TARGET_HAS_NO_HW_DIVIDE, with that guidance.  No
+target defines it after this patch; the next one makes MicroBlaze do
+so.
 
 Division by zero returns the dividend, where __udivmoddi4 would call
 __builtin_clzll (0).
 
 [DRAFT: MicroBlaze numbers are being re-measured.]
+
+gcc/
+	* doc/tm.texi.in (LIBGCC2_MOD_WITHOUT_QUOTIENT): Document.
+	* doc/tm.texi: Regenerate.
 
 libgcc/
 	* libgcc2.c (__umoddi_no_hw_divide): New, for
@@ -39,9 +45,63 @@ libgcc/
 
 Assisted-by: Claude <noreply@anthropic.com>
 ---
- libgcc/libgcc2.c | 64 ++++++++++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 64 insertions(+)
+ gcc/doc/tm.texi    | 15 +++++++++++
+ gcc/doc/tm.texi.in | 15 +++++++++++
+ libgcc/libgcc2.c   | 64 ++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 94 insertions(+)
 
+diff --git a/gcc/doc/tm.texi b/gcc/doc/tm.texi
+index dc022ae8d..2190c38fd 100644
+--- a/gcc/doc/tm.texi
++++ b/gcc/doc/tm.texi
+@@ -5975,6 +5975,21 @@ division.  If the macro is not defined, GCC will use an algorithm which
+ make use of a 64-bit by 32-bit divide primitive.
+ @end defmac
+ 
++@defmac LIBGCC2_MOD_WITHOUT_QUOTIENT
++Define this macro, as well as @code{TARGET_HAS_NO_HW_DIVIDE}, to make
++the double-word remainder routines (@code{__moddi3} and @code{__umoddi3}
++on a 32-bit target) use a shift-and-subtract loop that keeps only the
++remainder, instead of the loop they share with division.  That loop
++shifts the divisor right where the shared loop shifts the remainder
++left, and decides each step from the sign of one subtraction instead of
++an unsigned comparison.  It is faster on targets without condition
++flags, where a double-word unsigned comparison takes several
++instructions, and slower on targets that compare with flags and shift
++a double word left in a couple of instructions.  Measure before
++defining it.  The macro has no effect unless
++@code{TARGET_HAS_NO_HW_DIVIDE} is defined.
++@end defmac
++
+ @cindex @code{EDOM}, implicit usage
+ @findex matherr
+ @defmac TARGET_EDOM
+diff --git a/gcc/doc/tm.texi.in b/gcc/doc/tm.texi.in
+index 3cbaba910..dcdbf949b 100644
+--- a/gcc/doc/tm.texi.in
++++ b/gcc/doc/tm.texi.in
+@@ -4116,6 +4116,21 @@ division.  If the macro is not defined, GCC will use an algorithm which
+ make use of a 64-bit by 32-bit divide primitive.
+ @end defmac
+ 
++@defmac LIBGCC2_MOD_WITHOUT_QUOTIENT
++Define this macro, as well as @code{TARGET_HAS_NO_HW_DIVIDE}, to make
++the double-word remainder routines (@code{__moddi3} and @code{__umoddi3}
++on a 32-bit target) use a shift-and-subtract loop that keeps only the
++remainder, instead of the loop they share with division.  That loop
++shifts the divisor right where the shared loop shifts the remainder
++left, and decides each step from the sign of one subtraction instead of
++an unsigned comparison.  It is faster on targets without condition
++flags, where a double-word unsigned comparison takes several
++instructions, and slower on targets that compare with flags and shift
++a double word left in a couple of instructions.  Measure before
++defining it.  The macro has no effect unless
++@code{TARGET_HAS_NO_HW_DIVIDE} is defined.
++@end defmac
++
+ @cindex @code{EDOM}, implicit usage
+ @findex matherr
+ @defmac TARGET_EDOM
 diff --git a/libgcc/libgcc2.c b/libgcc/libgcc2.c
 index 5f2714034..15bcf3cfc 100644
 --- a/libgcc/libgcc2.c
