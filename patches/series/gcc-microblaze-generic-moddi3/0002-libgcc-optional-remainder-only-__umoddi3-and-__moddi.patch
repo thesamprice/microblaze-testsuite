@@ -1,6 +1,6 @@
-From f199169da3130656ce9f7dd4a61dfd575be4e9b4 Mon Sep 17 00:00:00 2001
+From 5e8111330d7d0fb149a2cf566ff8e1ad03f7dbb7 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
-Date: Sat, 7 Nov 2026 23:39:52 -0500
+Date: Sat, 7 Nov 2026 23:48:39 -0500
 Subject: [PATCH 2/3] libgcc: optional remainder-only __umoddi3 and __moddi3
 
 With TARGET_HAS_NO_HW_DIVIDE, __umoddi3 and __moddi3 call the shift and
@@ -43,10 +43,10 @@ Assisted-by: Claude <noreply@anthropic.com>
  1 file changed, 64 insertions(+)
 
 diff --git a/libgcc/libgcc2.c b/libgcc/libgcc2.c
-index 05c013201..efcddd645 100644
+index 5f2714034..15bcf3cfc 100644
 --- a/libgcc/libgcc2.c
 +++ b/libgcc/libgcc2.c
-@@ -1219,6 +1219,60 @@ __udivmoddi4 (UDWtype n, UDWtype d, UDWtype *rp)
+@@ -1231,6 +1231,60 @@ __udivmoddi4 (UDWtype n, UDWtype d, UDWtype *rp)
  #endif
  #endif
  
@@ -107,7 +107,7 @@ index 05c013201..efcddd645 100644
  #ifdef L_divdi3
  DWtype
  __divdi3 (DWtype u, DWtype v)
-@@ -1258,7 +1312,12 @@ __moddi3 (DWtype u, DWtype v)
+@@ -1270,7 +1324,12 @@ __moddi3 (DWtype u, DWtype v)
    if (vv.s.high < 0)
      vv.ll = -vv.ll;
  
@@ -120,7 +120,7 @@ index 05c013201..efcddd645 100644
    if (c)
      w = -w;
  
-@@ -1298,11 +1357,16 @@ __divmoddi4 (DWtype u, DWtype v, DWtype *rp)
+@@ -1310,11 +1369,16 @@ __divmoddi4 (DWtype u, DWtype v, DWtype *rp)
  UDWtype
  __umoddi3 (UDWtype u, UDWtype v)
  {

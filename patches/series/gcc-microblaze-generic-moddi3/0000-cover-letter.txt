@@ -10,10 +10,11 @@ series replaces it with libgcc2.c's generic code, with two changes to
 that code for targets without a hardware divider.
 
 1/3 makes libgcc2.c's shift-and-subtract __udivmoddi4 take the low
-quotient bits with a mask when the caller does not want the remainder,
-as in __udivdi3 and __divdi3.  That is one variable double-word shift
-instead of two.  On a target without a barrel shifter, a variable
-double-word shift is a loop.
+quotient bits with a mask in __udivdi3 and __divdi3, which do not want
+the remainder.  That saves two variable double-word shifts, and on a
+target without a barrel shifter a variable double-word shift is a loop.
+The preprocessor selects it, so the exported __udivmoddi4 and the other
+inlined copies compile to the same code as before.
 
 2/3 adds a shift-and-subtract loop for __umoddi3 and __moddi3 that keeps
 only the remainder, and decides each step from the sign of one
