@@ -1,6 +1,6 @@
-From b9f0fad9370365f54bf4dae3b174a97f153aa217 Mon Sep 17 00:00:00 2001
+From 1e6dec9bc1ee42381870fe9cd21c5a7ab43c067b Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
-Date: Sun, 8 Nov 2026 00:03:22 -0500
+Date: Sun, 8 Nov 2026 02:07:33 -0500
 Subject: [PATCH 2/3] libgcc: optional remainder-only __umoddi3 and __moddi3
 
 With TARGET_HAS_NO_HW_DIVIDE, __umoddi3 and __moddi3 call the shift and
@@ -32,7 +32,15 @@ so.
 Division by zero returns the dividend, where __udivmoddi4 would call
 __builtin_clzll (0).
 
-[DRAFT: MicroBlaze numbers are being re-measured.]
+Mean instructions per call over 4701 operand pairs, under QEMU with
+-icount, on MicroBlaze built with both macros, as the next patch
+arranges, against libgcc2.c before this series:
+
+	              no options       barrel shifter     every option
+	                               and hw multiply    but the divider
+	              before   after   before   after     before   after
+	__moddi3      1330.6   457.0    332.4   275.3      299.7   238.9
+	__umoddi3      959.3   338.0    238.5   197.2      203.9   170.7
 
 gcc/
 	* doc/tm.texi.in (LIBGCC2_MOD_WITHOUT_QUOTIENT): Document.

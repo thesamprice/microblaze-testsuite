@@ -1,9 +1,5 @@
 libgcc: speed up no-divider modulo, drop moddi3.S
 
-[DRAFT for review.  The numbers below are from the previous version of
-the series and are being re-measured: patch 1 now uses the mask only
-when the remainder is not wanted, and patch 2 is now opt-in.]
-
 MicroBlaze has a hand-written 64-bit signed remainder,
 libgcc/config/microblaze/moddi3.S.  It was fixed in 3a721dc02.  This
 series replaces it with libgcc2.c's generic code, with two changes to
@@ -19,8 +15,8 @@ inlined copies compile to the same code as before.
 2/3 adds a shift-and-subtract loop for __umoddi3 and __moddi3 that keeps
 only the remainder, and decides each step from the sign of one
 subtraction.  It is faster on MicroBlaze and slower on armv6-m, so a
-target opts in by defining LIBGCC2_MOD_WITHOUT_QUOTIENT, and no target
-does in this patch.
+target opts in by defining LIBGCC2_MOD_WITHOUT_QUOTIENT, which is
+documented in tm.texi.  No target defines it in this patch.
 
 Both patches only change code under TARGET_HAS_NO_HW_DIVIDE.  No x86 or
 AArch64 configuration defines it, so those libgcc builds do not change.
@@ -35,7 +31,7 @@ could not, and today libgcc uses it even when it is built for a core
 with a divider.
 
 Mean instructions per call over 4701 operand pairs, on QEMU with
--icount, big-endian, previous version of the series:
+-icount, big-endian:
 
                  no options       barrel shifter,   every option,
                                   hw multiply       with the divider
@@ -50,20 +46,33 @@ is division with no options: __divdi3 0.7% and __udivdi3 6.7% slower on
 average, with a worse worst case.  Shift and subtract costs more than
 long division when the quotient is long, and less when it is short.
 
-Why patch 2 is opt-in: the previous version applied it to every target
-with TARGET_HAS_NO_HW_DIVIDE.  On Cortex-M0 (armv6-m), measured on
-QEMU's microbit machine with the routines built by arm-none-eabi-gcc
-14.2 at -O2, it made __moddi3 and __umoddi3 27% and 46% slower.  ARM
-shifts a double word left in two instructions and compares with flags,
-so __udivmoddi4's existing loop suits it.  On ARM EABI, C's 64-bit / and
-% call __aeabi_ldivmod and __aeabi_uldivmod instead, so only code that
-names __moddi3 or __umoddi3 was affected.  The previous version of
-patch 1 also made __aeabi_uldivmod 1.2% slower there, by keeping a
-value live across the loop; the mask is now computed after it.
+On Cortex-M0 (armv6-m), which defines TARGET_HAS_NO_HW_DIVIDE but not
+the new macro, measured on QEMU's microbit machine with the routines
+built by arm-none-eabi-gcc 14.2 at -O2:
+
+                       before   after
+  __aeabi_ldivmod       487.7   483.6
+  __aeabi_uldivmod      249.1   249.1
+  __udivdi3             229.9   207.3
+  __divdi3              406.5   402.3
+  __moddi3              280.7   280.7
+  __umoddi3             193.6   193.6
+
+On ARM EABI, C's 64-bit / and % call __aeabi_ldivmod and
+__aeabi_uldivmod.  Nothing gets slower, and the routines left at the
+same count compile to the same code.  2/3 is opt-in because an earlier
+version applied it to every target without a divider, and on Cortex-M0
+it made __moddi3 and __umoddi3 27% and 46% slower: ARM shifts a double
+word left in two instructions and compares with flags, so
+__udivmoddi4's existing loop suits it.
 
 Tested with gcc.c-torture/execute.exp on qemu-system-microblaze,
-machine petalogix-s3adsp1800, big-endian, default multilib, against gcc
-master df809a029, previous version: 24536 passes, 14 failures, none of
-them in division (fprintf-2.c needs a filesystem; pr117432.c is a
-separate variadic bug).  Coverage measured with a QEMU plugin showed
-the torture tests reach every line and branch of the new code.
+machine petalogix-s3adsp1800, against gcc master df809a029:
+big-endian, little-endian, and with libgcc, newlib and the tests built
+for the divider and every other option.  Each gave 24536 passes and the
+same 14 failures, none of them in division (fprintf-2.c needs a
+filesystem; pr117432.c is a separate variadic bug).  libgcc also builds
+for microblaze-rtems7 and microblaze-linux in every multilib.  On an
+earlier version of the series with the same remainder loop, coverage
+measured with a QEMU plugin showed the torture tests reach every line
+and branch of the new code.

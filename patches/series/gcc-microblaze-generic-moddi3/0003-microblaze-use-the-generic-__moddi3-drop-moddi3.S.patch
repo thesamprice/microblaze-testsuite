@@ -1,6 +1,6 @@
-From 17ec0bcb3f889c3f604ef0639b0eb1da5960bd7d Mon Sep 17 00:00:00 2001
+From 0e7f48c83f298858b0b4bfe9f70b074c7cb7a825 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
-Date: Sun, 8 Nov 2026 00:03:24 -0500
+Date: Sun, 8 Nov 2026 02:07:34 -0500
 Subject: [PATCH 3/3] microblaze: use the generic __moddi3, drop moddi3.S
 
 MicroBlaze's divide unit is optional, and no multilib in
@@ -42,14 +42,23 @@ code without a divider.  This patch prefers one generic routine that
 can use the divider when there is one.
 
 Tested with gcc.c-torture/execute.exp on qemu-system-microblaze,
-machine petalogix-s3adsp1800, against gcc master df809a029: 24536
-passes, 14 failures, none of them in division (fprintf-2.c needs a
-filesystem; pr117432.c is a separate variadic-argument bug).
-arith-rand-ll.c, pr50865.c, pr33669.c and vector-div-neg-pow2.c, which
-fail with a broken __moddi3, pass at every optimization level.
+machine petalogix-s3adsp1800, against gcc master df809a029, in three
+configurations, each with 24536 passes and the same 14 failures, none
+of them in division (fprintf-2.c needs a filesystem; pr117432.c is a
+separate variadic-argument bug):
 
-[DRAFT: the table and test results are from the previous version of
-this series, and are being re-measured.]
+	microblaze-elf, default multilib
+	microblazeel-elf, default multilib
+	microblaze-elf with libgcc, newlib and the tests built with
+	  -mno-xl-soft-div -mxl-barrel-shift -mno-xl-soft-mul
+	  -mxl-multiply-high -mxl-pattern-compare -mcpu=v11.00.a
+
+arith-rand-ll.c, pr50865.c, pr33669.c and vector-div-neg-pow2.c, which
+fail with a broken __moddi3, pass at every optimization level.  With
+the divider, __moddi3 uses idivu and comes from libgcc2.c.  libgcc also
+builds for microblaze-rtems7 (12 multilibs) and microblaze-linux (6),
+with microblaze-lib.h in every libgcc_tm.h and __moddi3 from
+libgcc2.c.
 
 libgcc/
 	* config/microblaze/microblaze-lib.h: New file.

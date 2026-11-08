@@ -1,6 +1,6 @@
-From 5f9948a8eb4e97df5e33d2e6f6f51fcd2533b51b Mon Sep 17 00:00:00 2001
+From ccfe26d3ea3d342894c1eb95d39a78ce1036cbc3 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
-Date: Sat, 7 Nov 2026 23:48:37 -0500
+Date: Sun, 8 Nov 2026 02:07:33 -0500
 Subject: [PATCH 1/3] libgcc: mask out the quotient bits in __udivdi3
 
 With TARGET_HAS_NO_HW_DIVIDE, __udivmoddi4 divides by shift and
@@ -29,7 +29,29 @@ armv6-m that kept a register live across the loop in the exported
 __udivmoddi4 and made __aeabi_uldivmod, which C's unsigned 64-bit / and
 % call, up to 1.2% slower.
 
-[DRAFT: MicroBlaze and Cortex-M0 numbers are being re-measured.]
+Mean instructions per call over 4701 operand pairs, under QEMU with
+-icount.  MicroBlaze is built with TARGET_HAS_NO_HW_DIVIDE, as the third
+patch of this series arranges; Cortex-M0 (armv6-m) already defines it,
+and its routines were built by arm-none-eabi-gcc 14.2 at -O2 and run on
+QEMU's microbit machine:
+
+	                          before    after
+	MicroBlaze, no options
+	  __divdi3                1405.5   1312.7
+	  __udivdi3               1007.6    951.0
+	MicroBlaze, barrel shifter and hardware multiply
+	  __divdi3                 376.0    338.4
+	  __udivdi3                242.6    245.4
+	Cortex-M0
+	  __aeabi_ldivmod          487.7    483.6
+	  __udivdi3                229.9    207.3
+	  __divdi3                 406.5    402.3
+
+__udivdi3 with a barrel shifter on MicroBlaze is 1% worse; the rest is
+better.  On Cortex-M0, __aeabi_ldivmod is what C's signed 64-bit / and
+% call.  __aeabi_uldivmod, __moddi3 and __umoddi3 use the exported or
+other inlined copies of __udivmoddi4, which compile to the same code as
+before, and their counts are unchanged.
 
 libgcc/
 	* libgcc2.c (UDIVMODDI4_QUOTIENT_ONLY): Define for L_udivdi3 and
