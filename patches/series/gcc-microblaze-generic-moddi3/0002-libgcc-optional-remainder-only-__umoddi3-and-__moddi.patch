@@ -1,0 +1,142 @@
+From f199169da3130656ce9f7dd4a61dfd575be4e9b4 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 7 Nov 2026 23:39:52 -0500
+Subject: [PATCH 2/3] libgcc: optional remainder-only __umoddi3 and __moddi3
+
+With TARGET_HAS_NO_HW_DIVIDE, __umoddi3 and __moddi3 call the shift and
+subtract __udivmoddi4 and discard the quotient.  That loop carries the
+quotient in the low bits of the partial remainder, so the remainder
+still has to be shifted out of it, and the quotient is computed for
+nothing.
+
+Add __umoddi_no_hw_divide, which keeps only the remainder.  It aligns
+the divisor under the dividend as __udivmoddi4 does, runs once per
+quotient bit, and decides each step from the sign of one subtraction
+instead of a double-word unsigned comparison followed by the
+subtraction.  That is sound for any operands because of the alignment;
+the comment on the function gives the argument, and I also checked it
+exhaustively for 8, 10 and 12-bit words.
+
+Whether this is faster depends on the instruction set, so a target opts
+in by defining LIBGCC2_MOD_WITHOUT_QUOTIENT.  The new loop shifts the
+divisor right, where __udivmoddi4's shifts the remainder left.  On
+MicroBlaze, which has no condition flags and, without
+-mxl-barrel-shift, no single-instruction variable shift, it wins.  On
+armv6-m, which shifts a double word left in two instructions and
+compares with flags, __moddi3 and __umoddi3 got 27% and 46% slower,
+measured on QEMU's microbit machine.  No target defines the macro
+after this patch; the next one makes MicroBlaze do so.
+
+Division by zero returns the dividend, where __udivmoddi4 would call
+__builtin_clzll (0).
+
+[DRAFT: MicroBlaze numbers are being re-measured.]
+
+libgcc/
+	* libgcc2.c (__umoddi_no_hw_divide): New, for
+	TARGET_HAS_NO_HW_DIVIDE and LIBGCC2_MOD_WITHOUT_QUOTIENT.
+	(__moddi3, __umoddi3): Use it under those macros.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ libgcc/libgcc2.c | 64 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 64 insertions(+)
+
+diff --git a/libgcc/libgcc2.c b/libgcc/libgcc2.c
+index 05c013201..efcddd645 100644
+--- a/libgcc/libgcc2.c
++++ b/libgcc/libgcc2.c
+@@ -1219,6 +1219,60 @@ __udivmoddi4 (UDWtype n, UDWtype d, UDWtype *rp)
+ #endif
+ #endif
+ 
++#if (defined (L_umoddi3) || defined (L_moddi3)) \
++    && defined (TARGET_HAS_NO_HW_DIVIDE) \
++    && defined (LIBGCC2_MOD_WITHOUT_QUOTIENT)
++/* The remainder of N / D by shift and subtract, for targets without a
++   hardware divide.  __udivmoddi4 above uses the same method, but it shifts
++   the quotient bits into the low end of the remainder as it goes, and
++   shifting the remainder back out afterwards costs a variable shift.
++   Keeping only the remainder avoids that, and frees the loop from
++   carrying the quotient at all.
++
++   The divisor is aligned under the dividend, so the loop runs once per
++   quotient bit.  The aligned divisor Y has its top bit where N has its,
++   so the first R - Y is less than that bit in magnitude, which is in
++   signed range.  After each step R < Y, and once Y is halved R <= 2Y,
++   so every later R - Y lies between -Y and Y, where Y is now at most
++   half the range.  Every difference is therefore in signed range, for
++   any N and D, and its sign settles R >= Y without a separate
++   double-word comparison.
++
++   A target opts in by defining LIBGCC2_MOD_WITHOUT_QUOTIENT as well as
++   TARGET_HAS_NO_HW_DIVIDE.  This loop shifts the divisor right, and the
++   loop in __udivmoddi4 shifts the remainder left.  Which is faster
++   depends on the instruction set: this one wins where a double-word
++   shift and a double-word unsigned comparison are both several
++   instructions, as on MicroBlaze, and loses on armv6-m, which shifts a
++   double word left in two instructions and compares with flags.
++
++   Returns N when D is zero.  */
++static inline __attribute__ ((__always_inline__))
++UDWtype
++__umoddi_no_hw_divide (UDWtype n, UDWtype d)
++{
++  UDWtype r = n;
++
++  /* 1 <= D <= N, or the remainder is N.  */
++  if (d - 1 < n)
++    {
++      UWtype k = __builtin_clzll (d) - __builtin_clzll (n);
++      UDWtype y = d << k;
++
++      do
++	{
++	  UDWtype t = r - y;
++	  if ((DWtype) t >= 0)
++	    r = t;
++	  y >>= 1;
++	}
++      while (k-- != 0);
++    }
++
++  return r;
++}
++#endif
++
+ #ifdef L_divdi3
+ DWtype
+ __divdi3 (DWtype u, DWtype v)
+@@ -1258,7 +1312,12 @@ __moddi3 (DWtype u, DWtype v)
+   if (vv.s.high < 0)
+     vv.ll = -vv.ll;
+ 
++#if defined (TARGET_HAS_NO_HW_DIVIDE) \
++    && defined (LIBGCC2_MOD_WITHOUT_QUOTIENT)
++  w = __umoddi_no_hw_divide (uu.ll, vv.ll);
++#else
+   (void) __udivmoddi4 (uu.ll, vv.ll, (UDWtype*)&w);
++#endif
+   if (c)
+     w = -w;
+ 
+@@ -1298,11 +1357,16 @@ __divmoddi4 (DWtype u, DWtype v, DWtype *rp)
+ UDWtype
+ __umoddi3 (UDWtype u, UDWtype v)
+ {
++#if defined (TARGET_HAS_NO_HW_DIVIDE) \
++    && defined (LIBGCC2_MOD_WITHOUT_QUOTIENT)
++  return __umoddi_no_hw_divide (u, v);
++#else
+   UDWtype w;
+ 
+   (void) __udivmoddi4 (u, v, &w);
+ 
+   return w;
++#endif
+ }
+ #endif
+ 
+-- 
+2.39.5 (Apple Git-154)
+
