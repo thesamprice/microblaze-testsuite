@@ -123,11 +123,14 @@ sources: $(if $(OWN_BINUTILS_SRC),,$(STAMP)/patch-binutils) \
 
 # --- sources ------------------------------------------------------------
 
-# patch-NAME: patches/NAME/*.patch applied, in order, to the clone.  Adding,
-# changing or deleting a patch resets the clone to the revision it was cloned
-# at and applies them again, so the source does not move; the builds that
-# depend on it then rerun.  Deleting $(STAMP)/src-NAME re-clones instead.
-PATCHES = $(sort $(wildcard $(CURDIR)/patches/$(1)/*.patch))
+# patch-NAME: patches/NAME/*.patch applied, in order, to the clone, then
+# those in each directory EXTRA_PATCHES_NAME lists, e.g.
+# EXTRA_PATCHES_gcc=patches/series/gcc-microblaze-carry.  Adding, changing
+# or deleting a patch resets the clone to the revision it was cloned at and
+# applies them again, so the source does not move; the builds that depend
+# on it then rerun.  Deleting $(STAMP)/src-NAME re-clones instead.
+PATCHES = $(sort $(wildcard $(CURDIR)/patches/$(1)/*.patch)) \
+	$(foreach d,$(EXTRA_PATCHES_$(1)),$(sort $(wildcard $(abspath $(d))/*.patch)))
 
 .SECONDEXPANSION:
 $(STAMP)/patch-%: $(STAMP)/src-% $(CURDIR)/patches/% \
@@ -138,11 +141,15 @@ $(STAMP)/patch-%: $(STAMP)/src-% $(CURDIR)/patches/% \
 	  echo "applying $$p"; git -C $(SRC)/$* apply --index "$$p"; done
 	touch $@
 
-# clone NAME URL REF: a shallow clone into $(SRC)/NAME.
+# clone NAME URL REF: a shallow clone into $(SRC)/NAME.  REF is a branch,
+# a tag or a full commit hash.
 define clone
 	rm -rf $(SRC)/$(1)
 	mkdir -p $(SRC) $(STAMP)
-	git clone --depth 1 --branch $(3) $(2) $(SRC)/$(1)
+	git init -q $(SRC)/$(1)
+	git -C $(SRC)/$(1) remote add origin $(2)
+	git -C $(SRC)/$(1) fetch --depth 1 origin $(3)
+	git -C $(SRC)/$(1) checkout -q FETCH_HEAD
 	git -C $(SRC)/$(1) log -1 --format='$(1) %H %cd' --date=short > $(SRC)/$(1).rev
 endef
 
@@ -158,9 +165,11 @@ $(STAMP)/src-gcc:
 $(STAMP)/src-newlib:
 	rm -rf $(SRC)/newlib
 	mkdir -p $(SRC) $(STAMP)
-	git clone --depth 1 --branch $(NEWLIB_REF) --filter=blob:none --sparse \
-	  $(NEWLIB_GIT) $(SRC)/newlib
+	git init -q $(SRC)/newlib
+	git -C $(SRC)/newlib remote add origin $(NEWLIB_GIT)
 	git -C $(SRC)/newlib sparse-checkout set newlib libgloss
+	git -C $(SRC)/newlib fetch --depth 1 --filter=blob:none origin $(NEWLIB_REF)
+	git -C $(SRC)/newlib checkout -q FETCH_HEAD
 	git -C $(SRC)/newlib log -1 --format='newlib %H %cd' --date=short > $(SRC)/newlib.rev
 	touch $@
 
