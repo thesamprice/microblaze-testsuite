@@ -1,46 +1,43 @@
-From 1e6dec9bc1ee42381870fe9cd21c5a7ab43c067b Mon Sep 17 00:00:00 2001
+From 302b63e27b4ecb04bf0203fe94aa6d8b40d9baaf Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 8 Nov 2026 02:07:33 -0500
 Subject: [PATCH 2/3] libgcc: optional remainder-only __umoddi3 and __moddi3
 
 With TARGET_HAS_NO_HW_DIVIDE, __umoddi3 and __moddi3 call the shift and
-subtract __udivmoddi4 and discard the quotient.  That loop carries the
+subtract __udivmoddi4 and discard the quotient.  Its loop carries the
 quotient in the low bits of the partial remainder, so the remainder
-still has to be shifted out of it, and the quotient is computed for
-nothing.
+still has to be shifted out, and the quotient is computed for nothing.
 
 Add __umoddi_no_hw_divide, which keeps only the remainder.  It aligns
 the divisor under the dividend as __udivmoddi4 does, runs once per
 quotient bit, and decides each step from the sign of one subtraction
-instead of a double-word unsigned comparison followed by the
-subtraction.  That is sound for any operands because of the alignment;
-the comment on the function gives the argument, and I also checked it
-exhaustively for 8, 10 and 12-bit words.
+rather than a double-word comparison followed by the subtraction.  The
+alignment makes that sound for any operands; the comment on the
+function gives the argument, and I checked it exhaustively for 8, 10
+and 12-bit words.  Division by zero returns the dividend.
 
 Whether this is faster depends on the instruction set, so a target opts
-in by defining LIBGCC2_MOD_WITHOUT_QUOTIENT.  The new loop shifts the
-divisor right, where __udivmoddi4's shifts the remainder left.  On
-MicroBlaze, which has no condition flags and, without
--mxl-barrel-shift, no single-instruction variable shift, it wins.  On
-armv6-m, which shifts a double word left in two instructions and
-compares with flags, __moddi3 and __umoddi3 got 27% and 46% slower,
-measured on QEMU's microbit machine.  The macro is documented in
-tm.texi, next to TARGET_HAS_NO_HW_DIVIDE, with that guidance.  No
-target defines it after this patch; the next one makes MicroBlaze do
-so.
+in with LIBGCC2_MOD_WITHOUT_QUOTIENT, documented next to
+TARGET_HAS_NO_HW_DIVIDE.  It wins on MicroBlaze, which has no condition
+flags and, without a barrel shifter, no single-instruction variable
+shift.  On armv6-m, which shifts a double word left in two instructions
+and compares with flags, __moddi3 and __umoddi3 got 27% and 46% slower.
+No target defines the macro after this patch; the next one makes
+MicroBlaze do so.
 
-Division by zero returns the dividend, where __udivmoddi4 would call
-__builtin_clzll (0).
-
-Mean instructions per call over 4701 operand pairs, under QEMU with
--icount, on MicroBlaze built with both macros, as the next patch
-arranges, against libgcc2.c before this series:
+Mean instructions per call over 4701 operand pairs, under QEMU, on
+MicroBlaze with both macros, against libgcc2.c before this series:
 
 	              no options       barrel shifter     every option
 	                               and hw multiply    but the divider
 	              before   after   before   after     before   after
 	__moddi3      1330.6   457.0    332.4   275.3      299.7   238.9
 	__umoddi3      959.3   338.0    238.5   197.2      203.9   170.7
+
+Tested as part of this series on microblaze-elf and microblazeel-elf
+under QEMU.
+
+Assisted-by: Claude <noreply@anthropic.com>
 
 gcc/
 	* doc/tm.texi.in (LIBGCC2_MOD_WITHOUT_QUOTIENT): Document.
@@ -50,8 +47,6 @@ libgcc/
 	* libgcc2.c (__umoddi_no_hw_divide): New, for
 	TARGET_HAS_NO_HW_DIVIDE and LIBGCC2_MOD_WITHOUT_QUOTIENT.
 	(__moddi3, __umoddi3): Use it under those macros.
-
-Assisted-by: Claude <noreply@anthropic.com>
 ---
  gcc/doc/tm.texi    | 15 +++++++++++
  gcc/doc/tm.texi.in | 15 +++++++++++

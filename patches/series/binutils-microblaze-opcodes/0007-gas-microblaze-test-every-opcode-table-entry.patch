@@ -1,49 +1,21 @@
-From 9af68cb959803a3a2b75b724bd9402aa6937ee30 Mon Sep 17 00:00:00 2001
+From d3cff4775b9034f4744396e203d48ba307390969 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sat, 7 Nov 2026 23:52:05 -0500
 Subject: [PATCH 7/7] gas: microblaze: test every opcode table entry
 
-The gas tests for MicroBlaze disassemble 32 of the 277 instructions in
-opcodes/microblaze-opc.h (26 before the bshift test), and the sleep
-pseudo-instruction.  Mask mistakes in the table, where an entry also
-matches the encoding of a later entry, show up only when someone
-disassembles the later instruction.
+The MicroBlaze gas tests disassemble 32 of the 277 instructions in
+microblaze-opc.h.  A mask mistake, where one entry also matches a later
+entry's encoding, shows up only when someone disassembles the later
+instruction; the earlier patches of this series fix four.
 
-The new test covers all 277 instructions, and the sleep, hibernate and
-suspend pseudo-instructions, and checks the objdump -d output.  Each
-gets one line, except mfs, mfse, mts and mtse, which get one line for
-each special register UG984 lists for them.  imm has no line of its own,
-because gas does not accept it in source; it appears as the prefix gas
-inserts for a large immediate.  The operands put a different value in
-each register field (r28, r17, r30), and the immediates set bits at both
-ends of their fields.
-
-The expected encodings were not generated from the opcode table.  I
-checked every word against the decoder in QEMU 10.2.4
-(target/microblaze/insns.decode), which was written independently and
-executes the code: QEMU decodes each word to the same instruction with
-the same operands in the same fields.  QEMU treats all the wdc forms
-as one cache operation, so for those I checked the E, EA, F and T bits
-against Figure 141 of the MicroBlaze Processor Reference Guide (UG984,
-v2026.1).  sleep, hibernate and suspend are checked against UG984
-Table 69, which lists them as assembler pseudo-instructions for mbar 16,
-8 and 24.
-
-It also checks that 0x84000400, which objdump printed as pcmpbc until
-the previous patch removed it, now prints as .long.
-
-It also has the cases the earlier patches of this series fix or change:
-wdc.ext.clear; mbar 9, 17 and 31, with the comments the fourth patch
-adds, and mbar 18, 26 and 20 for the rest of that patch's cases; the old
-pcmpbc word; and a zero word followed by another instruction.  Against
-the tree before the series it fails on exactly those lines and on bslli
-and bsrai; with the series it passes.
-
-Tested on microblaze-elf.  gas goes from 332 to 333 expected passes,
-with 10 unsupported.  binutils stays at 245 expected passes, 2 expected
-failures, 18 untested and 17 unsupported, and ld at 480 expected passes,
-15 expected failures, 28 untested and 236 unsupported.  No unexpected
-failures.
+The new test assembles every instruction once, with operands that put a
+different value in each field, plus each special register form of mfs,
+mfse, mts and mtse, the sleep, hibernate and suspend
+pseudo-instructions, the words the earlier patches change, and a zero
+word followed by an instruction.  imm appears only as the prefix gas
+inserts for a large immediate.  The expected encodings were checked
+against QEMU 10.2.4's decoder, which was written independently of this
+table, and the wdc forms and mbar pseudo-instructions against UG984.
 
 gas/
 	* testsuite/gas/microblaze/insns.exp: New file.

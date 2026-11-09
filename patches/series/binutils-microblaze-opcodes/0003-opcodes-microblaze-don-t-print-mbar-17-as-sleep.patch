@@ -1,45 +1,19 @@
-From 5f9a6334cd5c59aedd8983bf046850518634db05 Mon Sep 17 00:00:00 2001
+From 3e98670e6fa0b053f5938f738fd9af8932f84e03 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sat, 7 Nov 2026 23:52:03 -0500
 Subject: [PATCH 3/7] opcodes: microblaze: don't print mbar 17 as sleep
 
-objdump prints "mbar 17" as "sleep", "mbar 9" as "hibernate" and
-"mbar 31" as "suspend".  The four entries share one mask:
+OPCODE_MASK_HN, shared by mbar, sleep, hibernate and suspend, compares
+only the top two bits of mbar's five-bit immediate.  objdump therefore
+prints every mbar with an immediate of 8 or more as hibernate, sleep or
+suspend, mbar 17 as sleep for example, and drops the low bits, which
+select the memory waits the instruction skips.  UG984 Table 69 defines
+the three names as exactly mbar 8, 16 and 24.
 
-	#define OPCODE_MASK_HN 0xFF020004 /* High 16 bits and bits 14, 29.  */
-
-0xFF020004 compares the opcode, the top two bits of the five-bit IMM
-field (bits 6:7), bit 14 and bit 29.  The low three IMM bits, and the
-rest of the fixed bits, are not compared.  So every mbar whose IMM is 8
-or more matches the hibernate, sleep or suspend entry, and objdump
-drops the low IMM bits.  Those bits change what the instruction does:
-in the pseudocode on the mbar page of UG984, IMM & 2 skips the wait for
-data side accesses and IMM & 1 the wait for instruction side accesses.
-The comment on the mask did not describe it either.
-
-UG984 Table 69 lists sleep, hibernate and suspend as assembler
-pseudo-instructions for exactly mbar 16, mbar 8 and mbar 24, which is
-also what gas emits for them.  A pseudo-instruction stands for one
-encoding, so mbar 17 is not sleep.
-
-This makes OPCODE_MASK_HN 0xFC1FFFFF, every bit but IMM, so mbar
-matches every IMM value.  The three aliases now compare all 32 bits
-(OPCODE_MASK_H1234) and come before mbar in the table, so mbar 16, 8
-and 24 still print as sleep, hibernate and suspend.  gas looks
-mnemonics up by name, so the order does not change what it emits.
-
-The test the last patch of this series adds has lines for mbar 9, 17 and
-31.  Without this change they print as hibernate, sleep and suspend.
-With it they print as mbar, and the next patch adds the comments the
-test also expects.  allinsn, which checks mbar 2 and sleep, still
-passes.
-
-Tested on microblaze-elf. gas stays at 332 expected passes and 10
-unsupported, binutils at 245 expected passes, 2 expected failures, 18
-untested and 17 unsupported, and ld at 480 expected passes, 15 expected
-failures, 28 untested and 236 unsupported.  No unexpected failures.
-With the whole series applied, GDB prints mbar 9, 17 and 31 as mbar; GDB
-from master prints them as hibernate, sleep and suspend.
+Make OPCODE_MASK_HN compare every bit but the immediate, give the three
+pseudo-instructions the full mask, and move them ahead of mbar, so that
+mbar 8, 16 and 24 still print as them.  gas looks mnemonics up by name,
+so its output does not change.
 
 opcodes/
 	* microblaze-opc.h (OPCODE_MASK_HN): Compare every bit but IMM.

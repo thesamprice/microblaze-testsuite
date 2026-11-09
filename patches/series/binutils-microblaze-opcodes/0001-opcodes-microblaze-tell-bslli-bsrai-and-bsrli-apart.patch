@@ -1,79 +1,22 @@
-From 509d3d3af0e77c6ee53940ad44b135acb7d29d81 Mon Sep 17 00:00:00 2001
+From 247f555e5048b8cdfa13af84e0b4f06a0dc24c4b Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sat, 7 Nov 2026 23:52:03 -0500
 Subject: [PATCH 1/7] opcodes: microblaze: tell bslli, bsrai and bsrli apart
 
-The immediate barrel shifts in opcodes/microblaze-opc.h are
+OPCODE_MASK_H3B, the mask of the immediate barrel shifts, leaves out
+bits 21:22 (0x600), the only bits that tell bslli, bsrai and bsrli
+apart.  The bit_sequence of bslli and bsrai has bits outside the mask,
+so the opcode lookup never matches them, and every immediate barrel
+shift disassembles as bsrli.  The simulator and GDB decode through the
+same table, so the simulator also runs bslli and bsrai as bsrli.  gas
+does not read the mask, and its output does not change.
 
-	#define OPCODE_MASK_H3B   0xFC00F9E0 /* High 6 bits and bits 16:20 and
-						bits 23:26. */
-	{"bslli", ..., 0x64000400, OPCODE_MASK_H3B, bslli, ... },
-	{"bsrai", ..., 0x64000200, OPCODE_MASK_H3B, bsrai, ... },
-	{"bsrli", ..., 0x64000000, OPCODE_MASK_H3B, bsrli, ... },
+The mask came in with 2d1777b530d, first released in 2.42.  The new
+value, 0xFC00FFE0, fixes bits 16:26, as QEMU's decoder does for these
+three instructions.  OPCODE_MASK_H3B has no other users.
 
-The mask leaves out bits 21 and 22 (0x600), the only bits that tell the
-three apart: 0x400 selects a left shift and 0x200 an arithmetic one.
-The bit_sequence of bslli and bsrai therefore has bits outside its
-opcode_mask, so the test "op->bit_sequence == (inst & op->opcode_mask)"
-in read_insn_microblaze, get_insn_microblaze and
-microblaze_get_target_address can never succeed for them.  Every
-immediate barrel shift decodes as bsrli:
-
-	   0:	64e4041f 	bsrli	r7, r4, 31	(bslli)
-	   4:	64e4001f 	bsrli	r7, r4, 31
-	   8:	64e4021f 	bsrli	r7, r4, 31	(bsrai)
-
-gas encodes all three correctly.  It does not read opcode_mask, and the
-object file it writes is byte-identical with and without this change.
-
-The mask came in with commit 2d1777b530d ("opcodes: microblaze: Fix bit
-masking bug"), first released in binutils 2.42.  Before that the three
-entries used OPCODE_MASK_H3 (0xFC000600), which has bits 21:22 but none
-of the bits that must be zero.
-
-The simulator decodes through the same table: sim/microblaze/interp.c
-calls get_insn_microblaze for each instruction.  A program that sets r4
-to 1, runs "bslli r3, r4, 4" and exits with r3 exits with 0 under the
-simulator built from master, and with 16 with this change.  With r4 set
-to -32, "bsrai r3, r4, 28" exits with 15 before and 255 after.  GDB
-disassembles through print_insn_microblaze and calls get_insn_microblaze
-and microblaze_decode_insn from microblaze-tdep.c, so it is affected as
-well.  With the whole series applied, GDB disassembles both correctly;
-GDB from master prints both as bsrli.
-
-The new mask, 0xFC00FFE0, is the high 6 bits and bits 16:26.  These are
-the bits QEMU's target/microblaze/insns.decode fixes for bsrli, bsrai
-and bslli.  OPCODE_MASK_H3B has no other users, so I changed its value
-and comment rather than add a new macro.  The register forms bsll, bsra
-and bsrl (OPCODE_MASK_H3) and bsefi and bsifi (OPCODE_MASK_H32B) already
-include bits 21:22 and disassemble correctly.
-
-I also checked every entry in microblaze_opcodes for bits outside its
-own mask, and for an entry that an earlier one always matches.  With
-this change the only hits are the pseudo-instructions whose instr is
-invalid_inst (nop, la, not, neg, sub, lmi, smi, tuqula, rtb), which are
-expected, and wdc.ext.clear: gas assembles "wdc.ext.clear r4, r5" as
-0x90042c66 and objdump prints it as "wdc.clear r4, r5", because
-wdc.clear comes first and OPCODE_MASK_H34B leaves out bit 21.  A
-later patch in this series fixes that.
-
-The new test gas/microblaze/bshift assembles bslli, bsrai and bsrli
-with shift counts 31 and 3, and bsll, bsra and bsrl, and checks the
-objdump -d output.  Without the opcodes change it fails on the four
-bslli and bsrai lines; with it, it passes.
-
-Tested on microblaze-elf, built on aarch64-apple-darwin, before and
-after this change:
-
-	gas:      331 -> 332 expected passes, 10 unsupported
-	binutils: 245 expected passes, 2 expected failures, 18 untested,
-	          17 unsupported, unchanged
-	ld:       480 expected passes, 15 expected failures, 28 untested,
-	          236 unsupported, unchanged
-
-No unexpected failures in either run.  The sim testsuite, which has only
-pass.s and fail.s for MicroBlaze, gives the same results before and
-after.
+The new test gas/microblaze/bshift fails on its bslli and bsrai lines
+without the opcodes change.
 
 opcodes/
 	* microblaze-opc.h (OPCODE_MASK_H3B): Include bits 21:22.

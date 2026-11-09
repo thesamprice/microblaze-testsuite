@@ -1,41 +1,17 @@
-From 28790fd43ef1344e7896fa2c54db9f26236d95d4 Mon Sep 17 00:00:00 2001
+From 2f743b5e884dc642b4bbd26d8cc15292afbf28e8 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sat, 7 Nov 2026 23:52:05 -0500
 Subject: [PATCH 6/7] opcodes: microblaze: remove pcmpbc
 
-The opcode table has had pcmpbc since MicroBlaze support was added in
-7ba29e2a41a:
+pcmpbc (0x84000400) is in the opcode table, but no MicroBlaze manual
+defines it.  UG984 and the older UG081 list three pattern compare
+instructions, pcmpbf, pcmpeq and pcmpne, and both define the low 11
+bits of and as zero, so the word is not a valid and either.  QEMU's
+decoder has no pattern for it, and GCC never emits it.
 
-	{"pcmpbc", INST_TYPE_RD_R1_R2, ..., 0x84000400, OPCODE_MASK_H4, ...
-
-No MicroBlaze documentation defines it.  It is not in the MicroBlaze
-Processor Reference Guide (UG984 v2026.1), or in the guide before it
-(UG081 v13.2, for EDK 13.2, 2011).  Both list three pattern compare
-instructions, pcmpbf, pcmpeq and pcmpne, and both give the low 11 bits
-of and as zero, so 0x84000400 is not a valid and either.  QEMU's decoder
-(target/microblaze/insns.decode) has no pattern for it, and raises an
-illegal instruction exception for it when those are enabled.  Gideon
-Zweijtzer's VHDL model of the MicroBlaze, in the 1541 Ultimate project,
-runs it as an and and warns that the modifier bits are not zero.  GCC
-never emits pcmpbc, and nothing in libgcc, newlib or this tree uses it.
-
-The encodings suggest how it got into the table.  Each of the three
-real pattern compare instructions is a logical instruction's opcode
-with 0x400 set: pcmpbf is or with that bit, pcmpeq is xor and pcmpne is
-andn.  pcmpbc fills the one slot left, and.  I could not find out
-whether it was ever planned or built; the MicroBlaze RTL is not
-public, and I have not tried the word on hardware.
-
-So gas would assemble pcmpbc into a word that no documented MicroBlaze
-defines.  This removes it from the table and from enum microblaze_instr,
-and makes MAX_OPCODES one smaller.  gas now rejects it with "unknown
-opcode", and objdump prints 0x84000400 as .long.  The test the last
-patch of this series adds checks the objdump side.
-
-Tested on microblaze-elf.  gas stays at 332 expected passes and 10
-unsupported, binutils at 245 expected passes, 2 expected failures, 18
-untested and 17 unsupported, and ld at 480 expected passes, 15 expected
-failures, 28 untested and 236 unsupported.  No unexpected failures.
+Remove it from the table and from enum microblaze_instr.  gas now
+rejects it as an unknown opcode, and objdump prints the word as .long.
+I have not tried the word on hardware.
 
 opcodes/
 	* microblaze-opc.h (MAX_OPCODES): Decrease to 290.

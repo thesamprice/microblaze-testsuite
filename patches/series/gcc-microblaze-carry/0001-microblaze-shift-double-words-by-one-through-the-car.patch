@@ -1,49 +1,39 @@
-From 9d109cb2f7ee68477311fd23da75bd793d8e3474 Mon Sep 17 00:00:00 2001
+From ca926abc81ad8ffc6be58dfb90fd1234d2a86520 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 8 Nov 2026 15:22:37 -0500
 Subject: [PATCH 1/3] microblaze: shift double words by one through the carry
 
-The MicroBlaze port has no ashldi3, lshrdi3 or ashrdi3 patterns, so
-expand_doubleword_shift builds a 64-bit shift by one from 32-bit shifts:
-the bit that crosses between the words is moved by a shift of 31 the
-other way.  Without a barrel shifter that is 31 single-bit shifts.  In
-libgcc2.c's shift-and-subtract __udivmoddi4, the step that doubles the
-remainder compiles to 35 instructions, 31 of them srl:
+The port has no DImode shift patterns, so expand_doubleword_shift builds
+a 64-bit shift by one from 32-bit shifts, moving the bit that crosses
+between the words with a shift of 31 the other way.  Without a barrel
+shifter that is 31 single-bit shifts.  The step that doubles the
+remainder in libgcc2.c's shift-and-subtract __udivmoddi4 compiles to 35
+instructions, 31 of them srl.
 
-	addk	r7, r23, r23
-	addk	r12, r22, r22
-	addk	r19, r0, r23
-	srl	r19, r23
-	... 30 more srl ...
-	addk	r22, r19, r12
-
-MicroBlaze passes that bit through the carry: add and addc shift left,
-and srl or sra then src shift right.  Add expanders for the three DImode
-shifts that accept a count of one and FAIL otherwise, so other counts
-keep the generic expansion, and an insn for each that emits the two
-instructions.  The step above becomes
+MicroBlaze passes that bit through the carry: add then addc shifts left,
+and srl or sra then src shifts right.  Add expanders for the three
+DImode shifts that accept a count of one and FAIL otherwise, and an insn
+for each that emits the two instructions.  The step above becomes
 
 	add	r23, r23, r23
 	addc	r22, r22, r22
 
-The two instructions stay in one pattern because the carry is not
-modelled.  The destination may be the source, so a shift in a loop needs
-no copy.  The first instruction writes one word of the destination
-before the second reads the other word of the source, so a destination
-that overlaps the source by exactly one word would be wrong.
-microblaze_hard_regno_mode_ok keeps double words in even registers, so
-that should not happen, but the new microblaze_dword_overlap_p checks,
-and the pattern then goes through r18, the assembler temporary, as other
-MicroBlaze patterns already do.
+The pair stays in one pattern because the carry is not modelled.  The
+destination may be the source, so a shift in a loop needs no copy.  A
+destination that overlapped the source by one word would be wrong, since
+the first instruction writes a word the second reads.  Double words live
+in even register pairs, so that should not happen, but the new
+microblaze_dword_overlap_p checks, and the pattern then goes through
+r18, as other MicroBlaze patterns do.
 
-With a barrel shifter the generic expansion was four instructions
-(bslli, srl, srl, addk); it is now two.  A function that only shifts its
-64-bit argument by one gains two copies instead: the argument arrives in
-r5:r6, an odd pair, and is moved to an even one.
+With a barrel shifter the sequence goes from four instructions to two.
+A function that does nothing but shift its 64-bit argument gains two
+copies, because the argument arrives in the odd pair r5:r6.
 
-isa/shiftdi-one.c and isa/shiftdi-one-bshift.c check the sequences
-without and with a barrel shifter.  others/carry-run.c, added with the
-last patch of this series, runs them against variable-count shifts.
+Tested as part of this series on microblaze-elf and microblazeel-elf
+under QEMU.
+
+Assisted-by: Claude <noreply@anthropic.com>
 
 gcc/
 	* config/microblaze/microblaze.md (any_shiftrt): New code iterator.
@@ -58,8 +48,6 @@ gcc/
 gcc/testsuite/
 	* gcc.target/microblaze/isa/shiftdi-one.c: New test.
 	* gcc.target/microblaze/isa/shiftdi-one-bshift.c: New test.
-
-Assisted-by: Claude <noreply@anthropic.com>
 ---
  gcc/config/microblaze/microblaze-protos.h     |  1 +
  gcc/config/microblaze/microblaze.cc           | 14 ++++
