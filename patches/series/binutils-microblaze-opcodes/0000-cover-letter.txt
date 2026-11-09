@@ -1,14 +1,10 @@
 microblaze: fix decoding bugs, test every instruction
 
 The MicroBlaze opcode table in opcodes/microblaze-opc.h is written by
-hand.  It lists 278 instructions and 12 pseudo-instructions, but the gas
-testsuite only checks how 26 of the instructions disassemble.  This
-series fixes four bugs in the table and the disassembler, adds comments
-that explain some mbar forms, removes one instruction that no
-documentation defines, then adds a test that covers every instruction.
-The test's expected results were not copied from the table.  They were
-checked against QEMU's MicroBlaze instruction decoder and against UG984,
-AMD's MicroBlaze reference guide.
+hand, and the gas testsuite checks the disassembly of only 26 of its 278
+instructions.  This series fixes four decoding bugs in the table and the
+disassembler, explains some mbar forms, removes one instruction that no
+documentation defines, and adds a test that covers every instruction.
 
 The bugs are all on the decoding side.  gas encodes every instruction
 correctly.  objdump and GDB print some of them wrong.  The first bug
