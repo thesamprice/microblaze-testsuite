@@ -1,25 +1,23 @@
-From 25c56b1197bf193ac463b05bf9677362d75b9fa8 Mon Sep 17 00:00:00 2001
+From a45769cf034c16427a24d394249cade6c4295c63 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 8 Nov 2026 02:07:34 -0500
 Subject: [PATCH 3/3] microblaze: use the generic __moddi3, drop moddi3.S
 
-MicroBlaze's divide unit is optional, and no multilib in
-gcc/config/microblaze/t-microblaze passes -mno-xl-soft-div.  Without it,
-libgcc2.c's double-word division and remainder do long division by
-32-bit digits, which calls the software __udivsi3, __umodsi3 and
-__mulsi3.  __moddi3 comes from config/microblaze/moddi3.S instead, a
-shift and subtract loop, and it does so even in a libgcc built with
+MicroBlaze's divide unit is optional, and no multilib in t-microblaze
+passes -mno-xl-soft-div.  Without a divider, libgcc2.c's double-word
+division is long division by 32-bit digits through the software
+__udivsi3, __umodsi3 and __mulsi3.  __moddi3 comes from moddi3.S
+instead, a shift and subtract loop, even in a libgcc built with
 -mno-xl-soft-div, where it cannot use the divider.
 
 Define TARGET_HAS_NO_HW_DIVIDE and LIBGCC2_MOD_WITHOUT_QUOTIENT unless
-__HAVE_HW_DIV__, so that without a divider all four routines divide by
-shift and subtract, __moddi3 and __umoddi3 use the remainder-only loop,
-and __moddi3 comes from libgcc2.c.  With -mno-xl-soft-div the C uses the
-divider.
+__HAVE_HW_DIV__.  Without a divider all four routines then divide by
+shift and subtract, __moddi3 and __umoddi3 with the remainder-only loop;
+with one they use idiv.  __moddi3 comes from libgcc2.c in both cases.
 
-Estimated clock cycles per call, mean over 4701 operand pairs, on QEMU,
-big-endian, for MicroBlaze with C_AREA_OPTIMIZED=0 (the five-stage
-pipeline).  "Before" for __moddi3 is moddi3.S in every column:
+Estimated clock cycles per call, mean over 4701 operand pairs, for the
+five-stage pipeline (C_AREA_OPTIMIZED=0).  "Before" for __moddi3 is
+moddi3.S in every column:
 
 	              no options       barrel shifter     every option,
 	                               and hw multiply    with the divider
@@ -29,41 +27,20 @@ pipeline).  "Before" for __moddi3 is moddi3.S in every column:
 	__divdi3      1717.2  1397.7   1222.9   377.2      168.0   168.0
 	__udivdi3     1176.3  1012.9    848.3   271.0       93.5    93.5
 
-The three-stage pipeline (C_AREA_OPTIMIZED=1) gives the same picture;
-with no options __moddi3 goes from 708.2 to 547.1.  Nothing is slower on
-average, but the worst case is: with no options the slowest __divdi3
-call rises from 4047 to 5527 cycles, and the slowest __udivdi3 from 4021
-to 5601.  Shift and subtract costs more than long division when the
-quotient is long, and less when it is short.
+A QEMU plugin costs each executed instruction with UG984's latencies; I
+have not measured cycles on hardware.  Nothing is slower on average, but
+with no options the slowest __divdi3 call rises from 4047 to 5527
+cycles, and the slowest __udivdi3 from 4021 to 5601: shift and subtract
+costs more than long division when the quotient is long.  A moddi3.S
+rewritten to align the divisor would average 257.5 cycles without a
+divider; this patch prefers one generic routine that can use the
+divider when there is one.
 
-The cycle counts are estimates: a QEMU plugin counts the instructions
-each call executes and costs them with UG984's per-instruction
-latencies, assuming single-cycle local memory, no branch target cache
-and no data hazard stalls.  I have not measured cycles on hardware.
+Tested with gcc.c-torture/execute.exp under QEMU on microblaze-elf and
+microblazeel-elf, and on microblaze-elf with the divider and every other
+CPU option, with no new failures.
 
-moddi3.S rewritten to align the divisor as libgcc2.c does, with no stack
-frame, runs at 257.5 cycles per call, faster than the generic code
-without a divider.  This patch prefers one generic routine that can use
-the divider when there is one.
-
-Tested with gcc.c-torture/execute.exp on qemu-system-microblaze,
-machine petalogix-s3adsp1800, against gcc master df809a029, in three
-configurations, each with 24536 passes and the same 14 failures, none
-of them in division (fprintf-2.c needs a filesystem; pr117432.c is a
-separate variadic-argument bug):
-
-	microblaze-elf, default multilib
-	microblazeel-elf, default multilib
-	microblaze-elf with libgcc, newlib and the tests built with
-	  -mno-xl-soft-div -mxl-barrel-shift -mno-xl-soft-mul
-	  -mxl-multiply-high -mxl-pattern-compare -mcpu=v11.00.a
-
-arith-rand-ll.c, pr50865.c, pr33669.c and vector-div-neg-pow2.c, which
-fail with a broken __moddi3, pass at every optimization level.  With
-the divider, __moddi3 uses idivu and comes from libgcc2.c.  libgcc also
-builds for microblaze-rtems7 (12 multilibs) and microblaze-linux (6),
-with microblaze-lib.h in every libgcc_tm.h and __moddi3 from
-libgcc2.c.
+Assisted-by: Claude <noreply@anthropic.com>
 
 libgcc/
 	* config/microblaze/microblaze-lib.h: New file.
@@ -73,8 +50,6 @@ libgcc/
 	_moddi3.
 	(LIB2ADD): Remove moddi3.S.
 	* config/microblaze/moddi3.S: Remove.
-
-Assisted-by: Claude <noreply@anthropic.com>
 ---
  libgcc/config.host                        |   3 +
  libgcc/config/microblaze/microblaze-lib.h |  37 +++++
@@ -108,7 +83,7 @@ index 319d6cfe0..81d722968 100644
  mips*-*-netbsd*)			# NetBSD/mips, either endian.
 diff --git a/libgcc/config/microblaze/microblaze-lib.h b/libgcc/config/microblaze/microblaze-lib.h
 new file mode 100644
-index 000000000..75cb367ba
+index 000000000..6fe151c49
 --- /dev/null
 +++ b/libgcc/config/microblaze/microblaze-lib.h
 @@ -0,0 +1,37 @@
@@ -137,7 +112,7 @@ index 000000000..75cb367ba
 +
 +/* The divide unit is optional, and absent unless -mno-xl-soft-div, which
 +   defines __HAVE_HW_DIV__.  Without it, libgcc2.c's double-word division
-+   and remainder otherwise do long division by 32-bit digits, which calls
++   and remainder do long division by 32-bit digits, which calls
 +   the software __udivsi3, __umodsi3 and __mulsi3.  Shift and subtract
 +   makes no calls, and lets __moddi3 replace moddi3.S.
 +

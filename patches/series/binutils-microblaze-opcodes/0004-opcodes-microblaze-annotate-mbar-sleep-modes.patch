@@ -1,38 +1,20 @@
-From c7b0ae6389f398788bd91831e551784d51dbd8d3 Mon Sep 17 00:00:00 2001
+From 3da762f9e15ab8dae2c3d17f85f5df06d46bee44 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sat, 7 Nov 2026 23:52:04 -0500
 Subject: [PATCH 4/7] opcodes: microblaze: annotate mbar sleep modes
 
-With the previous patch, objdump prints mbar 16, 8 and 24 as the
-sleep, hibernate and suspend pseudo-instructions, and every other mbar
-as mbar with its immediate.  Some of those others also enter a sleep
-mode.  On the mbar page of UG984, IMM & 24 selects the mode, and IMM & 1
-and IMM & 2 skip the waits for instruction-side and data-side accesses.
-So mbar 17 is a sleep that does not wait for instruction-side
-accesses, and a reader who sees "mbar 17" has to work that out from
-the manual.
-
-This adds a comment after the immediate in that case, in the "// " form
-the disassembler already uses for branch targets:
+An mbar other than sleep, hibernate and suspend can still enter a sleep
+mode.  In UG984's pseudocode for mbar, IMM & 24 selects the mode, and
+IMM & 1 and IMM & 2 skip the instruction-side and data-side waits.
+Print that as a comment, in the "// " form already used for branch
+targets:
 
 	mbar	17		// sleep, without the instruction-side wait
-	mbar	26		// suspend, without the data-side wait
 	mbar	31		// suspend, without either wait
 
-mbar 16, 8 and 24 still print as sleep, hibernate and suspend.  An mbar
-that enters no sleep mode, where IMM & 24 is zero, prints as before.
-The pseudocode does not use IMM & 4, so mbar 20 gets a plain "// sleep";
-I have not checked what hardware does with that bit.
-
-The test the last patch of this series adds has mbar 9, 17, 18, 20, 26
-and 31, with their comments.
-
-Tested on microblaze-elf. gas stays at 332 expected passes and 10
-unsupported, binutils at 245 expected passes, 2 expected failures, 18
-untested and 17 unsupported, and ld at 480 expected passes, 15 expected
-failures, 28 untested and 236 unsupported.  No unexpected failures.
-With the whole series applied, GDB, which disassembles through
-print_insn_microblaze, shows the same comments.
+An mbar that enters no sleep mode prints as before.  The pseudocode does
+not use IMM & 4, so mbar 20 gets a plain "// sleep"; I have not checked
+what hardware does with that bit.
 
 opcodes/
 	* microblaze-dis.c (print_insn_microblaze) <INST_TYPE_IMM5>: Name

@@ -7,7 +7,9 @@
 > figures, in cycles, are in the cover letters under
 > [`patches/series/`](../../patches/series/): the libgcc series
 > `gcc-microblaze-generic-moddi3` and the back-end series
-> `gcc-microblaze-carry`. The findings below still hold in cycles: the
+> `gcc-microblaze-carry`. [`reproduce.sh`](reproduce.sh) rebuilds them
+> from scratch and writes every version side by side, with the slowest
+> call for each. The findings below still hold in cycles: the
 > remainder-only loop and the fused sign test win, and the sign test beats
 > a plain compare and `__builtin_sub_overflow`.
 

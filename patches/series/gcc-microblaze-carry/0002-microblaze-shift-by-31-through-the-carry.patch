@@ -1,4 +1,4 @@
-From 6198c9f4042374bac759e46c36dd5ebba143e3dc Mon Sep 17 00:00:00 2001
+From 02b4f56f3ef71e661c583688df0c718b7bf2f6ff Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 8 Nov 2026 15:22:37 -0500
 Subject: [PATCH 2/3] microblaze: shift by 31 through the carry
@@ -6,8 +6,8 @@ Subject: [PATCH 2/3] microblaze: shift by 31 through the carry
 Without a barrel shifter, *lshrsi_inline and *ashrsi_inline emit one srl
 or sra per bit, so x >> 31 is 31 instructions, plus a copy when the
 destination is not the source.  x << 31 is *ashlsi3_with_rotate: two
-src, then an andi whose 32-bit mask needs an imm prefix.  Shifts by 31
-are common: the sign of a word is x >> 31, and expand_doubleword_shift
+src, then an andi whose mask needs an imm prefix.  Shifts by 31 are
+common: the sign of a word is x >> 31, and expand_doubleword_shift
 moves the bit between words with one.
 
 Add patterns for the three shifts by 31 when there is no barrel shifter:
@@ -18,12 +18,14 @@ Add patterns for the three shifts by 31 when there is no barrel shifter:
 	x << 31			srl	rD, rA		carry = bit 0
 				src	rD, r0
 
-A function that returns unsigned x >> 31 goes from 34 instructions to
-4, the signed shift from 34 to 5, and x << 31 from 6 to 4, counting the
+A function returning unsigned x >> 31 goes from 34 instructions to 4,
+the signed shift from 34 to 5, and x << 31 from 6 to 4, counting the
 return and its delay slot.  With a barrel shifter nothing changes.
 
-isa/shiftsi-31.c checks the sequences; others/carry-run.c, added with
-the next patch, runs them.
+Tested as part of this series on microblaze-elf and microblazeel-elf
+under QEMU.
+
+Assisted-by: Claude <noreply@anthropic.com>
 
 gcc/
 	* config/microblaze/microblaze.md (*ashlsi3_31, *ashrsi3_31)
@@ -31,8 +33,6 @@ gcc/
 
 gcc/testsuite/
 	* gcc.target/microblaze/isa/shiftsi-31.c: New test.
-
-Assisted-by: Claude <noreply@anthropic.com>
 ---
  gcc/config/microblaze/microblaze.md           | 39 +++++++++++++++++++
  .../gcc.target/microblaze/isa/shiftsi-31.c    | 25 ++++++++++++

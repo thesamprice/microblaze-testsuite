@@ -33,7 +33,11 @@ Everything goes under `work/` (set `WORK=` to move it):
 | QEMU | release tarball, 10.2.4 + `patches/qemu` | `microblaze-softmmu`, `microblazeel-softmmu` |
 
 The clones are shallow. The `*_GIT` and `*_REF` variables pick another
-repository or branch, e.g. `make GCC_REF=releases/gcc-15`.
+repository, branch, tag or full commit hash, e.g.
+`make GCC_REF=releases/gcc-15`. `EXTRA_PATCHES_gcc` (and likewise for the
+other components) names more directories of patches to apply after
+`patches/gcc`, e.g.
+`make EXTRA_PATCHES_gcc=patches/series/gcc-microblaze-carry`.
 
 ## Patches
 
@@ -223,6 +227,31 @@ and no data hazard stalls. They are estimates, not measurements on
 hardware. [`bench/moddi3/summary.py`](bench/moddi3/summary.py) prints them,
 and [`bench/moddi3/REPORT.md`](bench/moddi3/REPORT.md) discusses the
 variants.
+
+### Reproducing the published numbers
+
+```sh
+bench/moddi3/reproduce.sh [DIR]
+```
+
+rebuilds everything behind the cycle tables in the
+[`patches/series/`](patches/series/) cover letters from scratch, at the
+gcc, binutils and newlib revisions they were measured at. It builds two
+toolchains in `DIR` (default `./work-reproduce`): one with the libgcc
+series (`patches/gcc`), and one with the back-end series
+(`gcc-microblaze-carry`) as well. It runs the benchmark with each and
+writes `DIR/tables.md` (big-endian) and `DIR/tables-le.md`. Each table
+gives every version of each routine, from the original Xilinx assembly to
+the libgcc series with the back end, for each set of CPU options. Each
+cell gives the mean and the slowest call. It needs about 9 GB, and took
+22 minutes on an 8-core Mac. To recompute the tables from finished runs:
+
+```sh
+python3 bench/moddi3/table.py DIR/series1/bench/results.txt \
+    DIR/carry/bench/results.txt [be|le]
+```
+
+### More
 
 Two more targets go with it:
 

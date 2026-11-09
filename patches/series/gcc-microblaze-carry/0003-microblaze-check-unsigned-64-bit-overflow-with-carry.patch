@@ -1,38 +1,35 @@
-From 5a9e256a46e1112b52ebedec5ef8cd866b6fb3c2 Mon Sep 17 00:00:00 2001
+From df522836b953781325709077292476c62a45d095 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 8 Nov 2026 15:22:38 -0500
 Subject: [PATCH 3/3] microblaze: check unsigned 64-bit overflow with carry
 
-The port has no uaddv or usubv patterns, so __builtin_add_overflow and
-__builtin_sub_overflow on unsigned 64-bit values, and the overflow
-checks GCC recognizes in plain C such as a + b < a, compute the result
-and then compare it with an operand as double words: a cmpu and up to
-three branches.  The carry out of the high word already holds the
-answer.
+The port has no uaddv or usubv patterns, so unsigned 64-bit
+__builtin_add_overflow and __builtin_sub_overflow, and the overflow
+checks GCC recognizes in C such as a + b < a, compute the result and
+then compare it with an operand as double words: a cmpu and up to three
+branches.  The carry out of the high word already holds the answer.
 
 Add uaddvdi4 and usubvdi4.  Each emits adddi3_carry or subdi3_nborrow,
-which does the double-word add or subtract and copies the carry into a
-register with addc rD, r0, r0, then branches on that register.  For a
-subtract the carry is set when there is no borrow, so usubvdi4 branches
-when it is zero.  A function returning __builtin_add_overflow (a, b, &r)
-on unsigned long long goes from 19 instructions to 15, and the
-subtraction likewise.
+which adds or subtracts and copies the carry into a register with
+addc rD, r0, r0, then branches on that register; a subtract sets the
+carry when there is no borrow.  A function returning
+__builtin_add_overflow (a, b, &r) on unsigned long long goes from 19
+instructions to 15, and the subtraction likewise.  As in the first
+patch, a one-word overlap goes through r18.
 
-There are no SImode patterns.  I tried them: a 32-bit check is already a
-cmpu and one branch, and with uaddvsi4 the C udiv_qrnnd in longlong.h,
-whose r1 += d; if (r1 >= d) GCC recognizes as an overflow check, became
-longer when combined with the comparison after it.  __udivdi3 with the
-divider went from 44.2 to 44.8 instructions per call; without the SImode
-patterns it is unchanged.
+There are no SImode patterns.  A 32-bit check is already a cmpu and a
+branch, and uaddvsi4 made longlong.h's udiv_qrnnd longer, slowing
+__udivdi3 with the divider from 44.2 to 44.8 instructions per call.
 
-As in the first patch of this series, the low word of the result is
-written before the high words of the operands are read, so a one-word
-overlap goes through r18.
+others/carry-run.c runs every pattern of this series: the shifts against
+variable-count shifts, and the overflow builtins against carries
+computed bit by bit.
 
-isa/overflow-carry.c checks that both builtins read the carry and no
-cmpu remains.  others/carry-run.c runs the patterns of this series:
-shifts by one and by 31 against variable-count shifts, and the overflow
-builtins, 32-bit and 64-bit, against carries computed bit by bit.
+Tested on microblaze-elf and microblazeel-elf under QEMU:
+gcc.c-torture/execute.exp, builtin-arith-overflow*.c and
+gcc.target/microblaze, with no new failures.
+
+Assisted-by: Claude <noreply@anthropic.com>
 
 gcc/
 	* config/microblaze/microblaze.md (adddi3_carry, subdi3_nborrow):
@@ -42,8 +39,6 @@ gcc/
 gcc/testsuite/
 	* gcc.target/microblaze/isa/overflow-carry.c: New test.
 	* gcc.target/microblaze/others/carry-run.c: New test.
-
-Assisted-by: Claude <noreply@anthropic.com>
 ---
  gcc/config/microblaze/microblaze.md           |  80 +++++++++++++
  .../microblaze/isa/overflow-carry.c           |  18 +++

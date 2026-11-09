@@ -63,6 +63,12 @@ one was checked against QEMU's MicroBlaze decoder
 reference guide.  Without patches 1-6, the test fails on exactly the
 lines they fix or change.
 
+Before writing the test I checked every entry in microblaze_opcodes
+for bits outside its own mask, and for an entry that an earlier one
+always matches.  After 1/7 the only hits are wdc.ext.clear, which 2/7
+fixes, and the pseudo-instructions whose instr is invalid_inst (nop,
+la, not, neg, sub, lmi, smi, tuqula, rtb), which are expected.
+
 Tested on microblaze-elf, before and after the series:
 
                 before                        after
