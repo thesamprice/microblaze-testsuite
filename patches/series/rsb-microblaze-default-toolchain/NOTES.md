@@ -98,3 +98,23 @@ for the atomic change, which 15.3 already has).
   byte-identical to what was built (only the commit message changed later).
 - First build attempt was stopped and restarted after adding 84e2023455a0;
   the numbers above are from the restarted build.
+
+## Update 2026-11-13: --no-relax workaround in RTEMS
+
+The cdtest regression is #71 (C++ LSDA call-site offsets not relocated
+under `ld -relax`; also present with the old 2.36 pin, only luck hid it).
+Workaround as an RTEMS patch: `../rtems-microblaze-no-relax/` adds
+`-Wl,--no-relax` to the microblaze_fpga ABI_FLAGS (all microblaze BSPs).
+With this RSB toolchain and that patch, petalogix_s3adsp1800 with sptests,
+samples, tmtests, psxtests and libtests (474 programs, same harness):
+
+| tools | pass | fail | timeout |
+|---|---|---|---|
+| RTEMS 7 (GCC 12.4.1, Xilinx 2.36), relaxed | 469 | 5 | 0 |
+| this RSB patch (GCC 15.2, 2.47), relaxed | 468 | 4 | 2 |
+| this RSB patch + RTEMS --no-relax patch | 470 | 4 | 0 |
+
+cdtest and libtests/dl05 (also C++ exceptions, also hangs relaxed) pass;
+the 4 fails are dl06 and psxfenv01 (expected fails) and spcpucounter01,
+spfatal26 (fail with the old tools too). Cost: 3.4% more text. Details in
+that directory's NOTES.md.
