@@ -1,0 +1,153 @@
+From 009ccaf5abcc086adc0e437884736c93ac946c88 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Fri, 13 Nov 2026 10:50:38 -0500
+Subject: [PATCH] ld: microblaze: test LSDA call sites under relaxation
+
+GCC writes each LSDA call-site entry as uleb128 differences of code
+labels:
+
+	.uleb128 .LEHB0-.LFB0
+	.uleb128 .LEHE0-.LEHB0
+	.uleb128 .L9-.LFB0
+
+Before the SET_ULEB128 and SUB_ULEB128 relocations, gas resolved these
+when assembling and nothing adjusted them when relaxation deleted an
+IMM, so the unwinder looked up call sites and jumped to landing pads at
+their unrelaxed offsets.  RTEMS links always relax, and its cdtest
+sample hung after the first caught exception: the landing pad entry for
+the call to foo_function in main_task was 12 bytes past the real one,
+skipping the moves of the exception pointer and selector out of r5 and
+r6.  The same sample passes with --no-relax, and with these relocations.
+
+The new test is that function's shape.  Relaxed, the call site moves
+from 0x1c to 0x14, its length from 0x0c to 0x08 and the landing pad
+from 0x30 to 0x24.  Without the relocations the entry stays at 0x1c,
+0x0c, 0x30, and 0x30 is the delay slot of the last rtsd.
+
+ld/
+	* testsuite/ld-microblaze/lsda.ld: New file.
+	* testsuite/ld-microblaze/relax-lsda.s: New file.
+	* testsuite/ld-microblaze/relax-lsda.d: New test.
+	* testsuite/ld-microblaze/relax-lsda-norelax.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ ld/testsuite/ld-microblaze/lsda.ld            | 10 ++++
+ .../ld-microblaze/relax-lsda-norelax.d        | 10 ++++
+ ld/testsuite/ld-microblaze/relax-lsda.d       | 15 ++++++
+ ld/testsuite/ld-microblaze/relax-lsda.s       | 47 +++++++++++++++++++
+ 4 files changed, 82 insertions(+)
+ create mode 100644 ld/testsuite/ld-microblaze/lsda.ld
+ create mode 100644 ld/testsuite/ld-microblaze/relax-lsda-norelax.d
+ create mode 100644 ld/testsuite/ld-microblaze/relax-lsda.d
+ create mode 100644 ld/testsuite/ld-microblaze/relax-lsda.s
+
+diff --git a/ld/testsuite/ld-microblaze/lsda.ld b/ld/testsuite/ld-microblaze/lsda.ld
+new file mode 100644
+index 00000000000..31a5b819040
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/lsda.ld
+@@ -0,0 +1,10 @@
++/* relax-diff.ld with the exception table placed at a fixed address.  */
++ENTRY(_start)
++SECTIONS
++{
++  . = 0x90000000;
++  .text : { *(.text.aaa) *(.text.zz) }
++  . = 0x90001000;
++  .gcc_except_table : { *(.gcc_except_table) }
++  /DISCARD/ : { *(.comment) *(.note*) }
++}
+diff --git a/ld/testsuite/ld-microblaze/relax-lsda-norelax.d b/ld/testsuite/ld-microblaze/relax-lsda-norelax.d
+new file mode 100644
+index 00000000000..854ca243a47
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-lsda-norelax.d
+@@ -0,0 +1,10 @@
++#source: relax-lsda.s
++#as: -EL
++#ld: -EL --no-relax -T $srcdir/$subdir/lsda.ld
++#objdump: -s -j .gcc_except_table
++#name: MicroBlaze LSDA call sites without relaxation
++
++.*: +file format .*
++
++Contents of section \.gcc_except_table:
++ 90001000 ffff0104 1c0c3000 +.*
+diff --git a/ld/testsuite/ld-microblaze/relax-lsda.d b/ld/testsuite/ld-microblaze/relax-lsda.d
+new file mode 100644
+index 00000000000..738c296fe8e
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-lsda.d
+@@ -0,0 +1,15 @@
++#source: relax-lsda.s
++#as: -EL
++#ld: -EL -relax -T $srcdir/$subdir/lsda.ld
++#objdump: -s -j .gcc_except_table
++#name: MicroBlaze relaxation keeps LSDA call sites with the code
++
++# Call site 0x14 for 0x08, landing pad 0x24.  Without the ULEB128
++# relocations the entry stays 0x1c, 0x0c, 0x30, as assembled; 0x30 is
++# then the delay slot of the last rtsd, so the unwinder skips the
++# landing pad's code.
++
++.*: +file format .*
++
++Contents of section \.gcc_except_table:
++ 90001000 ffff0104 14082400 +.*
+diff --git a/ld/testsuite/ld-microblaze/relax-lsda.s b/ld/testsuite/ld-microblaze/relax-lsda.s
+new file mode 100644
+index 00000000000..92f9bedd50a
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-lsda.s
+@@ -0,0 +1,47 @@
++/* The shape of the LSDA GCC writes for a try/catch, as in the RTEMS
++   cdtest sample: the call-site start and length and the landing-pad
++   offset are uleb128 differences of code labels.  Relaxation deletes
++   the two IMMs before $LEHB0, the IMM of the call in the call site and
++   the IMM of the call in the landing pad, so the call site starts 8
++   bytes earlier and is 4 bytes shorter, and the landing pad is 12
++   bytes earlier.  */
++
++	.section .text.aaa,"ax",@progbits
++	.globl	_start
++_start:
++$LFB0:
++	addik	r1, r1, -32
++	brlid	r15, far
++	nop
++	brlid	r15, far
++	nop
++$LEHB0:
++	brlid	r15, far
++	nop
++$LEHE0:
++	rtsd	r15, 8
++	addik	r1, r1, 32
++$L9:
++	brlid	r15, far
++	nop
++	rtsd	r15, 8
++	addik	r1, r1, 32
++$LFE0:
++
++	.section .text.zz,"ax",@progbits
++far:
++	rtsd	r15, 8
++	nop
++
++	.section .gcc_except_table,"a",@progbits
++$LLSDA0:
++	.byte	0xff
++	.byte	0xff
++	.byte	0x1
++	.uleb128 $LLSDACSE0-$LLSDACSB0
++$LLSDACSB0:
++	.uleb128 $LEHB0-$LFB0
++	.uleb128 $LEHE0-$LEHB0
++	.uleb128 $L9-$LFB0
++	.uleb128 0
++$LLSDACSE0:
+-- 
+2.39.5 (Apple Git-154)
+
