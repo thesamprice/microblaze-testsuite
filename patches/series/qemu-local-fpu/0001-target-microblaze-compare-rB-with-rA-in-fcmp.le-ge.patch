@@ -1,0 +1,53 @@
+From 3b93f66065a36f0702091af389e9cb6264aeb531 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 20:41:38 -0500
+Subject: [PATCH 1/2] target/microblaze: compare rB with rA in fcmp.le/ge
+
+LOCAL ONLY: not for submission to qemu-devel (QEMU AI policy).
+Reference for a hand-written fix.
+
+UG984 (fcmp, Table 104) defines every fcmp as rB compared with rA:
+fcmp.le gives 1 when rB <= rA, fcmp.ge gives 1 when rB >= rA, and both
+give 0 when either operand is a NaN.  helper_fcmp_lt and helper_fcmp_gt
+follow that, with a = rA and b = rB, but the other two do not:
+
+	r = float32_le(fa.f, fb.f, &env->fp_status);   /* le: rA <= rB */
+	r = !float32_lt(fa.f, fb.f, &env->fp_status);  /* ge: rA >= rB */
+
+so fcmp.le and fcmp.ge both compute the opposite relation, and
+fcmp.ge also returns 1 for unordered operands.
+
+Use float32_le(b, a) for fcmp.le and float32_le(a, b) for fcmp.ge.
+float32_le is the signalling comparison, so FSR[IO] is still raised
+for a quiet NaN, as Table 104 requires for these two.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ target/microblaze/op_helper.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/target/microblaze/op_helper.c b/target/microblaze/op_helper.c
+index 31da2c7c3..91abb2dea 100644
+--- a/target/microblaze/op_helper.c
++++ b/target/microblaze/op_helper.c
+@@ -275,7 +275,7 @@ uint32_t helper_fcmp_le(CPUMBState *env, uint32_t a, uint32_t b)
+     fa.l = a;
+     fb.l = b;
+     set_float_exception_flags(0, &env->fp_status);
+-    r = float32_le(fa.f, fb.f, &env->fp_status);
++    r = float32_le(fb.f, fa.f, &env->fp_status);
+     flags = get_float_exception_flags(&env->fp_status);
+     update_fpu_flags(env, flags & float_flag_invalid, GETPC());
+ 
+@@ -320,7 +320,7 @@ uint32_t helper_fcmp_ge(CPUMBState *env, uint32_t a, uint32_t b)
+     fa.l = a;
+     fb.l = b;
+     set_float_exception_flags(0, &env->fp_status);
+-    r = !float32_lt(fa.f, fb.f, &env->fp_status);
++    r = float32_le(fa.f, fb.f, &env->fp_status);
+     flags = get_float_exception_flags(&env->fp_status);
+     update_fpu_flags(env, flags & float_flag_invalid, GETPC());
+ 
+-- 
+2.39.5 (Apple Git-154)
+

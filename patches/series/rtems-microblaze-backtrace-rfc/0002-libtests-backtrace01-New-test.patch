@@ -1,0 +1,209 @@
+From a8b4136ce911265bebcc3dbf8a689a3dd7086a1d Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:27:31 -0500
+Subject: [RFC PATCH 2/2] libtests/backtrace01: New test
+
+Check that rtems_backtrace() returns an address in each of three nested
+functions, in order, that it stops at the size of the array, and that
+it stores nothing for a size of zero.  The test is built with
+-funwind-tables, so the walk does not stop in it.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ .../build/testsuites/libtests/backtrace01.yml |  20 +++
+ spec/build/testsuites/libtests/grp.yml        |   2 +
+ testsuites/libtests/backtrace01/init.c        | 142 ++++++++++++++++++
+ 3 files changed, 164 insertions(+)
+ create mode 100644 spec/build/testsuites/libtests/backtrace01.yml
+ create mode 100644 testsuites/libtests/backtrace01/init.c
+
+diff --git a/spec/build/testsuites/libtests/backtrace01.yml b/spec/build/testsuites/libtests/backtrace01.yml
+new file mode 100644
+index 0000000000..205ef8b072
+--- /dev/null
++++ b/spec/build/testsuites/libtests/backtrace01.yml
+@@ -0,0 +1,20 @@
++SPDX-License-Identifier: CC-BY-SA-4.0 OR BSD-2-Clause
++build-type: test-program
++cflags:
++- -funwind-tables
++copyrights:
++- Copyright (C) 2026 Samuel Price
++cppflags: []
++cxxflags: []
++enabled-by: true
++features: c cprogram
++includes: []
++ldflags: []
++links: []
++source:
++- testsuites/libtests/backtrace01/init.c
++stlib: []
++target: testsuites/libtests/backtrace01.exe
++type: build
++use-after: []
++use-before: []
+diff --git a/spec/build/testsuites/libtests/grp.yml b/spec/build/testsuites/libtests/grp.yml
+index 97922d117e..9cccd64c22 100644
+--- a/spec/build/testsuites/libtests/grp.yml
++++ b/spec/build/testsuites/libtests/grp.yml
+@@ -28,6 +28,8 @@ links:
+     uid: optrtemsld
+   - role: build-dependency
+     uid: optrtemssyms
++  - role: build-dependency
++    uid: backtrace01
+   - role: build-dependency
+     uid: block01
+   - role: build-dependency
+diff --git a/testsuites/libtests/backtrace01/init.c b/testsuites/libtests/backtrace01/init.c
+new file mode 100644
+index 0000000000..cfb09933be
+--- /dev/null
++++ b/testsuites/libtests/backtrace01/init.c
+@@ -0,0 +1,142 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++
++/**
++ * @file
++ *
++ * @brief This test checks rtems_backtrace().
++ */
++
++/*
++ * Copyright (C) 2026 Samuel Price
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
++ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifdef HAVE_CONFIG_H
++#include "config.h"
++#endif
++
++#include <rtems/backtrace.h>
++
++#include <stdint.h>
++
++#include <tmacros.h>
++
++const char rtems_test_name[] = "BACKTRACE 1";
++
++/*
++ * The functions are small, so an address in a function is within this many
++ * bytes of its start.
++ */
++#define FUNCTION_SIZE_LIMIT 256
++
++typedef struct {
++  void *addresses[ 8 ];
++  int   count;
++  void *one[ 1 ];
++  int   count_one;
++  int   count_zero;
++} Test_Context;
++
++static Test_Context test_instance;
++
++static bool in_function( const void *address, void ( *function )( void ) )
++{
++  uintptr_t begin;
++
++  /* Ignore the Thumb bit */
++  begin = (uintptr_t) function & ~(uintptr_t) 1;
++
++  return (uintptr_t) address - begin < FUNCTION_SIZE_LIMIT;
++}
++
++/*
++ * The functions must not be inlined and the calls must not be tail calls,
++ * otherwise their frames do not appear in the backtrace.
++ */
++
++static RTEMS_NO_INLINE void f3( void )
++{
++  Test_Context *ctx;
++
++  ctx = &test_instance;
++  ctx->count = rtems_backtrace(
++    ctx->addresses,
++    RTEMS_ARRAY_SIZE( ctx->addresses )
++  );
++  ctx->count_one = rtems_backtrace( ctx->one, RTEMS_ARRAY_SIZE( ctx->one ) );
++  ctx->count_zero = rtems_backtrace( NULL, 0 );
++  RTEMS_COMPILER_MEMORY_BARRIER();
++}
++
++static RTEMS_NO_INLINE void f2( void )
++{
++  f3();
++  RTEMS_COMPILER_MEMORY_BARRIER();
++}
++
++static RTEMS_NO_INLINE void f1( void )
++{
++  f2();
++  RTEMS_COMPILER_MEMORY_BARRIER();
++}
++
++static rtems_task Init( rtems_task_argument argument )
++{
++  Test_Context *ctx;
++
++  (void) argument;
++
++  TEST_BEGIN();
++  ctx = &test_instance;
++
++  f1();
++  rtems_backtrace_print();
++
++  rtems_test_assert( ctx->count >= 3 );
++  rtems_test_assert( in_function( ctx->addresses[ 0 ], f3 ) );
++  rtems_test_assert( in_function( ctx->addresses[ 1 ], f2 ) );
++  rtems_test_assert( in_function( ctx->addresses[ 2 ], f1 ) );
++
++  rtems_test_assert( ctx->count_one == 1 );
++  rtems_test_assert( ctx->one[ 0 ] != ctx->addresses[ 0 ] );
++  rtems_test_assert( in_function( ctx->one[ 0 ], f3 ) );
++
++  rtems_test_assert( ctx->count_zero == 0 );
++
++  TEST_END();
++  rtems_test_exit( 0 );
++}
++
++#define CONFIGURE_APPLICATION_NEEDS_SIMPLE_CONSOLE_DRIVER
++
++#define CONFIGURE_APPLICATION_DOES_NOT_NEED_CLOCK_DRIVER
++
++#define CONFIGURE_MAXIMUM_TASKS 1
++
++#define CONFIGURE_INITIAL_EXTENSIONS RTEMS_TEST_INITIAL_EXTENSION
++
++#define CONFIGURE_RTEMS_INIT_TASKS_TABLE
++
++#define CONFIGURE_INIT
++
++#include <rtems/confdefs.h>
+-- 
+2.39.5 (Apple Git-154)
+

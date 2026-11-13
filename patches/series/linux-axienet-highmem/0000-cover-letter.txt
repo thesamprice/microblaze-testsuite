@@ -1,0 +1,38 @@
+net: axienet: let highmem TX fragments reach the driver
+
+On 32-bit systems with HIGHMEM, axienet's legacy (non-dmaengine) TX
+path cannot map a fragment in a highmem page: it uses
+dma_map_single(skb_frag_address(frag)), and skb_frag_address() is NULL
+for such a page.  The driver is safe today only because it does not set
+NETIF_F_HIGHDMA, so the core linearises every skb with a highmem
+fragment first, which on MicroBlaze with more RAM than
+CONFIG_LOWMEM_SIZE means copying most sendfile() and splice() traffic.
+
+Patch 1/2 maps fragments with skb_frag_dma_map() and unmaps them with
+dma_unmap_page(), using the TXSOF bit to tell the linear part of the
+skb from its fragments.  No behaviour change on its own.
+
+Patch 2/2 sets NETIF_F_HIGHDMA.  It must come after 1/2.
+
+The dmaengine TX path already handles highmem through skb_to_sgvec()
+and dma_map_sg().
+
+Testing, on QEMU petalogix-ml605 (legacy AXI DMA path; little-endian
+MicroBlaze, 256 MB RAM with CONFIG_LOWMEM_SIZE=0x08000000, so 128 MB
+highmem; CONFIG_DMA_API_DEBUG=y; xlnx,txcsum = <1> in the device tree
+so that NETIF_F_SG survives).  A static /init writes an 8 MiB file to
+tmpfs (HighFree drops by 8200 kB) and sendfile()s it over TCP to the
+host through user-mode networking; the host compares the bytes.  A
+debug counter, not part of the series, counted fragments in
+axienet_start_xmit():
+
+  net-next base:           file intact, 0 fragments reached the driver
+  2/2 only:                first fragment is highmem; DMA-API "maps
+                           memory from invalid area [addr=00000000]",
+                           then Oops in axienet_start_xmit()
+  1/2 + 2/2:               file intact, over 7000 fragments, all
+                           highmem; no DMA-API reports
+
+Also built: microblaze defconfig plus HIGHMEM with the driver built in,
+and arm64 allmodconfig (COMPILE_TEST, driver as module) with W=1, no
+warnings.  I have not tested real hardware or the dmaengine path.

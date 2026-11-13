@@ -1,0 +1,139 @@
+From 73872e9fa6014236cf666f9685c846adf85d98df Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:08:04 -0500
+Subject: [PATCH 1/8] microblaze: Add CFI macros for the assembly code
+
+The assembler rejects the .cfi_* directives for MicroBlaze with "CFI is
+not supported for this target", which is why none of the MicroBlaze
+assembly code has call frame information.  An unwinder stops at the
+first frame of such code.  Support for the directives has been posted
+for binutils but is not in a release.
+
+Check at configure time whether the assembler accepts the directives and
+define MICROBLAZE_ASM_CFI in <rtems/score/cpuopts.h> if it does.  Add
+CFI macros to the MicroBlaze <rtems/asm.h> which expand to the
+directives if MICROBLAZE_ASM_CFI is defined and to nothing otherwise, so
+the assembly code builds with either assembler.
+
+The __GCC_HAVE_DWARF2_CFI_ASM predefine, which libitm and libsanitizer
+use for the same purpose, cannot be used.  GCC never emits CFI
+directives for MicroBlaze, even with an assembler which accepts them:
+ASM_PREFERRED_EH_DATA_FORMAT returns DW_EH_PE_aligned for global
+symbols, so dwarf2out_do_cfi_asm() returns false and the predefine is
+not set.
+
+CFI_INTERRUPTED_FRAME() describes a frame entered from an interrupt or
+exception.  The libgcc unwinder adds RETURN_ADDR_OFFSET (8) to the
+value of the return address column, so the macro stores the interrupted
+program counter minus 8 in the alternate return column 36 with a
+DW_CFA_val_expression, and marks the frame as a signal frame.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ .../score/cpu/microblaze/include/rtems/asm.h  | 48 +++++++++++++++++++
+ spec/build/cpukit/cpuopts.yml                 |  2 +
+ spec/build/cpukit/optmicroblazeasmcfi.yml     | 22 +++++++++
+ 3 files changed, 72 insertions(+)
+ create mode 100644 spec/build/cpukit/optmicroblazeasmcfi.yml
+
+diff --git a/cpukit/score/cpu/microblaze/include/rtems/asm.h b/cpukit/score/cpu/microblaze/include/rtems/asm.h
+index d781ac8ae5..923e133b38 100644
+--- a/cpukit/score/cpu/microblaze/include/rtems/asm.h
++++ b/cpukit/score/cpu/microblaze/include/rtems/asm.h
+@@ -138,4 +138,52 @@
+  */
+ #define EXTERN(sym) .globl SYM (sym)
+ 
++/*
++ * Call frame information.  Older assemblers reject the CFI directives for
++ * MicroBlaze, so the macros expand to nothing unless the build found that the
++ * assembler accepts them.
++ */
++#ifdef MICROBLAZE_ASM_CFI
++#define CFI_STARTPROC .cfi_startproc
++#define CFI_ENDPROC .cfi_endproc
++#define CFI_SIGNAL_FRAME .cfi_signal_frame
++#define CFI_RETURN_COLUMN(reg) .cfi_return_column reg
++#define CFI_DEF_CFA(reg, off) .cfi_def_cfa reg, off
++#define CFI_DEF_CFA_OFFSET(off) .cfi_def_cfa_offset off
++#define CFI_DEF_CFA_REGISTER(reg) .cfi_def_cfa_register reg
++#define CFI_OFFSET(reg, off) .cfi_offset reg, off
++#define CFI_UNDEFINED(reg) .cfi_undefined reg
++#define CFI_ESCAPE(...) .cfi_escape __VA_ARGS__
++#else
++#define CFI_STARTPROC
++#define CFI_ENDPROC
++#define CFI_SIGNAL_FRAME
++#define CFI_RETURN_COLUMN(reg)
++#define CFI_DEF_CFA(reg, off)
++#define CFI_DEF_CFA_OFFSET(off)
++#define CFI_DEF_CFA_REGISTER(reg)
++#define CFI_OFFSET(reg, off)
++#define CFI_UNDEFINED(reg)
++#define CFI_ESCAPE(...)
++#endif
++
++/*
++ * Mark the frame as entered from an interrupt, an exception or a break.  The
++ * interrupted program counter is saved at CFA - pc_off.  The unwinder takes
++ * the return address column plus 8 as the return address (RETURN_ADDR_OFFSET
++ * in GCC), which suits "rtsd r15, 8" but not the exact program counter of an
++ * interrupted context.  So the program counter minus 8 is described as the
++ * value of the alternate return column 36 (DWARF_ALT_FRAME_RETURN_COLUMN in
++ * GCC):
++ *
++ *   DW_CFA_val_expression 36, { DW_OP_constu pc_off; DW_OP_minus;
++ *     DW_OP_deref; DW_OP_lit8; DW_OP_minus }
++ *
++ * The encoding of pc_off as one ULEB128 byte requires pc_off < 128.
++ */
++#define CFI_INTERRUPTED_FRAME(pc_off) \
++  CFI_SIGNAL_FRAME; \
++  CFI_RETURN_COLUMN(36); \
++  CFI_ESCAPE(0x16, 36, 6, 0x10, pc_off, 0x1c, 0x06, 0x38, 0x1c)
++
+ #endif
+diff --git a/spec/build/cpukit/cpuopts.yml b/spec/build/cpukit/cpuopts.yml
+index 658491be02..6033fc3616 100644
+--- a/spec/build/cpukit/cpuopts.yml
++++ b/spec/build/cpukit/cpuopts.yml
+@@ -47,6 +47,8 @@ links:
+   uid: optdrvmgr
+ - role: build-dependency
+   uid: optexceptionextensions
++- role: build-dependency
++  uid: optmicroblazeasmcfi
+ - role: build-dependency
+   uid: optmpci
+ - role: build-dependency
+diff --git a/spec/build/cpukit/optmicroblazeasmcfi.yml b/spec/build/cpukit/optmicroblazeasmcfi.yml
+new file mode 100644
+index 0000000000..344a20807e
+--- /dev/null
++++ b/spec/build/cpukit/optmicroblazeasmcfi.yml
+@@ -0,0 +1,22 @@
++SPDX-License-Identifier: CC-BY-SA-4.0 OR BSD-2-Clause
++actions:
++- script: |
++    value = conf.check(
++        features="c",
++        fragment="__asm__(\".cfi_startproc\\n.cfi_endproc\");\n",
++        msg="Checking for MicroBlaze assembler CFI directives",
++        mandatory=False,
++    )
++- define-condition: null
++build-type: option
++copyrights:
++- Copyright (C) 2026 Samuel Price
++default: []
++description: |
++  This option is set if the assembler accepts the CFI directives for
++  MicroBlaze.  The assembly sources use the CFI macros of <rtems/asm.h>,
++  which expand to nothing otherwise.
++enabled-by: microblaze
++links: []
++name: MICROBLAZE_ASM_CFI
++type: build
+-- 
+2.39.5 (Apple Git-154)
+

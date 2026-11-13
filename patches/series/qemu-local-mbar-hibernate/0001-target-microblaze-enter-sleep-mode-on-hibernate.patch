@@ -1,0 +1,50 @@
+From ea1e424667d75581af2d3cd1707351bc0d5abdd3 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 20:45:17 -0500
+Subject: [PATCH] target/microblaze: enter sleep mode on hibernate
+
+LOCAL ONLY: not for submission to qemu-devel (QEMU AI policy).
+Reference for a hand-written fix.
+
+trans_mbar halts the CPU only when bit 16 of IMM is set:
+
+	if (mbar_imm & 16) {
+
+UG984 (mbar) enters sleep mode when either of the two most significant
+IMM bits is set, "if (IMM & 24) != 0", and Table 69 defines the
+pseudo-instructions sleep, hibernate and suspend as mbar 16, 8 and 24.
+hibernate, mbar 8, therefore runs straight on instead of halting until
+an interrupt.
+
+Test IMM & 24.  The privilege check keeps covering all three: UG984's
+list of privileged instructions names SLEEP, HIBERNATE and SUSPEND.
+The mbar page itself says the instruction is privileged when the most
+significant IMM bit is set, which would leave hibernate unprivileged;
+I followed the list, so that a user-mode program cannot halt the CPU.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ target/microblaze/translate.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/target/microblaze/translate.c b/target/microblaze/translate.c
+index fefe5cb55..f16a288be 100644
+--- a/target/microblaze/translate.c
++++ b/target/microblaze/translate.c
+@@ -1232,10 +1232,10 @@ static bool trans_mbar(DisasContext *dc, arg_mbar *arg)
+         tcg_gen_mb(TCG_BAR_SC | TCG_MO_ALL);
+     }
+ 
+-    /* Sleep. */
+-    if (mbar_imm & 16) {
++    /* Sleep (16), hibernate (8) or suspend (24).  */
++    if (mbar_imm & 24) {
+         if (trap_userspace(dc, true)) {
+-            /* Sleep is a privileged instruction.  */
++            /* All three are privileged instructions.  */
+             return true;
+         }
+ 
+-- 
+2.39.5 (Apple Git-154)
+

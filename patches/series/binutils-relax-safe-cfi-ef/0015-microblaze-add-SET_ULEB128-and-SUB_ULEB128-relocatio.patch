@@ -1,0 +1,620 @@
+From 8d80a35dde77a7e184c4c62eea9c714ebfa1e3fb Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 22:27:11 -0500
+Subject: [PATCH 15/15] microblaze: add SET_ULEB128 and SUB_ULEB128 relocations
+
+gas resolves a .uleb128 of a difference of code labels at assembly
+time, even when an IMM between the labels can later be deleted by
+linker relaxation.  GCC writes location and range lists this way
+(".uleb128 .LVL2-1-.Ltext0"), and so does its line table when gas does
+not generate it.  In the new test, a difference of 132 stays 132 after
+relaxation shrinks it to 124.
+
+Add R_MICROBLAZE_SET_ULEB128 and R_MICROBLAZE_SUB_ULEB128, after
+R_RISCV_SET_ULEB128 and R_RISCV_SUB_ULEB128.  gas gives each such
+.uleb128 the pair, both at the field, in microblaze_pre_output_hook,
+as riscv_insert_uleb128_fixes does, and only when both labels are in
+one code section and the difference was not resolved when it was
+parsed.  It still writes the difference it computed, so an unrelaxed
+link and tools reading the object see the right value.
+microblaze_elf_relocate_section rewrites the field from the pair in
+the number of bytes it already occupies, padding with continuation
+bytes; relaxation only deletes bytes, so the new value always fits.
+Relaxation adjusts the addends the same way as for the other ADD and
+SUB relocations, and readelf applies the pair when dumping an object.
+
+The numbers 44 and 45 follow the provisional block 36-43 used for the
+ADD, SUB and SET relocations, and need the same agreement with AMD.
+
+bfd/
+	* reloc.c (BFD_RELOC_MICROBLAZE_SET_ULEB128)
+	(BFD_RELOC_MICROBLAZE_SUB_ULEB128): New.
+	* bfd-in2.h: Regenerate.
+	* libbfd.h: Regenerate.
+	* elf32-microblaze.c (microblaze_elf_ignore_reloc): New function.
+	(microblaze_elf_howto_raw): Add the ULEB128 howtos.
+	(microblaze_elf_reloc_type_lookup): Map the new BFD relocs.
+	(microblaze_write_uleb128): New function.
+	(microblaze_elf_relocate_section): Apply the ULEB128 pair.
+	(microblaze_diff_reloc_p): Include the ULEB128 relocations.
+	(microblaze_elf_relax_section): Likewise.
+
+binutils/
+	* readelf.c (target_specific_reloc_handling): Apply the MicroBlaze
+	ULEB128 pair.
+
+gas/
+	* config/tc-microblaze.c (microblaze_uleb128_fix): New function.
+	(microblaze_pre_output_hook): Call it for rs_leb128 frags.
+	(md_apply_fix): Accept the ULEB128 relocations.
+	(tc_gen_reloc): Likewise.
+	* testsuite/gas/microblaze/reloc_uleb128.s: New file.
+	* testsuite/gas/microblaze/reloc_uleb128.d: New test.
+	* testsuite/gas/microblaze/reloc_diff.exp: Run it.
+
+include/
+	* elf/microblaze.h (R_MICROBLAZE_SET_ULEB128)
+	(R_MICROBLAZE_SUB_ULEB128): New.
+
+ld/
+	* testsuite/ld-microblaze/relax-uleb128.s: New file.
+	* testsuite/ld-microblaze/relax-uleb128.d: New test.
+	* testsuite/ld-microblaze/relax-uleb128-norelax.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ bfd/bfd-in2.h                                 |   6 +
+ bfd/elf32-microblaze.c                        | 117 ++++++++++++++++++
+ bfd/libbfd.h                                  |   2 +
+ bfd/reloc.c                                   |   8 ++
+ binutils/readelf.c                            |  75 +++++++++++
+ gas/config/tc-microblaze.c                    |  52 +++++++-
+ gas/testsuite/gas/microblaze/reloc_diff.exp   |   1 +
+ gas/testsuite/gas/microblaze/reloc_uleb128.d  |  16 +++
+ gas/testsuite/gas/microblaze/reloc_uleb128.s  |  15 +++
+ include/elf/microblaze.h                      |   2 +
+ .../ld-microblaze/relax-uleb128-norelax.d     |  10 ++
+ ld/testsuite/ld-microblaze/relax-uleb128.d    |  13 ++
+ ld/testsuite/ld-microblaze/relax-uleb128.s    |  26 ++++
+ 13 files changed, 342 insertions(+), 1 deletion(-)
+ create mode 100644 gas/testsuite/gas/microblaze/reloc_uleb128.d
+ create mode 100644 gas/testsuite/gas/microblaze/reloc_uleb128.s
+ create mode 100644 ld/testsuite/ld-microblaze/relax-uleb128-norelax.d
+ create mode 100644 ld/testsuite/ld-microblaze/relax-uleb128.d
+ create mode 100644 ld/testsuite/ld-microblaze/relax-uleb128.s
+
+diff --git a/bfd/bfd-in2.h b/bfd/bfd-in2.h
+index 28536feb6b4..363b1986b3e 100644
+--- a/bfd/bfd-in2.h
++++ b/bfd/bfd-in2.h
+@@ -6381,6 +6381,12 @@ enum bfd_reloc_code_real
+   BFD_RELOC_MICROBLAZE_SUB32,
+   BFD_RELOC_MICROBLAZE_SET6,
+ 
++  /* MicroBlaze relocations that set and subtract from a ULEB128 field.
++     The pair expresses the difference of two code labels, which linker
++     relaxation can change.  */
++  BFD_RELOC_MICROBLAZE_SET_ULEB128,
++  BFD_RELOC_MICROBLAZE_SUB_ULEB128,
++
+   /* Used internally by the MicroBlaze assembler for the delta of a
+      DW_CFA_advance_loc, which becomes a pair of the relocations above.  */
+   BFD_RELOC_MICROBLAZE_CFA,
+diff --git a/bfd/elf32-microblaze.c b/bfd/elf32-microblaze.c
+index 98308931b1d..6062dd07d96 100644
+--- a/bfd/elf32-microblaze.c
++++ b/bfd/elf32-microblaze.c
+@@ -99,6 +99,25 @@ microblaze_elf_add_sub_reloc (bfd *abfd,
+   return bfd_reloc_ok;
+ }
+ 
++/* Special function for the ULEB128 relocations.  The assembler has
++   already written the difference, which is correct for an object that
++   has not been relaxed; only microblaze_elf_relocate_section recomputes
++   it.  From riscv_elf_ignore_reloc in elfxx-riscv.c.  */
++
++static bfd_reloc_status_type
++microblaze_elf_ignore_reloc (bfd *abfd ATTRIBUTE_UNUSED,
++			     arelent *reloc_entry,
++			     asymbol *symbol ATTRIBUTE_UNUSED,
++			     void *data ATTRIBUTE_UNUSED,
++			     asection *input_section,
++			     bfd *output_bfd,
++			     char **error_message ATTRIBUTE_UNUSED)
++{
++  if (output_bfd != NULL)
++    reloc_entry->address += input_section->output_offset;
++  return bfd_reloc_ok;
++}
++
+ static reloc_howto_type microblaze_elf_howto_raw[] =
+ {
+    /* This reloc does nothing.  */
+@@ -721,6 +740,37 @@ static reloc_howto_type microblaze_elf_howto_raw[] =
+ 	 0x3f,		/* dst_mask */
+ 	 false),		/* pcrel_offset */
+ 
++   /* ULEB128 setting, for the difference of two labels.  Paired with
++      a following R_MICROBLAZE_SUB_ULEB128 at the same offset.  */
++   HOWTO (R_MICROBLAZE_SET_ULEB128,
++	 0,			/* rightshift */
++	 0,			/* size */
++	 0,			/* bitsize */
++	 false,			/* pc_relative */
++	 0,			/* bitpos */
++	 complain_overflow_dont, /* complain_on_overflow */
++	 microblaze_elf_ignore_reloc, /* special_function */
++	 "R_MICROBLAZE_SET_ULEB128", /* name */
++	 false,			/* partial_inplace */
++	 0,			/* src_mask */
++	 0,			/* dst_mask */
++	 false),		/* pcrel_offset */
++
++   /* ULEB128 subtraction, for the difference of two labels.  */
++   HOWTO (R_MICROBLAZE_SUB_ULEB128,
++	 0,			/* rightshift */
++	 0,			/* size */
++	 0,			/* bitsize */
++	 false,			/* pc_relative */
++	 0,			/* bitpos */
++	 complain_overflow_dont, /* complain_on_overflow */
++	 microblaze_elf_ignore_reloc, /* special_function */
++	 "R_MICROBLAZE_SUB_ULEB128", /* name */
++	 false,			/* partial_inplace */
++	 0,			/* src_mask */
++	 0,			/* dst_mask */
++	 false),		/* pcrel_offset */
++
+ };
+ 
+ #ifndef NUM_ELEM
+@@ -869,6 +919,12 @@ microblaze_elf_reloc_type_lookup (bfd * abfd ATTRIBUTE_UNUSED,
+     case BFD_RELOC_MICROBLAZE_SET6:
+       microblaze_reloc = R_MICROBLAZE_SET6;
+       break;
++    case BFD_RELOC_MICROBLAZE_SET_ULEB128:
++      microblaze_reloc = R_MICROBLAZE_SET_ULEB128;
++      break;
++    case BFD_RELOC_MICROBLAZE_SUB_ULEB128:
++      microblaze_reloc = R_MICROBLAZE_SUB_ULEB128;
++      break;
+     default:
+       return (reloc_howto_type *) NULL;
+     }
+@@ -1192,6 +1248,34 @@ microblaze_elf_output_dynamic_relocation (bfd *output_bfd,
+ 	      (sreloc->contents + reloc_index * sizeof (Elf32_External_Rela)));
+ }
+ 
++/* Write VALUE as a ULEB128 at P, in exactly the number of bytes the
++   ULEB128 already there occupies, padding with continuation bytes.
++   END is the end of the section.  Return false if the field is not a
++   valid ULEB128 or VALUE does not fit in it.  */
++
++static bool
++microblaze_write_uleb128 (bfd_byte *p, bfd_byte *end, bfd_vma value)
++{
++  size_t len, i;
++
++  for (len = 0; p + len < end && (p[len] & 0x80) != 0; len++)
++    ;
++  if (p + len >= end)
++    return false;
++  len++;
++
++  for (i = 0; i < len; i++)
++    {
++      bfd_byte c = value & 0x7f;
++
++      value >>= 7;
++      if (i + 1 < len)
++	c |= 0x80;
++      p[i] = c;
++    }
++  return value == 0;
++}
++
+ /* This code is taken from elf32-m32r.c
+    There is some attempt to make this function usable for many architectures,
+    both USE_REL and USE_RELA ['twould be nice if such a critter existed],
+@@ -1245,6 +1329,9 @@ microblaze_elf_relocate_section (struct bfd_link_info *info,
+   asection *sreloc;
+   bfd_vma *local_got_offsets;
+   unsigned int tls_type;
++  /* The R_MICROBLAZE_SET_ULEB128 waiting for its SUB_ULEB128.  */
++  Elf_Internal_Rela *uleb128_set_rel = NULL;
++  bfd_vma uleb128_set_value = 0;
+ 
+   if (!microblaze_elf_howto_table[R_MICROBLAZE_max-1])
+     microblaze_elf_howto_init ();
+@@ -1543,6 +1630,32 @@ microblaze_elf_relocate_section (struct bfd_link_info *info,
+ 	      }
+ 	      break;
+ 
++	    case (int) R_MICROBLAZE_SET_ULEB128:
++	      uleb128_set_rel = rel;
++	      uleb128_set_value = relocation + addend;
++	      break;
++
++	    case (int) R_MICROBLAZE_SUB_ULEB128:
++	      /* As on RISC-V, the SET comes first at the same offset.  */
++	      if (uleb128_set_rel == NULL
++		  || uleb128_set_rel->r_offset != rel->r_offset)
++		{
++		  errmsg = _("R_MICROBLAZE_SUB_ULEB128 without a preceding "
++			     "R_MICROBLAZE_SET_ULEB128 at the same offset");
++		  r = bfd_reloc_dangerous;
++		}
++	      else if (!microblaze_write_uleb128
++			 (contents + offset,
++			  contents + bfd_get_section_limit (input_bfd,
++							    input_section),
++			  uleb128_set_value - (relocation + addend)))
++		{
++		  errmsg = _("ULEB128 difference does not fit its field");
++		  r = bfd_reloc_dangerous;
++		}
++	      uleb128_set_rel = NULL;
++	      break;
++
+ 	    case (int) R_MICROBLAZE_GOTPC_64:
+ 	      relocation = (htab->elf.sgotplt->output_section->vma
+ 			    + htab->elf.sgotplt->output_offset);
+@@ -2061,6 +2174,8 @@ microblaze_diff_reloc_p (int r_type)
+     case R_MICROBLAZE_SUB16:
+     case R_MICROBLAZE_SUB32:
+     case R_MICROBLAZE_SET6:
++    case R_MICROBLAZE_SET_ULEB128:
++    case R_MICROBLAZE_SUB_ULEB128:
+       return true;
+     default:
+       return false;
+@@ -2330,6 +2445,8 @@ microblaze_elf_relax_section (bfd *abfd,
+ 	    case R_MICROBLAZE_SUB16:
+ 	    case R_MICROBLAZE_SUB32:
+ 	    case R_MICROBLAZE_SET6:
++	    case R_MICROBLAZE_SET_ULEB128:
++	    case R_MICROBLAZE_SUB_ULEB128:
+ 	      /* If this reloc is against a symbol defined in this
+ 		 section, we must check the addend to see it will put the value in
+ 		 range to be adjusted, and hence must be changed.  */
+diff --git a/bfd/libbfd.h b/bfd/libbfd.h
+index 5cf3f44f433..2db0a1de2ee 100644
+--- a/bfd/libbfd.h
++++ b/bfd/libbfd.h
+@@ -2859,6 +2859,8 @@ static const char *const bfd_reloc_code_real_names[] = { "@@uninitialized@@",
+   "BFD_RELOC_MICROBLAZE_SUB16",
+   "BFD_RELOC_MICROBLAZE_SUB32",
+   "BFD_RELOC_MICROBLAZE_SET6",
++  "BFD_RELOC_MICROBLAZE_SET_ULEB128",
++  "BFD_RELOC_MICROBLAZE_SUB_ULEB128",
+   "BFD_RELOC_MICROBLAZE_CFA",
+   "BFD_RELOC_KVX_RELOC_START",
+   "BFD_RELOC_KVX_NONE",
+diff --git a/bfd/reloc.c b/bfd/reloc.c
+index 1f8210ec16a..46b935c0e44 100644
+--- a/bfd/reloc.c
++++ b/bfd/reloc.c
+@@ -6316,6 +6316,14 @@ ENUMDOC
+   MicroBlaze relocations that add to, subtract from or set a data field.
+   A pair of them expresses the difference of two code labels, which
+   linker relaxation can change.
++ENUM
++  BFD_RELOC_MICROBLAZE_SET_ULEB128
++ENUMX
++  BFD_RELOC_MICROBLAZE_SUB_ULEB128
++ENUMDOC
++  MicroBlaze relocations that set and subtract from a ULEB128 field.
++  The pair expresses the difference of two code labels, which linker
++  relaxation can change.
+ ENUM
+   BFD_RELOC_MICROBLAZE_CFA
+ ENUMDOC
+diff --git a/binutils/readelf.c b/binutils/readelf.c
+index 4ee5e39d2a5..920f75a062a 100644
+--- a/binutils/readelf.c
++++ b/binutils/readelf.c
+@@ -15242,6 +15242,81 @@ target_specific_reloc_handling (Filedata *filedata,
+ 
+   switch (filedata->file_header.e_machine)
+     {
++    case EM_MICROBLAZE:
++      {
++	static uint64_t saved_value;
++	static uint64_t saved_offset = (uint64_t) -1;
++
++	if (reloc == NULL)
++	  {
++	    saved_offset = (uint64_t) -1;
++	    return true;
++	  }
++
++	switch (reloc_type)
++	  {
++	  case 44: /* R_MICROBLAZE_SET_ULEB128.  */
++	  case 45: /* R_MICROBLAZE_SUB_ULEB128.  */
++	    {
++	      uint64_t value;
++	      unsigned int reloc_size = 0;
++	      int leb_ret = 0;
++
++	      if (sym_index >= num_syms)
++		{
++		  error (_("%s reloc contains invalid symbol index "
++			   "%" PRIu64 "\n"),
++			 (reloc_type == 44
++			  ? "R_MICROBLAZE_SET_ULEB128"
++			  : "R_MICROBLAZE_SUB_ULEB128"),
++			 sym_index);
++		  return true;
++		}
++	      value = reloc->r_addend + symtab[sym_index].st_value;
++	      if (reloc_type == 44)
++		{
++		  saved_value = value;
++		  saved_offset = reloc->r_offset;
++		  return true;
++		}
++	      if (saved_offset != reloc->r_offset)
++		{
++		  error (_("R_MICROBLAZE_SUB_ULEB128 at %#" PRIx64
++			   " does not follow an R_MICROBLAZE_SET_ULEB128\n"),
++			 reloc->r_offset);
++		  return true;
++		}
++	      saved_offset = (uint64_t) -1;
++	      value = saved_value - value;
++
++	      if (reloc->r_offset < size)
++		read_leb128 (start + reloc->r_offset, start + size, false,
++			     &reloc_size, &leb_ret);
++	      if (leb_ret != 0 || reloc_size == 0 || reloc_size > 8)
++		{
++		  error (_("MicroBlaze ULEB128 field at %#" PRIx64
++			   " contains invalid ULEB128 value\n"),
++			 reloc->r_offset);
++		  return true;
++		}
++
++	      /* Rewrite it in the same number of bytes.  */
++	      bfd_byte *p = start + reloc->r_offset;
++	      do
++		{
++		  bfd_byte c = value & 0x7f;
++		  value >>= 7;
++		  if (--reloc_size != 0)
++		    c |= 0x80;
++		  *p++ = c;
++		}
++	      while (reloc_size);
++	      return true;
++	    }
++	  }
++	break;
++      }
++
+     case EM_LOONGARCH:
+       {
+ 	switch (reloc_type)
+diff --git a/gas/config/tc-microblaze.c b/gas/config/tc-microblaze.c
+index 244f03872d5..5398e59667a 100644
+--- a/gas/config/tc-microblaze.c
++++ b/gas/config/tc-microblaze.c
+@@ -2114,10 +2114,51 @@ microblaze_cfa_fix (fixS *fixP)
+ 		      fixP->fx_size);
+ }
+ 
++/* If FRAG, in section S and frag chain FRCH, is a .uleb128 of a
++   difference of labels in one code section that the assembler could not
++   resolve when it was parsed, give it a SET_ULEB128 and SUB_ULEB128
++   pair.  Such a difference spans an IMM that linker relaxation may
++   delete.  From riscv_insert_uleb128_fixes in tc-riscv.c.  */
++
++static void
++microblaze_uleb128_fix (segT s, const frchainS *frch, fragS *frag)
++{
++  expressionS *exp;
++  expressionS sym;
++  segT seg;
++
++  if (frag->fr_symbol == NULL || frag->fr_subtype != 0)
++    return;
++
++  exp = symbol_get_value_expression (frag->fr_symbol);
++  if (exp->X_op != O_subtract
++      || !S_IS_DEFINED (exp->X_add_symbol)
++      || !S_IS_DEFINED (exp->X_op_symbol))
++    return;
++  seg = S_GET_SEGMENT (exp->X_add_symbol);
++  if (seg != S_GET_SEGMENT (exp->X_op_symbol)
++      || (seg->flags & SEC_CODE) == 0)
++    return;
++
++  subseg_set (s, frch->frch_subseg);
++
++  memset (&sym, 0, sizeof sym);
++  sym.X_op = O_symbol;
++  sym.X_add_symbol = exp->X_add_symbol;
++  sym.X_add_number = exp->X_add_number;
++  fix_new_exp (frag, frag->fr_fix, 0, &sym, 0,
++	       BFD_RELOC_MICROBLAZE_SET_ULEB128);
++  sym.X_add_symbol = exp->X_op_symbol;
++  sym.X_add_number = 0;
++  fix_new_exp (frag, frag->fr_fix, 0, &sym, 0,
++	       BFD_RELOC_MICROBLAZE_SUB_ULEB128);
++}
++
+ /* Give each rs_cfa frag, a DW_CFA_advance_loc whose two labels are in
+    different frags, a BFD_RELOC_MICROBLAZE_CFA fixup.  An IMM that linker
+    relaxation may delete ends a frag, so these are the advances that can
+-   change.  From riscv_pre_output_hook in tc-riscv.c.  */
++   change.  From riscv_pre_output_hook in tc-riscv.c.  Give .uleb128
++   differences their relocations too; see microblaze_uleb128_fix.  */
+ 
+ void
+ microblaze_pre_output_hook (void)
+@@ -2154,6 +2195,8 @@ microblaze_pre_output_hook (void)
+ 		fix_new_exp (frag, (int) frag->fr_offset, 1, &exp, 0,
+ 			     BFD_RELOC_MICROBLAZE_CFA);
+ 	      }
++	    else if (frag->fr_type == rs_leb128)
++	      microblaze_uleb128_fix (s, frch, frag);
+ 	  }
+       }
+ 
+@@ -2318,6 +2361,11 @@ md_apply_fix (fixS *   fixP,
+       fixP->fx_done = 1;
+       return;
+ 
++    case BFD_RELOC_MICROBLAZE_SET_ULEB128:
++    case BFD_RELOC_MICROBLAZE_SUB_ULEB128:
++      /* cvt_frag_to_fill has written the difference.  */
++      break;
++
+     case BFD_RELOC_32:
+     case BFD_RELOC_RVA:
+     case BFD_RELOC_32_PCREL:
+@@ -2658,6 +2706,8 @@ tc_gen_reloc (asection * section ATTRIBUTE_UNUSED, fixS * fixp)
+     case BFD_RELOC_MICROBLAZE_SUB16:
+     case BFD_RELOC_MICROBLAZE_SUB32:
+     case BFD_RELOC_MICROBLAZE_SET6:
++    case BFD_RELOC_MICROBLAZE_SET_ULEB128:
++    case BFD_RELOC_MICROBLAZE_SUB_ULEB128:
+       code = fixp->fx_r_type;
+       break;
+ 
+diff --git a/gas/testsuite/gas/microblaze/reloc_diff.exp b/gas/testsuite/gas/microblaze/reloc_diff.exp
+index d03f34daeee..da2b7118493 100644
+--- a/gas/testsuite/gas/microblaze/reloc_diff.exp
++++ b/gas/testsuite/gas/microblaze/reloc_diff.exp
+@@ -3,4 +3,5 @@
+ if [istarget microblaze*-*-*] {
+     run_dump_test "reloc_diff"
+     run_dump_test "reloc_diff_far"
++    run_dump_test "reloc_uleb128"
+ }
+diff --git a/gas/testsuite/gas/microblaze/reloc_uleb128.d b/gas/testsuite/gas/microblaze/reloc_uleb128.d
+new file mode 100644
+index 00000000000..9e20999a4eb
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/reloc_uleb128.d
+@@ -0,0 +1,16 @@
++#objdump: -r -s -j .data
++#name: MicroBlaze ULEB128 differences of code labels
++#source: reloc_uleb128.s
++
++.*: +file format .*
++
++RELOCATION RECORDS FOR \[\.data\]:
++OFFSET +TYPE +VALUE
++0+0000 R_MICROBLAZE_SET_ULEB128 +\.text\+0x0+c
++0+0000 R_MICROBLAZE_SUB_ULEB128 +\.text
++0+0001 R_MICROBLAZE_SET_ULEB128 +\.text\+0x0+b
++0+0001 R_MICROBLAZE_SUB_ULEB128 +\.text
++
++
++Contents of section \.data:
++ 0000 0c0b00 +.*
+diff --git a/gas/testsuite/gas/microblaze/reloc_uleb128.s b/gas/testsuite/gas/microblaze/reloc_uleb128.s
+new file mode 100644
+index 00000000000..76c653e99c3
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/reloc_uleb128.s
+@@ -0,0 +1,15 @@
++# .uleb128 of a difference of code labels that spans an IMM, which
++# linker relaxation may delete, is left to the linker as a SET_ULEB128
++# and SUB_ULEB128 pair.  The field holds the difference as assembled.
++
++	.text
++a:
++	brlid	r15, ext
++	nop
++b:
++	nop
++
++	.data
++	.uleb128 b - a
++	.uleb128 b - 1 - a
++	.uleb128 a - a
+diff --git a/include/elf/microblaze.h b/include/elf/microblaze.h
+index 336a3fb4341..b72d22555c1 100644
+--- a/include/elf/microblaze.h
++++ b/include/elf/microblaze.h
+@@ -75,6 +75,8 @@ START_RELOC_NUMBERS (elf_microblaze_reloc_type)
+   RELOC_NUMBER (R_MICROBLAZE_SUB16, 41)
+   RELOC_NUMBER (R_MICROBLAZE_SUB32, 42)
+   RELOC_NUMBER (R_MICROBLAZE_SET6, 43)
++  RELOC_NUMBER (R_MICROBLAZE_SET_ULEB128, 44)
++  RELOC_NUMBER (R_MICROBLAZE_SUB_ULEB128, 45)
+ END_RELOC_NUMBERS (R_MICROBLAZE_max)
+ 
+ /* Global base address names.  */
+diff --git a/ld/testsuite/ld-microblaze/relax-uleb128-norelax.d b/ld/testsuite/ld-microblaze/relax-uleb128-norelax.d
+new file mode 100644
+index 00000000000..1a1cb209577
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-uleb128-norelax.d
+@@ -0,0 +1,10 @@
++#source: relax-uleb128.s
++#as: -EL
++#ld: -EL --no-relax -T $srcdir/$subdir/relax-diff.ld
++#objdump: -s -j .data
++#name: MicroBlaze ULEB128 differences without relaxation
++
++.*: +file format .*
++
++Contents of section \.data:
++ 90001000 84018301 +.*
+diff --git a/ld/testsuite/ld-microblaze/relax-uleb128.d b/ld/testsuite/ld-microblaze/relax-uleb128.d
+new file mode 100644
+index 00000000000..3bde47301a3
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-uleb128.d
+@@ -0,0 +1,13 @@
++#source: relax-uleb128.s
++#as: -EL
++#ld: -EL -relax -T $srcdir/$subdir/relax-diff.ld
++#objdump: -s -j .data
++#name: MicroBlaze relaxation recomputes ULEB128 differences
++
++# 124 is 0xfc 0x00 padded to the field's two bytes, and 123 is 0xfb 0x00.
++# Without the relocations they stay 0x84 0x01 (132) and 0x83 0x01 (131).
++
++.*: +file format .*
++
++Contents of section \.data:
++ 90001000 fc00fb00 +.*
+diff --git a/ld/testsuite/ld-microblaze/relax-uleb128.s b/ld/testsuite/ld-microblaze/relax-uleb128.s
+new file mode 100644
+index 00000000000..6ddc97c2cb3
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-uleb128.s
+@@ -0,0 +1,26 @@
++/* Two IMMs between a and b are deleted by relaxation, so each
++   difference below shrinks by 8.  b - a is 132 as assembled, a 2-byte
++   ULEB128, and 124 after relaxation, which fits in one byte but must be
++   written in the two the field occupies.  */
++
++	.section .text.aaa,"ax",@progbits
++	.globl	_start
++_start:
++a:
++	brlid	r15, far
++	nop
++	brlid	r15, far
++	nop
++	.space	108
++b:
++	rtsd	r15, 8
++	nop
++
++	.section .text.zz,"ax",@progbits
++far:
++	rtsd	r15, 8
++	nop
++
++	.data
++	.uleb128 b - a
++	.uleb128 b - 1 - a
+-- 
+2.39.5 (Apple Git-154)
+

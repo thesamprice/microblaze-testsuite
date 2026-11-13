@@ -1,0 +1,117 @@
+From 64ac50b14398d378f48179c48fd58ccecb6084ab Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 20:51:40 -0500
+Subject: [PATCH] hw/char/xilinx_uartlite: pulse the IRQ on FIFO events
+
+LOCAL ONLY: not for submission to qemu-devel (QEMU AI policy).
+Reference for a hand-written fix.
+
+PG142 (AXI UART Lite v2.0) says the core "generates a rising-edge
+sensitive interrupt when the receive FIFO becomes non-empty or when
+the transmit FIFO becomes empty", masked by CTRL_REG bit 4, and that
+STAT_REG bit 4, "Intr Enabled", "indicates that interrupts is enabled".
+
+The model uses STATUS_IE as a pending latch instead.  A transmit, or a
+non-empty receive FIFO, sets it, nothing clears it, and
+uart_update_irq drives the line with
+
+	(s->regs[R_STATUS] & STATUS_IE) && (s->regs[R_CTRL] & CONTROL_IE)
+
+after every register access.  So once one character has been sent,
+setting CTRL_REG's enable raises the interrupt by itself, so does any
+later register write or receive-FIFO read, and STAT_REG bit 4 reads
+as 1 with interrupts disabled.  On petalogix-s3adsp1800, where the
+INTC treats the UART input as edge-triggered, each of those accesses
+latches a new interrupt.
+
+Pulse the line when a write to TX_FIFO completes, which empties the
+transmit FIFO again since the model sends at once, and when a
+character arrives in an empty receive FIFO, if interrupts are enabled.
+Report CTRL_REG bit 4 in STAT_REG bit 4.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ hw/char/xilinx_uartlite.c | 31 +++++++++++++++++--------------
+ 1 file changed, 17 insertions(+), 14 deletions(-)
+
+diff --git a/hw/char/xilinx_uartlite.c b/hw/char/xilinx_uartlite.c
+index 8feb58a89..1e7db3060 100644
+--- a/hw/char/xilinx_uartlite.c
++++ b/hw/char/xilinx_uartlite.c
+@@ -70,15 +70,17 @@ struct XilinxUARTLite {
+     uint32_t regs[R_MAX];
+ };
+ 
+-static void uart_update_irq(XilinxUARTLite *s)
++/*
++ * PG142 (AXI UART Lite) generates "a rising-edge sensitive interrupt
++ * when the receive FIFO becomes non-empty or when the transmit FIFO
++ * becomes empty", if interrupts are enabled.  Enabling them is not
++ * itself an event, so the line is pulsed only on those transitions.
++ */
++static void uart_event_irq(XilinxUARTLite *s)
+ {
+-    unsigned int irq;
+-
+-    if (s->rx_fifo_len)
+-        s->regs[R_STATUS] |= STATUS_IE;
+-
+-    irq = (s->regs[R_STATUS] & STATUS_IE) && (s->regs[R_CTRL] & CONTROL_IE);
+-    qemu_set_irq(s->irq, irq);
++    if (s->regs[R_CTRL] & CONTROL_IE) {
++        qemu_irq_pulse(s->irq);
++    }
+ }
+ 
+ static void uart_update_status(XilinxUARTLite *s)
+@@ -86,7 +88,8 @@ static void uart_update_status(XilinxUARTLite *s)
+     uint32_t r;
+ 
+     r = s->regs[R_STATUS];
+-    r &= ~7;
++    r &= ~(7 | STATUS_IE);
++    r |= s->regs[R_CTRL] & CONTROL_IE; /* PG142: "Intr Enabled" */
+     r |= 1 << 2; /* Tx fifo is always empty. We are fast :) */
+     r |= (s->rx_fifo_len == sizeof (s->rx_fifo)) << 1;
+     r |= (!!s->rx_fifo_len);
+@@ -111,7 +114,6 @@ uart_read(void *opaque, hwaddr addr, unsigned int size)
+             if (s->rx_fifo_len)
+                 s->rx_fifo_len--;
+             uart_update_status(s);
+-            uart_update_irq(s);
+             qemu_chr_fe_accept_input(&s->chr);
+             break;
+ 
+@@ -154,8 +156,8 @@ uart_write(void *opaque, hwaddr addr,
+             qemu_chr_fe_write_all(&s->chr, &ch, 1);
+             s->regs[addr] = value;
+ 
+-            /* hax.  */
+-            s->regs[R_STATUS] |= STATUS_IE;
++            /* The character has gone, so the Tx FIFO is empty again.  */
++            uart_event_irq(s);
+             break;
+ 
+         default:
+@@ -165,7 +167,6 @@ uart_write(void *opaque, hwaddr addr,
+             break;
+     }
+     uart_update_status(s);
+-    uart_update_irq(s);
+ }
+ 
+ static const MemoryRegionOps uart_ops[2] = {
+@@ -201,7 +202,9 @@ static void uart_rx(void *opaque, const uint8_t *buf, int size)
+     s->rx_fifo_len++;
+ 
+     uart_update_status(s);
+-    uart_update_irq(s);
++    if (s->rx_fifo_len == 1) {
++        uart_event_irq(s);
++    }
+ }
+ 
+ static int uart_can_rx(void *opaque)
+-- 
+2.39.5 (Apple Git-154)
+

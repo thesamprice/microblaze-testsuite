@@ -1,0 +1,148 @@
+From ae6b244dd0ad0cdf4d7a73e4872356434e1d77d1 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 18:16:42 -0500
+Subject: [PATCH 2/4] microblaze: emit only _break_handler for break_handler
+
+compute_frame_size does
+
+	if (break_handler)
+	  interrupt_handler = break_handler;
+
+so that a break handler gets an interrupt handler's register saves and
+MSR handling.  But interrupt_handler also chooses the symbols that
+microblaze_function_prologue and microblaze_globalize_label emit, so a
+break handler defines and globalizes _interrupt_handler as well as
+_break_handler.  The interrupt vector in crt0 then resolves to the
+break handler, and a unit with both a break handler and an interrupt
+handler does not assemble: "symbol `_interrupt_handler' is already
+defined".
+
+Drop the assignment and test break_handler wherever the code relied on
+it: microblaze_is_interrupt_variant, microblaze_must_save_register, and
+the volatile return-address slot in the prologue and epilogue.  Apart
+from the symbols, the code for a break handler is unchanged; I compared
+the assembly at -O0 and -O2 for a leaf and a non-leaf handler.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.cc (microblaze_is_interrupt_variant):
+	Include break_handler.
+	(microblaze_must_save_register): Likewise.
+	(compute_frame_size): Don't set interrupt_handler for a break
+	handler.
+	(microblaze_expand_prologue): Test break_handler as well as
+	interrupt_handler.
+	(microblaze_expand_epilogue): Likewise.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/break_handler_name.c: New test.
+---
+ gcc/config/microblaze/microblaze.cc           | 22 +++++++++----------
+ .../microblaze/others/break_handler_name.c    | 19 ++++++++++++++++
+ 2 files changed, 29 insertions(+), 12 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/break_handler_name.c
+
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index 398c8ffa7..a2637c515 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -2026,14 +2026,14 @@ microblaze_save_volatiles (tree func)
+   return a != NULL_TREE;
+ }
+ 
+-/* Return whether function is tagged with 'interrupt_handler'
+-   or 'fast_interrupt' attribute.  Return true if function
+-   should use return from interrupt rather than normal
+-   function return.  */
++/* Return whether function is tagged with 'interrupt_handler',
++   'fast_interrupt' or 'break_handler' attribute.  Return true if
++   function should use return from interrupt or break rather than
++   normal function return.  */
+ int
+ microblaze_is_interrupt_variant (void)
+ {
+-  return (interrupt_handler || fast_interrupt);
++  return (interrupt_handler || fast_interrupt || break_handler);
+ }
+ int
+ microblaze_is_break_handler (void)
+@@ -2072,7 +2072,7 @@ microblaze_must_save_register (int regno)
+     {
+       if (df_regs_ever_live_p (regno)
+ 	  || regno == MB_ABI_MSR_SAVE_REG
+-	  || ((interrupt_handler || fast_interrupt)
++	  || ((interrupt_handler || fast_interrupt || break_handler)
+               && (regno == MB_ABI_ASM_TEMP_REGNUM
+ 	          || regno == MB_ABI_EXCEPTION_RETURN_ADDR_REGNUM)))
+ 	return 1;
+@@ -2159,8 +2159,6 @@ compute_frame_size (HOST_WIDE_INT size)
+   fast_interrupt =
+     microblaze_fast_interrupt_function_p (current_function_decl);
+   save_volatiles = microblaze_save_volatiles (current_function_decl);
+-  if (break_handler)
+-    interrupt_handler = break_handler;
+ 
+   gp_reg_size = 0;
+   mask = 0;
+@@ -3041,13 +3039,13 @@ microblaze_expand_prologue (void)
+ 	RTX_FRAME_RELATED_P (insn) = 1;
+ 
+       /* Handle SUB_RETURN_ADDR_REGNUM specially at first.  */
+-      if (!crtl->is_leaf || interrupt_handler)
++      if (!crtl->is_leaf || interrupt_handler || break_handler)
+ 	{
+ 	  mem_rtx = gen_rtx_MEM (SImode,
+ 				 gen_rtx_PLUS (Pmode, stack_pointer_rtx,
+ 					       const0_rtx));
+ 
+-	  if (interrupt_handler)
++	  if (interrupt_handler || break_handler)
+ 	    /* Do not optimize in flow analysis.  */
+ 	    MEM_VOLATILE_P (mem_rtx) = 1;
+ 
+@@ -3158,12 +3156,12 @@ microblaze_expand_epilogue (void)
+          a load-use stall cycle  :)   This is also important to handle alloca.
+          (See comments for if (frame_pointer_needed) below.  */
+ 
+-      if (!crtl->is_leaf || interrupt_handler)
++      if (!crtl->is_leaf || interrupt_handler || break_handler)
+ 	{
+ 	  mem_rtx =
+ 	    gen_rtx_MEM (SImode,
+ 			 gen_rtx_PLUS (Pmode, stack_pointer_rtx, const0_rtx));
+-	  if (interrupt_handler)
++	  if (interrupt_handler || break_handler)
+ 	    /* Do not optimize in flow analysis.  */
+ 	    MEM_VOLATILE_P (mem_rtx) = 1;
+ 	  reg_rtx = gen_rtx_REG (SImode, MB_ABI_SUB_RETURN_ADDR_REGNUM);
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/break_handler_name.c b/gcc/testsuite/gcc.target/microblaze/others/break_handler_name.c
+new file mode 100644
+index 000000000..3442c79a1
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/break_handler_name.c
+@@ -0,0 +1,19 @@
++/* A break handler must define _break_handler only.  It used to define
++   _interrupt_handler as well, so the interrupt vector resolved to it,
++   and a unit that also had an interrupt handler did not assemble.  */
++
++/* { dg-do compile } */
++/* { dg-skip-if "" { *-*-* } { "-fno-fat-lto-objects" } } */
++
++volatile int x;
++
++void bh (void) __attribute__ ((break_handler));
++void bh (void) { x++; }
++
++void ih (void) __attribute__ ((interrupt_handler));
++void ih (void) { x++; }
++
++/* { dg-final { scan-assembler-times "\n_break_handler:" 1 } } */
++/* { dg-final { scan-assembler-times "\n_interrupt_handler:" 1 } } */
++/* { dg-final { scan-assembler "rtbd\tr16,8" } } */
++/* { dg-final { scan-assembler "rtid\tr14,0" } } */
+-- 
+2.39.5 (Apple Git-154)
+

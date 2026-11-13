@@ -1,0 +1,99 @@
+From 2225f473c9a0f5b9b2040e52831ed9585e85d895 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 18:16:41 -0500
+Subject: [PATCH 1/4] microblaze: remove the fint-and-branch peephole2
+
+microblaze.md has a define_peephole2 that matches a fix:SI followed by
+a conditional branch and replaces the pair with a cstoresf4 and a jump.
+It emits the jump_insn from a peephole2, so the jump lands inside a
+basic block and the RTL verifier stops with "flow control insn inside a
+basic block".  It also drops the fix:SI, so operand 0 is never set, and
+it compares the branch operands as SFmode registers; when the second
+operand is a constant, as in "k < 0", it applies REGNO to a CONST_INT.
+
+	int f (float a) { int k = (int) a; if (k < 0) return 1; return 2; }
+
+ICEs at -O2 with -mhard-float -mxl-float-convert.
+
+There is no equivalent transformation to keep: (int) a < 0 and a < 0
+differ for -1 < a < 0.  Remove the pattern.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.md: Remove the peephole2 that
+	combined fix:SI with a conditional branch.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/isa/fint-branch.c: New test.
+---
+ gcc/config/microblaze/microblaze.md           | 26 -------------------
+ .../gcc.target/microblaze/isa/fint-branch.c   | 17 ++++++++++++
+ 2 files changed, 17 insertions(+), 26 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/fint-branch.c
+
+diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
+index 906d4572d..d715c963c 100644
+--- a/gcc/config/microblaze/microblaze.md
++++ b/gcc/config/microblaze/microblaze.md
+@@ -690,32 +690,6 @@
+   (set_attr "mode"	"SI")
+   (set_attr "length"	"4")])
+ 
+-(define_peephole2
+-  [(set (match_operand:SI 0 "register_operand")
+-        (fix:SI (match_operand:SF 1 "register_operand")))
+-   (set (pc)
+-        (if_then_else (match_operator 2 "ordered_comparison_operator"
+-                       [(match_operand:SI 3 "register_operand")
+-                        (match_operand:SI 4 "arith_operand")])
+-                      (label_ref (match_operand 5))
+-                      (pc)))]
+-   "TARGET_HARD_FLOAT"
+-   [(set (match_dup 1) (match_dup 3))]
+-
+-  {
+-    rtx condition;
+-    rtx cmp_op0 = operands[3];
+-    rtx cmp_op1 = operands[4];
+-    rtx comp_reg =  gen_rtx_REG (SImode, MB_ABI_ASM_TEMP_REGNUM);
+-
+-    emit_insn (gen_cstoresf4 (comp_reg, operands[2],
+-                              gen_rtx_REG (SFmode, REGNO (cmp_op0)),
+-                              gen_rtx_REG (SFmode, REGNO (cmp_op1))));
+-    condition = gen_rtx_NE (SImode, comp_reg, const0_rtx);
+-    emit_jump_insn (gen_condjump (condition, operands[5]));
+-  }
+-)
+-
+ ;;----------------------------------------------------------------
+ ;; Negation and one's complement
+ ;;----------------------------------------------------------------
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/fint-branch.c b/gcc/testsuite/gcc.target/microblaze/isa/fint-branch.c
+new file mode 100644
+index 000000000..412ced659
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/fint-branch.c
+@@ -0,0 +1,17 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -mcpu=v10.0 -mhard-float -mxl-float-convert" } */
++
++/* A fint whose result is only tested for its sign.  A peephole2 used to
++   fuse the pair into a jump, which ICEd with "flow control insn inside
++   a basic block".  */
++
++int
++f (float a)
++{
++  int k = (int) a;
++  if (k < 0)
++    return 1;
++  return 2;
++}
++
++/* { dg-final { scan-assembler "fint\tr\[0-9\]+,r\[0-9\]+" } } */
+-- 
+2.39.5 (Apple Git-154)
+

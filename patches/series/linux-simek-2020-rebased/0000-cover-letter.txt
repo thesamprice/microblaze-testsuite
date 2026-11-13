@@ -1,0 +1,21 @@
+microblaze: built-in initramfs over 32 MB, rebased
+
+These are Michal Simek's patches from 2020, rebased onto v7.4-rc2 with
+context changes only; author, date, message and Signed-off-by are his.
+
+1/3 "microblaze: Swap location of bss and INIT_RAM_FS" moves the
+initramfs after bss so that bss stays inside the 32 MB that head.S maps
+before machine_early_init() clears it.
+
+2/3 "microblaze: Change TLB mapping and free space allocation" maps up to
+a new _end_tlb_mapping, 1 MB past _end, instead of adding a
+CONFIG_LOWMEM_SIZE-derived pad in head.S.  It depends on 1/3.
+
+3/3 "microblaze: Fix message about compiled-in FDT location" prints the
+compiled-in FDT address with 0x%08x instead of the hashed %p.
+Independent of the other two.
+
+Testing: microblaze defconfig builds with no warnings.  On QEMU
+petalogix-ml605 with a 40 MiB built-in initramfs (linux.bin 52 MB),
+v7.4-rc2 takes an MMU fault at the first bss page (0xc31f8000) during
+early boot and prints nothing; with 1/3 and 2/3 it boots to /init.

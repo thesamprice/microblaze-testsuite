@@ -1,0 +1,79 @@
+From 10b40276b8dfa404b9f054ec1b2c1f4709a33432 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:10:41 -0500
+Subject: [PATCH 6/8] bsps/microblaze: Add CFI to the start code
+
+Describe the frame of _crtinit and mark r15 undefined in _start1, which
+has no caller.  An unwinder which reaches the start code during system
+initialization then ends the walk at _start1 instead of following
+whatever r15 held at reset.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ bsps/microblaze/microblaze_fpga/start/crtinit.S | 5 +++++
+ bsps/microblaze/shared/start/start.S            | 6 ++++++
+ 2 files changed, 11 insertions(+)
+
+diff --git a/bsps/microblaze/microblaze_fpga/start/crtinit.S b/bsps/microblaze/microblaze_fpga/start/crtinit.S
+index 6c7fc3af23..ae6ee3b975 100644
+--- a/bsps/microblaze/microblaze_fpga/start/crtinit.S
++++ b/bsps/microblaze/microblaze_fpga/start/crtinit.S
+@@ -31,14 +31,18 @@
+  */
+ 
+ #include <bspopts.h>
++#include <rtems/asm.h>
+ 
+ 	.globl _crtinit
+ 	.align 2
+ 	.ent _crtinit
+ 	.type _crtinit, @function
+ _crtinit:
++	CFI_STARTPROC
+ 	addi	r1, r1, -20			   	/* Save Link register	 */
++	CFI_DEF_CFA_OFFSET(20)
+ 	swi	r15, r1, 0
++	CFI_OFFSET(r15, -20)
+ 
+ #ifndef __rtems__
+ 	addi	r6, r0, __sbss_start		  	/* clear SBSS */
+@@ -107,4 +111,5 @@ _crtinit:
+ 	addik r3, r19, 0					  /* Restore return value */
+ 	rtsd r15, 8
+ 	addi r1, r1, 20
++	CFI_ENDPROC
+ 	.end _crtinit
+diff --git a/bsps/microblaze/shared/start/start.S b/bsps/microblaze/shared/start/start.S
+index e9aaa706e5..8516d3a6eb 100644
+--- a/bsps/microblaze/shared/start/start.S
++++ b/bsps/microblaze/shared/start/start.S
+@@ -53,6 +53,7 @@
+ 
+ */
+ 
++#include <rtems/asm.h>
+ 
+ 	.globl _start
+ 	.section .vectors.reset, "ax"
+@@ -94,6 +95,10 @@ _vector_hw_exception:
+ 	.ent _start1
+ 	.type _start1, @function
+ _start1:
++	CFI_STARTPROC
++	/* There is no caller */
++	CFI_UNDEFINED(r15)
++
+ 	//la r13, r0, _SDA_BASE_         /* Set the Small Data Anchors and the stack pointer */
+ 	//la r2, r0, _SDA2_BASE_
+ 	la r1, r0, _ISR_Stack_area_end-16           /* 16 bytes (4 words are needed by crtinit for args and link reg */
+@@ -107,6 +112,7 @@ _start1:
+ #endif /* __rtems__ */
+ 
+ 	/* Control does not reach here */
++	CFI_ENDPROC
+ 	.end _start1
+ 
+ #ifndef __rtems__
+-- 
+2.39.5 (Apple Git-154)
+

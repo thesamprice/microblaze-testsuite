@@ -1,0 +1,313 @@
+From e5f8e474463f775a8f9f81b7ec88a5a89e7dff7e Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:27:31 -0500
+Subject: [RFC PATCH 1/2] libmisc: Add rtems_backtrace()
+
+RTEMS has no way for an application to obtain a backtrace.  Add
+rtems_backtrace(), which stores the addresses of the frames of its
+caller in an array, and rtems_backtrace_print(), which prints them with
+printk() for offline symbolization with rtems-addr2line.
+
+Both walk the stack with _Unwind_Backtrace() of libgcc, which reads the
+DWARF call frame information of the .eh_frame sections.  The walk ends
+at the first frame without call frame information.  RTEMS is built
+without -funwind-tables, so a backtrace covers application code built
+with unwind tables and ends where it enters RTEMS code.  Build
+backtrace.c itself with -funwind-tables, since the walk starts in it.
+
+Each address is in the call instruction, not at the return address, so
+that it resolves to the line of the call.  For a frame entered from an
+interrupt or exception, which the call frame information marks as a
+signal frame, it is the interrupted instruction.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ cpukit/include/rtems/backtrace.h     |  93 ++++++++++++++++++
+ cpukit/libmisc/backtrace/backtrace.c | 135 +++++++++++++++++++++++++++
+ spec/build/cpukit/librtemscpu.yml    |   2 +
+ spec/build/cpukit/objbacktrace.yml   |  18 ++++
+ 4 files changed, 248 insertions(+)
+ create mode 100644 cpukit/include/rtems/backtrace.h
+ create mode 100644 cpukit/libmisc/backtrace/backtrace.c
+ create mode 100644 spec/build/cpukit/objbacktrace.yml
+
+diff --git a/cpukit/include/rtems/backtrace.h b/cpukit/include/rtems/backtrace.h
+new file mode 100644
+index 0000000000..489ead0ef7
+--- /dev/null
++++ b/cpukit/include/rtems/backtrace.h
+@@ -0,0 +1,93 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++
++/**
++ * @file
++ *
++ * @ingroup RTEMSAPIBacktrace
++ *
++ * @brief This header file provides the interfaces of the backtrace support.
++ */
++
++/*
++ * Copyright (C) 2026 Samuel Price
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
++ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef _RTEMS_BACKTRACE_H
++#define _RTEMS_BACKTRACE_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/**
++ * @defgroup RTEMSAPIBacktrace Backtrace Support
++ *
++ * @ingroup RTEMSAPIPrintSupport
++ *
++ * @brief This group contains functions which walk the stack of the
++ *   executing context.
++ *
++ * The walk uses the DWARF call frame information in the .eh_frame sections
++ * through _Unwind_Backtrace() of the compiler support library.  It stops at
++ * the first frame without call frame information, so only code compiled
++ * with -funwind-tables or -fasynchronous-unwind-tables, and assembly code
++ * with CFI directives, appears in a backtrace.
++ *
++ * The addresses are meant to be resolved offline, for example with
++ * rtems-addr2line.
++ *
++ * @{
++ */
++
++/**
++ * @brief Gets the backtrace of the caller.
++ *
++ * The first address is in the caller of rtems_backtrace().  Each address
++ * lies in the instruction which made the call of the next younger frame, or
++ * is the address of the interrupted instruction for a frame interrupted by an
++ * interrupt or exception.
++ *
++ * @param[out] addresses is the array which receives the addresses.
++ *
++ * @param size is the number of elements of the array.
++ *
++ * @return Returns the number of addresses stored in the array.
++ */
++int rtems_backtrace( void **addresses, int size );
++
++/**
++ * @brief Prints the backtrace of the caller with printk().
++ *
++ * Each line has the frame number and the address in hexadecimal notation,
++ * see rtems_backtrace().
++ */
++void rtems_backtrace_print( void );
++
++/** @} */
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* _RTEMS_BACKTRACE_H */
+diff --git a/cpukit/libmisc/backtrace/backtrace.c b/cpukit/libmisc/backtrace/backtrace.c
+new file mode 100644
+index 0000000000..d8cbb58710
+--- /dev/null
++++ b/cpukit/libmisc/backtrace/backtrace.c
+@@ -0,0 +1,135 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++
++/**
++ * @file
++ *
++ * @ingroup RTEMSAPIBacktrace
++ *
++ * @brief This source file contains the implementation of rtems_backtrace()
++ *   and rtems_backtrace_print().
++ */
++
++/*
++ * Copyright (C) 2026 Samuel Price
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
++ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifdef HAVE_CONFIG_H
++#include "config.h"
++#endif
++
++#include <rtems/backtrace.h>
++#include <rtems/bspIo.h>
++
++#include <inttypes.h>
++#include <stdint.h>
++#include <unwind.h>
++
++typedef struct {
++  void **addresses;
++  int    size;
++  int    count;
++} Backtrace_Context;
++
++static _Unwind_Reason_Code _Backtrace_Frame(
++  struct _Unwind_Context *uc,
++  void                   *arg
++)
++{
++  Backtrace_Context *ctx;
++  uintptr_t          pc;
++  int                ip_before_insn;
++
++  ctx = arg;
++
++  if ( ctx->count >= ctx->size ) {
++    return _URC_END_OF_STACK;
++  }
++
++  pc = _Unwind_GetIPInfo( uc, &ip_before_insn );
++
++  if ( pc == 0 ) {
++    return _URC_END_OF_STACK;
++  }
++
++  /*
++   * The walk starts with the frame of the function which called
++   * _Unwind_Backtrace().  Skip it, the backtrace starts with its caller.
++   */
++  if ( ctx->count >= 0 ) {
++    /*
++     * A return address is past the call.  Report an address in the call, so
++     * that it resolves to the line of the call.
++     */
++    if ( ip_before_insn == 0 ) {
++      --pc;
++    }
++
++    ctx->addresses[ ctx->count ] = (void *) pc;
++  }
++
++  ++ctx->count;
++  return _URC_NO_REASON;
++}
++
++static void _Backtrace_Initialize(
++  Backtrace_Context *ctx,
++  void             **addresses,
++  int                size
++)
++{
++  ctx->addresses = addresses;
++  ctx->size = size;
++  ctx->count = -1;
++}
++
++static int _Backtrace_Count( const Backtrace_Context *ctx )
++{
++  return ctx->count < 0 ? 0 : ctx->count;
++}
++
++int rtems_backtrace( void **addresses, int size )
++{
++  Backtrace_Context ctx;
++
++  _Backtrace_Initialize( &ctx, addresses, size );
++  (void) _Unwind_Backtrace( _Backtrace_Frame, &ctx );
++
++  return _Backtrace_Count( &ctx );
++}
++
++void rtems_backtrace_print( void )
++{
++  Backtrace_Context ctx;
++  void             *addresses[ 32 ];
++  int               count;
++  int               i;
++
++  _Backtrace_Initialize( &ctx, addresses, RTEMS_ARRAY_SIZE( addresses ) );
++  (void) _Unwind_Backtrace( _Backtrace_Frame, &ctx );
++  count = _Backtrace_Count( &ctx );
++
++  for ( i = 0; i < count; ++i ) {
++    printk( "#%i 0x%08" PRIxPTR "\n", i, (uintptr_t) addresses[ i ] );
++  }
++}
+diff --git a/spec/build/cpukit/librtemscpu.yml b/spec/build/cpukit/librtemscpu.yml
+index a794c802d6..954b150396 100644
+--- a/spec/build/cpukit/librtemscpu.yml
++++ b/spec/build/cpukit/librtemscpu.yml
+@@ -501,6 +501,8 @@ links:
+   uid: cpusparc
+ - role: build-dependency
+   uid: cpux8664
++- role: build-dependency
++  uid: objbacktrace
+ - role: build-dependency
+   uid: objdl
+ - role: build-dependency
+diff --git a/spec/build/cpukit/objbacktrace.yml b/spec/build/cpukit/objbacktrace.yml
+new file mode 100644
+index 0000000000..503626512c
+--- /dev/null
++++ b/spec/build/cpukit/objbacktrace.yml
+@@ -0,0 +1,18 @@
++SPDX-License-Identifier: CC-BY-SA-4.0 OR BSD-2-Clause
++build-type: objects
++cflags:
++- -funwind-tables
++copyrights:
++- Copyright (C) 2026 Samuel Price
++cppflags: []
++cxxflags: []
++enabled-by: true
++includes: []
++install:
++- destination: ${BSP_INCLUDEDIR}/rtems
++  source:
++  - cpukit/include/rtems/backtrace.h
++links: []
++source:
++- cpukit/libmisc/backtrace/backtrace.c
++type: build
+-- 
+2.39.5 (Apple Git-154)
+

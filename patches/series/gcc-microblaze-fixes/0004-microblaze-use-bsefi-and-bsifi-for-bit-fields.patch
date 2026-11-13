@@ -1,0 +1,307 @@
+From d0198318419f2eba3e5e36e2fc717b04a3afde78 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 18:18:02 -0500
+Subject: [PATCH 4/4] microblaze: use bsefi and bsifi for bit-fields
+
+MicroBlaze v10.0 added two barrel-shifter instructions with an
+immediate width and shift: bsefi extracts a field, zero-extended, and
+bsifi inserts the low bits of one register into a field of another.
+gcc has no pattern for either, so a bit-field read is a shift and a
+mask, and a write is a mask, a shift, a second mask and an add.
+
+Add extzvsi and insvsi for -mcpu=v10.0 and later with
+-mxl-barrel-shift.  They accept a field of 1 to 31 bits that fits in
+the word; the assembler rejects a 32-bit bsefi, and a 32-bit field is a
+move.  There is no extv, because bsefi cannot sign-extend, so a signed
+field still uses a shift pair.  The expander and insn layout follows
+extzv<mode> and insv<mode> in mips.md, whose ext and ins take the same
+position and size immediates.
+
+For "struct s { unsigned a : 3; unsigned b : 7; unsigned c : 22; }",
+reading p->b goes from bsrli and andi to one bsefi, and writing it goes
+from andi, bslli, andi and addk to one bsifi.
+
+QEMU implements both instructions.  The execution test checks unsigned
+and signed fields and that the neighbouring fields are preserved.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze-protos.h
+	(microblaze_bitfield_operands_p): Declare.
+	* config/microblaze/microblaze.cc (microblaze_has_bitfield): New
+	variable.
+	(microblaze_option_override): Set it for v10.0 and later.
+	(microblaze_bitfield_operands_p): New function.
+	* config/microblaze/microblaze.h (microblaze_has_bitfield): Declare.
+	(TARGET_HAS_BITFIELD): Define.
+	* config/microblaze/microblaze.md (extzvsi, *extzvsi, insvsi)
+	(*insvsi): New patterns.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/isa/bitfield.c: New test.
+	* gcc.target/microblaze/isa/bitfield-v9.c: New test.
+	* gcc.target/microblaze/others/bitfield-run.c: New test.
+---
+ gcc/config/microblaze/microblaze-protos.h     |  1 +
+ gcc/config/microblaze/microblaze.cc           | 18 +++++
+ gcc/config/microblaze/microblaze.h            |  4 ++
+ gcc/config/microblaze/microblaze.md           | 52 +++++++++++++++
+ .../gcc.target/microblaze/isa/bitfield-v9.c   | 10 +++
+ .../gcc.target/microblaze/isa/bitfield.c      | 14 ++++
+ .../microblaze/others/bitfield-run.c          | 65 +++++++++++++++++++
+ 7 files changed, 164 insertions(+)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/bitfield-v9.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/bitfield.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/bitfield-run.c
+
+diff --git a/gcc/config/microblaze/microblaze-protos.h b/gcc/config/microblaze/microblaze-protos.h
+index bee8f1d99..09397c684 100644
+--- a/gcc/config/microblaze/microblaze-protos.h
++++ b/gcc/config/microblaze/microblaze-protos.h
+@@ -47,6 +47,7 @@ extern bool microblaze_legitimate_address_p (machine_mode, rtx, bool,
+ extern int microblaze_is_interrupt_variant (void);
+ extern int microblaze_is_break_handler (void);
+ extern int microblaze_break_function_p (tree func);
++extern bool microblaze_bitfield_operands_p (rtx, rtx);
+ extern rtx microblaze_return_addr (int, rtx);
+ extern int simple_memory_operand (rtx, machine_mode);
+ extern int double_memory_operand (rtx, machine_mode);
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index bee14af31..d2ccfbac7 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -165,6 +165,10 @@ int microblaze_no_unsafe_delay;
+ /* Set to one if the targeted core has the CLZ insn.  */
+ int microblaze_has_clz = 0;
+ 
++/* Set to one if the targeted core has the bsefi and bsifi insns, which
++   come with the barrel shifter from v10.0.  */
++int microblaze_has_bitfield = 0;
++
+ /* Which CPU pipeline do we use. We haven't really standardized on a CPU
+    version having only a particular type of pipeline. There can still be
+    options on the CPU to scale pipeline features up or down. :(
+@@ -1861,6 +1865,9 @@ microblaze_option_override (void)
+         microblaze_has_clz = 0;
+     }
+ 
++  ver = MICROBLAZE_VERSION_COMPARE (microblaze_select_cpu, "v10.0");
++  microblaze_has_bitfield = (ver >= 0);
++
+   /* TARGET_REORDER defaults to 2 if -mxl-reorder not specified.  */
+   ver = MICROBLAZE_VERSION_COMPARE (microblaze_select_cpu, "v8.30.a");
+   if (ver < 0)
+@@ -3768,6 +3775,17 @@ microblaze_expand_divide (rtx operands[])
+   emit_insn (gen_blockage ());
+ }
+ 
++/* Return true if a field of WIDTH bits at bit POS fits bsefi and bsifi:
++   1 <= WIDTH <= 31 and WIDTH + POS <= 32.  A 32-bit field is a plain
++   move, and the assembler rejects it for bsefi.  */
++bool
++microblaze_bitfield_operands_p (rtx width, rtx pos)
++{
++  unsigned HOST_WIDE_INT w = UINTVAL (width);
++  unsigned HOST_WIDE_INT p = UINTVAL (pos);
++  return w >= 1 && w <= 31 && p <= 31 && w + p <= 32;
++}
++
+ /* Implement TARGET_FUNCTION_VALUE.  Scalars narrower than a word are
+    returned promoted to SImode.  An aggregate keeps its own mode: with
+    -freg-struct-return a one- or two-byte struct is QImode or HImode, and
+diff --git a/gcc/config/microblaze/microblaze.h b/gcc/config/microblaze/microblaze.h
+index fc8c4b871..e27c38f70 100644
+--- a/gcc/config/microblaze/microblaze.h
++++ b/gcc/config/microblaze/microblaze.h
+@@ -43,6 +43,7 @@ extern int microblaze_debugger_regno[];
+ 
+ extern int microblaze_no_unsafe_delay;
+ extern int microblaze_has_clz;
++extern int microblaze_has_bitfield;
+ extern enum pipeline_type microblaze_pipe;
+ 
+ #define OBJECT_FORMAT_ELF
+@@ -62,6 +63,9 @@ extern enum pipeline_type microblaze_pipe;
+ /* Do we have CLZ?  */
+ #define TARGET_HAS_CLZ      (TARGET_PATTERN_COMPARE && microblaze_has_clz)
+ 
++/* Do we have the bsefi and bsifi bit-field instructions?  */
++#define TARGET_HAS_BITFIELD (TARGET_BARREL_SHIFT && microblaze_has_bitfield)
++
+ /* The default is to support PIC.  */
+ #define TARGET_SUPPORTS_PIC 1
+ 
+diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
+index d715c963c..eff3b64b2 100644
+--- a/gcc/config/microblaze/microblaze.md
++++ b/gcc/config/microblaze/microblaze.md
+@@ -2337,4 +2337,56 @@
+   DONE;
+ }")
+ 
++;;----------------------------------------------------------------
++;; Bit-field extract and insert
++;;----------------------------------------------------------------
++
++;; bsefi zero-extends the field, so there is an extzv but no extv.
++
++(define_expand "extzvsi"
++  [(set (match_operand:SI 0 "register_operand")
++	(zero_extract:SI (match_operand:SI 1 "register_operand")
++			 (match_operand:SI 2 "const_int_operand")
++			 (match_operand:SI 3 "const_int_operand")))]
++  "TARGET_HAS_BITFIELD"
++{
++  if (!microblaze_bitfield_operands_p (operands[2], operands[3]))
++    FAIL;
++})
++
++(define_insn "*extzvsi"
++  [(set (match_operand:SI 0 "register_operand" "=d")
++	(zero_extract:SI (match_operand:SI 1 "register_operand" "d")
++			 (match_operand:SI 2 "const_int_operand" "")
++			 (match_operand:SI 3 "const_int_operand" "")))]
++  "TARGET_HAS_BITFIELD
++   && microblaze_bitfield_operands_p (operands[2], operands[3])"
++  "bsefi\t%0,%1,%2,%3"
++  [(set_attr "type"	"bshift")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"4")])
++
++(define_expand "insvsi"
++  [(set (zero_extract:SI (match_operand:SI 0 "register_operand")
++			 (match_operand:SI 1 "const_int_operand")
++			 (match_operand:SI 2 "const_int_operand"))
++	(match_operand:SI 3 "register_operand"))]
++  "TARGET_HAS_BITFIELD"
++{
++  if (!microblaze_bitfield_operands_p (operands[1], operands[2]))
++    FAIL;
++})
++
++(define_insn "*insvsi"
++  [(set (zero_extract:SI (match_operand:SI 0 "register_operand" "+d")
++			 (match_operand:SI 1 "const_int_operand" "")
++			 (match_operand:SI 2 "const_int_operand" ""))
++	(match_operand:SI 3 "register_operand" "d"))]
++  "TARGET_HAS_BITFIELD
++   && microblaze_bitfield_operands_p (operands[1], operands[2])"
++  "bsifi\t%0,%3,%1,%2"
++  [(set_attr "type"	"bshift")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"4")])
++
+ (include "sync.md")
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/bitfield-v9.c b/gcc/testsuite/gcc.target/microblaze/isa/bitfield-v9.c
+new file mode 100644
+index 000000000..2a9b5189c
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/bitfield-v9.c
+@@ -0,0 +1,10 @@
++/* { dg-options "-O2 -mcpu=v9.6 -mxl-barrel-shift" } */
++
++/* bsefi and bsifi are new in v10.0.  */
++
++struct s { unsigned a : 3; unsigned b : 7; unsigned c : 22; };
++
++unsigned get_b (struct s *p) { return p->b; }
++void set_b (struct s *p, unsigned v) { p->b = v; }
++
++/* { dg-final { scan-assembler-not "bsefi|bsifi" } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/bitfield.c b/gcc/testsuite/gcc.target/microblaze/isa/bitfield.c
+new file mode 100644
+index 000000000..ee19bcbd4
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/bitfield.c
+@@ -0,0 +1,14 @@
++/* { dg-options "-O2 -mcpu=v10.0 -mxl-barrel-shift" } */
++
++/* bsefi extracts and bsifi inserts a field with immediate width and
++   shift.  */
++
++struct s { unsigned a : 3; unsigned b : 7; unsigned c : 22; };
++
++unsigned get_b (struct s *p) { return p->b; }
++void set_b (struct s *p, unsigned v) { p->b = v; }
++unsigned ext (unsigned x) { return (x >> 5) & 0x3f; }
++
++/* { dg-final { scan-assembler "bsefi\tr\[0-9\]+,r\[0-9\]+,7,(22|3)" } } */
++/* { dg-final { scan-assembler "bsifi\tr\[0-9\]+,r\[0-9\]+,7,(22|3)" } } */
++/* { dg-final { scan-assembler "bsefi\tr\[0-9\]+,r\[0-9\]+,6,5" } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/bitfield-run.c b/gcc/testsuite/gcc.target/microblaze/others/bitfield-run.c
+new file mode 100644
+index 000000000..1997e8682
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/bitfield-run.c
+@@ -0,0 +1,65 @@
++/* Bit-field reads and writes through bsefi and bsifi.  A signed field
++   must still be sign-extended, since bsefi zero-extends.  */
++
++/* { dg-do run } */
++/* { dg-options "-mxl-barrel-shift" } */
++
++struct s
++{
++  unsigned a : 1;
++  unsigned b : 7;
++  signed c : 5;
++  unsigned d : 17;
++  unsigned e : 2;
++};
++
++union u { struct s s; unsigned w; };
++
++__attribute__ ((noipa)) unsigned get_b (struct s *p) { return p->b; }
++__attribute__ ((noipa)) int get_c (struct s *p) { return p->c; }
++__attribute__ ((noipa)) unsigned get_d (struct s *p) { return p->d; }
++__attribute__ ((noipa)) void set_b (struct s *p, unsigned v) { p->b = v; }
++__attribute__ ((noipa)) void set_c (struct s *p, int v) { p->c = v; }
++__attribute__ ((noipa)) void set_d (struct s *p, unsigned v) { p->d = v; }
++
++__attribute__ ((noipa)) unsigned
++ext_31_1 (unsigned x)
++{
++  return (x >> 1) & 0x7fffffff;
++}
++
++__attribute__ ((noipa)) unsigned
++ext_1_31 (unsigned x)
++{
++  return (x >> 31) & 1;
++}
++
++int
++main (void)
++{
++  union u x;
++
++  x.w = 0xffffffff;
++  set_b (&x.s, 0);
++  set_d (&x.s, 0x10001);
++  if (x.s.a != 1 || x.s.e != 3 || x.s.c != -1)
++    __builtin_abort ();
++  if (get_b (&x.s) != 0 || get_d (&x.s) != 0x10001)
++    __builtin_abort ();
++
++  x.w = 0;
++  set_c (&x.s, -3);
++  if (get_c (&x.s) != -3 || x.s.b != 0 || x.s.d != 0)
++    __builtin_abort ();
++  set_c (&x.s, 15);
++  if (get_c (&x.s) != 15)
++    __builtin_abort ();
++  set_b (&x.s, 0x5a);
++  if (get_b (&x.s) != 0x5a || get_c (&x.s) != 15)
++    __builtin_abort ();
++
++  if (ext_31_1 (0xfffffffe) != 0x7fffffff || ext_1_31 (0x80000000) != 1
++      || ext_1_31 (0x7fffffff) != 0)
++    __builtin_abort ();
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

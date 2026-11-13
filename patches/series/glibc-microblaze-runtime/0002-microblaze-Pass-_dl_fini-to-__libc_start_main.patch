@@ -1,0 +1,76 @@
+From 3371710d9cfe8a0bb90a51b517671757fcb1c3e4 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:03:39 -0500
+Subject: [PATCH 2/8] microblaze: Pass _dl_fini to __libc_start_main
+
+The MicroBlaze _start has always passed a null rtld_fini to
+__libc_start_main.  The dynamic linker does hand over _dl_fini: its
+_dl_start_user leaves _dl_fini - 8 in r15 before jumping to the
+program entry point, following the convention that a return from
+_start would land in _dl_fini.  _start just never looked at it.
+
+Before commit 035c012e32 ("Reduce the statically linked startup code
+[BZ #23323]") this only lost the destructors of shared objects, since
+_start still passed __libc_csu_fini as the fini argument and that ran
+the executable's own DT_FINI_ARRAY.  Since glibc 2.34 the executable's
+destructors are run by _dl_fini too, so in a dynamically linked
+MicroBlaze program no destructor runs at all: not __attribute__
+((destructor)), not .fini_array, not the _fini of any DSO.  Statically
+linked programs are unaffected because call_fini handles them.
+
+Use r15 when it is non-zero.  When the kernel starts an executable
+directly, ELF_PLAT_INIT in arch/microblaze/include/uapi/asm/elf.h has
+zeroed every register, so a zero r15 identifies that case.
+
+On a microblazeel-linux-gnu cross build run under qemu-user,
+elf/tst-array1-cmp, tst-array2-cmp, tst-array4-cmp, tst-initorder-cmp,
+tst-initorder2-cmp and order-cmp fail before this change because the
+"fini" lines are missing from the output, and every mtrace-based
+*-mem test reports leaked memory.  tst-array1-cmp, tst-array1-static-cmp
+and tst-initorder-cmp pass after it.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ sysdeps/microblaze/start.S | 15 +++++++++++----
+ 1 file changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/sysdeps/microblaze/start.S b/sysdeps/microblaze/start.S
+index cd1ed31836..8afd245e76 100644
+--- a/sysdeps/microblaze/start.S
++++ b/sysdeps/microblaze/start.S
+@@ -58,21 +58,28 @@ _start:
+     sw      r6,r1,r0
+     addik   r7,r1,4
+     addik   r1,r1,-24
++    /* rtld_fini.  The dynamic linker jumps here with r15 holding
++       _dl_fini - 8 (see _dl_start_user in dl-machine.h), so that a
++       return from _start would land in _dl_fini.  When the kernel starts
++       a static executable directly, every register is zero (ELF_PLAT_INIT
++       in arch/microblaze/include/uapi/asm/elf.h).  */
++    beqid   r15,1f
++    addk    r10,r0,r0		/* Delay slot: no rtld_fini.  */
++    addik   r10,r15,8		/* rtld_fini = _dl_fini.  */
++1:
+ #ifdef SHARED
+     /* Setup PIC.  */
+     mfs     r20,rpc
+     addik   r20,r20,_GLOBAL_OFFSET_TABLE_+8
+     lwi     r5,r20,main@GOT
+     addk    r8,r0,r0		/* Used to be init.  */
+-    addk    r9,r0,r0		/* Used to be fini.  */
+     brid    __libc_start_main@PLT
+-    addk    r10,r0,r0
++    addk    r9,r0,r0		/* Used to be fini.  */
+ #else
+     addik   r5,r0,main
+     addk    r8,r0,r0		/* Used to be init.  */
+-    addk    r9,r0,r0		/* Used to be fini.  */
+     brid    __libc_start_main
+-    addk    r10,r0,r0
++    addk    r9,r0,r0		/* Used to be fini.  */
+ #endif
+ 
+ /* Define a symbol for the first piece of initialized data.  */
+-- 
+2.39.5 (Apple Git-154)
+

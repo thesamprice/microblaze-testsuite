@@ -1,0 +1,100 @@
+From 5316884c00f2dce7f4a5fff483e69821bd123de6 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:09:11 -0500
+Subject: [PATCH 3/8] microblaze: Always build the ISR stack frame
+
+_ISR_Handler builds a frame at the top of the interrupt stack and
+stores the stack pointer of the interrupted context in it, but only if
+the interrupted context was not already on the interrupt stack.
+Otherwise it calls bsp_interrupt_dispatch() with the stack pointer at
+the interrupt frame.  On the way out it restores the stack pointer from
+the ISR stack frame if the decremented ISR nest level is zero:
+
+	/* Is ISR_NEST_LEVEL > 0? */
+	bgti r3, after_stack_switch
+
+This gives the code after the call two stack layouts to cope with,
+selected by different conditions.  Call frame information cannot
+describe the stack switch, because the location of the interrupt frame
+at the call depends on the path taken.  Also, the callee may store its
+arguments in the 28 bytes the ABI reserves in the frame of the caller,
+which in the nested case are the saved r4 to r9 of the interrupt
+frame.  If an interrupt hit code on the interrupt stack at ISR nest
+level zero, the return path would load the saved r3 into the stack
+pointer.
+
+Build the ISR stack frame in both cases: at the top of the interrupt
+stack, or below the interrupt frame if already on the interrupt stack.
+The return path then always restores the stack pointer from the frame.
+A nested interrupt uses CPU_INTERRUPT_FRAME_SIZE more bytes of the
+interrupt stack.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ cpukit/score/cpu/microblaze/cpu_asm.S               | 13 ++++++-------
+ .../cpu/microblaze/include/rtems/score/cpuimpl.h    |  9 +++++----
+ 2 files changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/cpukit/score/cpu/microblaze/cpu_asm.S b/cpukit/score/cpu/microblaze/cpu_asm.S
+index bd7690a94f..863ea28fef 100644
+--- a/cpukit/score/cpu/microblaze/cpu_asm.S
++++ b/cpukit/score/cpu/microblaze/cpu_asm.S
+@@ -57,15 +57,18 @@ _ISR_Handler:
+ 	rsubk r3, r4, r1
+ 	bgei r3, switch_to_interrupt_stack
+ 
+-	bri on_interrupt_stack
++	/* Already on the interrupt stack, build the frame below this one */
++	brid build_isr_stack_frame
++	add r4, r0, r1
+ 
+ switch_to_interrupt_stack:
+ 	add r4, r0, r1
+ 	lwi r1, r0, _Per_CPU_Information + 4
++
++build_isr_stack_frame:
+ 	addik r1, r1, -(CPU_INTERRUPT_FRAME_SIZE)
+ 	swi r4, r1, MICROBLAZE_ISR_STACK_FRAME_SP
+ 
+-on_interrupt_stack:
+ 	/* Add 1 to ISR_NEST_LEVEL */
+ 	lwi r3, r0, _Per_CPU_Information + 8
+ 	addik r3, r3, 1
+@@ -79,13 +82,9 @@ on_interrupt_stack:
+ 	addik r3, r3, -1
+ 	swi r3, r0, _Per_CPU_Information + 8
+ 
+-	/* Is ISR_NEST_LEVEL > 0? */
+-	bgti r3, after_stack_switch
+-
+-	/* Switch back to interrupted thread stack */
++	/* Switch back to the interrupt frame */
+ 	lwi r1, r1, MICROBLAZE_ISR_STACK_FRAME_SP
+ 
+-after_stack_switch:
+ 	/* Subtract 1 from THREAD_DISPATCH_DISABLE_LEVEL */
+ 	lwi r3, r0, _Per_CPU_Information + 16
+ 	addik r3, r3, -1
+diff --git a/cpukit/score/cpu/microblaze/include/rtems/score/cpuimpl.h b/cpukit/score/cpu/microblaze/include/rtems/score/cpuimpl.h
+index 0a975795ab..d9b4cc9821 100644
+--- a/cpukit/score/cpu/microblaze/include/rtems/score/cpuimpl.h
++++ b/cpukit/score/cpu/microblaze/include/rtems/score/cpuimpl.h
+@@ -72,10 +72,11 @@
+ #define MICROBLAZE_INTERRUPT_FRAME_MSR 52
+ 
+ /*
+- * _ISR_Handler builds a second frame at the top of the interrupt stack.  The
+- * frame is CPU_INTERRUPT_FRAME_SIZE bytes, which covers the 28 bytes the ABI
+- * reserves for the callee.  This member is the link register slot of the ABI
+- * and holds the stack pointer of the interrupted context.
++ * _ISR_Handler builds a second frame at the top of the interrupt stack, or
++ * below the current frame if it interrupted code already on the interrupt
++ * stack.  The frame is CPU_INTERRUPT_FRAME_SIZE bytes, which covers the 28
++ * bytes the ABI reserves for the callee.  This member is the link register
++ * slot of the ABI and holds the stack pointer of the interrupted context.
+  */
+ #define MICROBLAZE_ISR_STACK_FRAME_SP 0
+ 
+-- 
+2.39.5 (Apple Git-154)
+

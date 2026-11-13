@@ -1,0 +1,58 @@
+microblaze: Runtime fixes, ucontext, CFI and backtrace
+
+The MicroBlaze port has not had its testsuite run in a long time, and
+this series is what came out of running it under qemu-user and, for
+the signal and cancellation cases, qemu-system with a Linux kernel.
+1-4 are bug fixes, 5 is testsuite-only, 6-8 add functionality.  All
+apply to current master in order.  1-6 and 8 also apply to master on
+their own; 7 needs 2 (start.S) and 6 (setcontext.S).  8 has no effect
+without 7.
+
+Bugs:
+
+  1/8  microblaze: Use the generic ____longjmp_chk
+       The port's ____longjmp_chk has been a stub that returns to its own
+       call since 2012, so every fortified longjmp/siglongjmp hangs.
+  2/8  microblaze: Pass _dl_fini to __libc_start_main
+       _start passed 0; since 2.34 nothing else runs the destructors of a
+       dynamically linked program.
+  3/8  microblaze: Fix __syscall_cancel_arch stack arguments
+       Arguments 5 and 6 were read from r1+56/60; the ABI puts them at
+       r1+28/32.  pread64/pwrite64 through a cancellation point got a
+       garbage offset (nptl/tst-cancel17).
+  4/8  microblaze: Tail-call __syscall_do_cancel
+       brlid made an assembly frame with no unwind information, so the
+       forced unwind of -fexceptions cancellation stopped there.
+
+Testsuite:
+
+  5/8  microblaze: Disable libm exception and rounding tests
+       Soft-float has no exceptions and only to-nearest rounding; the libm
+       tests abort before running otherwise.
+
+Functionality:
+
+  6/8  microblaze: Implement the ucontext functions
+       getcontext, setcontext, swapcontext and makecontext were the ENOSYS
+       stubs.
+  7/8  microblaze: Add CFI to the assembly sources
+       Behind a configure probe: the assembler in released binutils
+       rejects .cfi_* for MicroBlaze, and without the support the macros
+       expand to nothing and the generated code is unchanged.
+  8/8  microblaze: Use the generic backtrace
+       The port's prologue-scanning backtrace misfires and stops early.
+
+Unwinding through a signal frame additionally needs libgcc's
+MD_FALLBACK_FRAME_STATE_FOR for MicroBlaze to match glibc's ucontext_t,
+which is larger than the kernel's; that is a separate GCC patch and
+nothing here depends on it.
+
+The run-time results quoted in 1-5 are from qemu runs of an earlier
+version of these patches on an older master.  For this version I have
+only build-tested: with build-many-glibcs.py's toolchain (binutils
+2.47, GCC 15.3.0, Linux 7.1 headers), every patch builds cleanly for
+microblaze-linux-gnu and passes "make check-abi", and the whole series
+builds for microblazeel-linux-gnu.  The build-many-glibcs.py "glibcs"
+stage (build, install, make check with run-built-tests=no) passes for
+microblaze-linux-gnu with the full series.  With binutils 2.47 the
+configure probe in 7 says no, so 7 is inert there.

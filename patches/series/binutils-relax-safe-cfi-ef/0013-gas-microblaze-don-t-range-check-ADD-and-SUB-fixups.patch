@@ -1,0 +1,136 @@
+From 23f95673b8fdab21d70d5bab343546822ce2b2c8 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 22:01:20 -0500
+Subject: [PATCH 13/15] gas: microblaze: don't range-check ADD and SUB fixups
+
+md_apply_fix and microblaze_cfa_fix split a difference of code labels
+into an ADD and a SUB fixup with zero in the field.  fixup_segment then
+checks the value it computed from the symbols' addresses against the
+size of the field, and that value is an address, not the difference.
+Any 1- or 2-byte difference whose labels are past 0xff or 0xffff in
+their section fails to assemble:
+
+	.space	300
+g:	brlid	r15, ext
+	nop
+h:	...
+	.byte	h - g
+
+	Error: value of 300 too large for field of 1 byte at 00000000
+
+The same happens to every DW_CFA_advance_loc and advance_loc1/2 that
+becomes a relocation, so .cfi_* in a function more than 256 bytes into
+a section fails.  RISC-V does not see this because its
+MD_APPLY_SYM_VALUE is 0.
+
+Set fx_no_overflow on the fixup before it is duplicated, so both halves
+of the pair skip the check.  The linker applies the pair with
+complain_overflow_dont in any case.
+
+gas/
+	* config/tc-microblaze.c (microblaze_cfa_fix): Set fx_no_overflow.
+	(md_apply_fix): Likewise for a difference of code labels.
+	* testsuite/gas/microblaze/reloc_diff_far.s: New file.
+	* testsuite/gas/microblaze/reloc_diff_far.d: New test.
+	* testsuite/gas/microblaze/reloc_diff.exp: Run it.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ gas/config/tc-microblaze.c                    |  6 ++++++
+ gas/testsuite/gas/microblaze/reloc_diff.exp   |  1 +
+ gas/testsuite/gas/microblaze/reloc_diff_far.d | 21 +++++++++++++++++++
+ gas/testsuite/gas/microblaze/reloc_diff_far.s | 20 ++++++++++++++++++
+ 4 files changed, 48 insertions(+)
+ create mode 100644 gas/testsuite/gas/microblaze/reloc_diff_far.d
+ create mode 100644 gas/testsuite/gas/microblaze/reloc_diff_far.s
+
+diff --git a/gas/config/tc-microblaze.c b/gas/config/tc-microblaze.c
+index f22be91d5df..244f03872d5 100644
+--- a/gas/config/tc-microblaze.c
++++ b/gas/config/tc-microblaze.c
+@@ -2054,6 +2054,9 @@ microblaze_cfa_fix (fixS *fixP)
+   unsigned int subtype;
+   offsetT loc;
+ 
++  /* fixup_segment range-checks a value computed from the symbols'
++     addresses, which is not what the field will hold.  */
++  fixP->fx_no_overflow = 1;
+   fixP->fx_next = xmemdup (fixP, sizeof (*fixP), sizeof (*fixP));
+   fixP->fx_next->fx_addsy = fixP->fx_subsy;
+   fixP->fx_next->fx_subsy = NULL;
+@@ -2269,6 +2272,9 @@ md_apply_fix (fixS *   fixP,
+ 	  return;
+ 	}
+ 
++      /* fixup_segment range-checks a value computed from the symbols'
++	 addresses, which is not what the field will hold.  */
++      fixP->fx_no_overflow = 1;
+       fixP->fx_next = xmemdup (fixP, sizeof (*fixP), sizeof (*fixP));
+       fixP->fx_next->fx_addsy = fixP->fx_subsy;
+       fixP->fx_next->fx_subsy = NULL;
+diff --git a/gas/testsuite/gas/microblaze/reloc_diff.exp b/gas/testsuite/gas/microblaze/reloc_diff.exp
+index 040e88380e4..d03f34daeee 100644
+--- a/gas/testsuite/gas/microblaze/reloc_diff.exp
++++ b/gas/testsuite/gas/microblaze/reloc_diff.exp
+@@ -2,4 +2,5 @@
+ 
+ if [istarget microblaze*-*-*] {
+     run_dump_test "reloc_diff"
++    run_dump_test "reloc_diff_far"
+ }
+diff --git a/gas/testsuite/gas/microblaze/reloc_diff_far.d b/gas/testsuite/gas/microblaze/reloc_diff_far.d
+new file mode 100644
+index 00000000000..3e1f508edc2
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/reloc_diff_far.d
+@@ -0,0 +1,21 @@
++#objdump: -r -j .data -j .eh_frame
++#name: MicroBlaze differences of code labels above 64K
++#source: reloc_diff_far.s
++
++.*: +file format .*
++
++RELOCATION RECORDS FOR \[\.data\]:
++OFFSET +TYPE +VALUE
++0+0000 R_MICROBLAZE_ADD8 +\.text\+0x0+10010
++0+0000 R_MICROBLAZE_SUB8 +a
++0+0001 R_MICROBLAZE_ADD16 +\.text\+0x0+10010
++0+0001 R_MICROBLAZE_SUB16 +a
++
++
++RELOCATION RECORDS FOR \[\.eh_frame\]:
++OFFSET +TYPE +VALUE
++[0-9a-f]+ R_MICROBLAZE_32_PCREL +\.text\+0x0+10000
++[0-9a-f]+ R_MICROBLAZE_ADD32 +\.text\+0x0+10018
++[0-9a-f]+ R_MICROBLAZE_SUB32 +.*
++[0-9a-f]+ R_MICROBLAZE_SET6 +\.text\+0x0+10018
++[0-9a-f]+ R_MICROBLAZE_SUB6 +.*
+diff --git a/gas/testsuite/gas/microblaze/reloc_diff_far.s b/gas/testsuite/gas/microblaze/reloc_diff_far.s
+new file mode 100644
+index 00000000000..86b1363cfd1
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/reloc_diff_far.s
+@@ -0,0 +1,20 @@
++# Differences of code labels whose addresses do not fit the field.
++# The field holds only the difference, so this must assemble.
++
++	.text
++	.space	0x10000
++a:
++	.cfi_startproc
++	addik	r1, r1, -8
++	.cfi_def_cfa_offset 8
++	brlid	r15, ext
++	nop
++b:
++	rtsd	r15, 8
++	addik	r1, r1, 8
++	.cfi_def_cfa_offset 0
++	.cfi_endproc
++
++	.data
++	.byte	b - a
++	.2byte	b - a
+-- 
+2.39.5 (Apple Git-154)
+

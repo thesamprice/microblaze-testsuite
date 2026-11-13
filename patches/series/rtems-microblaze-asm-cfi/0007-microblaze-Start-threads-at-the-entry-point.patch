@@ -1,0 +1,47 @@
+From 4f3bc97e39de59736d6a4a5737633a62d9cb7ba1 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:12:16 -0500
+Subject: [PATCH 7/8] microblaze: Start threads at the entry point
+
+_CPU_Context_Initialize() sets r15 to the entry point, and
+_CPU_Context_switch() returns with
+
+	rtsd    r15, 8
+
+So a new thread starts 8 bytes into _Thread_Handler(), which skips the
+first two instructions of its prologue.  With GCC 12.4.1 and -O2 these
+are the stack frame allocation and the store of r15:
+
+	900100f4 <_Thread_Handler>:
+	900100f4:	3021ffd0 	addik	r1, r1, -48
+	900100f8:	f9e10000 	swi	r15, r1, 0
+
+_Thread_Handler() then runs in the 64 bytes which
+_CPU_Context_Initialize() leaves above the initial stack pointer.  This
+works only as long as its frame fits in them, and the frame described
+by its call frame information does not exist.
+
+Set r15 to the entry point minus 8, as the SPARC port does for o7.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ cpukit/score/cpu/microblaze/cpu.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/cpukit/score/cpu/microblaze/cpu.c b/cpukit/score/cpu/microblaze/cpu.c
+index b922950004..e14cdcb727 100644
+--- a/cpukit/score/cpu/microblaze/cpu.c
++++ b/cpukit/score/cpu/microblaze/cpu.c
+@@ -70,7 +70,8 @@ void _CPU_Context_Initialize(
+   memset( context, 0, sizeof(*context) ) ;
+ 
+   context->r1 = stack_high - 64;
+-  context->r15 = (uint32_t) entry_point;
++  /* _CPU_Context_switch() returns with "rtsd r15, 8" */
++  context->r15 = (uint32_t) entry_point - 8;
+ 
+   uint32_t msr;
+   _CPU_MSR_GET( msr );
+-- 
+2.39.5 (Apple Git-154)
+

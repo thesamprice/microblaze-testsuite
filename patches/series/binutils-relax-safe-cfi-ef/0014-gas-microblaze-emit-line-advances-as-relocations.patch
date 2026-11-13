@@ -1,0 +1,412 @@
+From 039735cbfc71336c82719fd483a606a979d09502 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:59:42 -0500
+Subject: [PATCH 14/15] gas: microblaze: emit line advances as relocations
+
+gas writes each address advance in a line table it generates from .loc
+as a special opcode or DW_LNS_advance_pc, with the delta computed at
+assembly time.  Linker relaxation then deletes IMMs, and every row
+after a deleted IMM is too late.  In the new test, a function loses two
+IMMs and its line 2 row stays at 0x90000008, after the deleted IMM
+rather than at the brlid at 0x90000004, and the sequence ends inside
+the next function.
+
+Define DWARF2_USE_FIXED_ADVANCE_PC, as tc-riscv.h does.  dwarf2dbg.c
+then emits each advance as DW_LNS_fixed_advance_pc with a 2-byte
+difference of code labels, which md_apply_fix already turns into an
+ADD16/SUB16 pair.  For a delta over 50000 it resets the address with
+DW_LNE_set_address instead, so relaxation cannot overflow the field.
+
+Line tables get larger: three bytes per advance instead of one for most
+rows.  Because gas no longer resolves the deltas, it can no longer
+prove that two rows have different addresses, so it emits view
+numbers where it did not before.  That changes the output of eleven
+generic DWARF tests, which already xfail for the other targets that do
+not resolve these differences at assembly time (and for riscv); add
+microblaze to those lists, and run lns-common-1-alt and lns-big-delta
+for it as lns.exp does for riscv.
+
+GCC's own line tables are not affected: MicroBlaze GCC sets
+DWARF2_ASM_LINE_DEBUG_INFO to 0 and does not use .loc.
+
+gas/
+	* config/tc-microblaze.h (DWARF2_USE_FIXED_ADVANCE_PC): Define.
+	* testsuite/gas/microblaze/dwarf2-fixed-advance.s: New file.
+	* testsuite/gas/microblaze/dwarf2-fixed-advance.d: New test.
+	* testsuite/gas/microblaze/dwarf2-fixed-advance.exp: New file.
+	* testsuite/gas/elf/dwarf2-5.d: xfail microblaze.
+	* testsuite/gas/elf/dwarf2-11.d: Likewise.
+	* testsuite/gas/elf/dwarf2-15.d: Likewise.
+	* testsuite/gas/elf/dwarf2-16.d: Likewise.
+	* testsuite/gas/elf/dwarf2-17.d: Likewise.
+	* testsuite/gas/elf/dwarf2-18.d: Likewise.
+	* testsuite/gas/elf/dwarf2-19.d: Likewise.
+	* testsuite/gas/elf/dwarf-5-loc0.d: Likewise.
+	* testsuite/gas/elf/dwarf-5-macro.d: Likewise.
+	* testsuite/gas/elf/dwarf-5-macro-include.d: Likewise.
+	* testsuite/gas/elf/dwarf-5-irp.d: Likewise.
+	* testsuite/gas/lns/lns.exp: Run lns-common-1-alt and
+	lns-big-delta for microblaze.
+
+ld/
+	* testsuite/ld-microblaze/relax-line.s: New file.
+	* testsuite/ld-microblaze/relax-line.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ gas/config/tc-microblaze.h                    |  6 +++++
+ gas/testsuite/gas/elf/dwarf-5-irp.d           |  4 +--
+ gas/testsuite/gas/elf/dwarf-5-loc0.d          |  4 +--
+ gas/testsuite/gas/elf/dwarf-5-macro-include.d |  4 +--
+ gas/testsuite/gas/elf/dwarf-5-macro.d         |  4 +--
+ gas/testsuite/gas/elf/dwarf2-11.d             |  4 +--
+ gas/testsuite/gas/elf/dwarf2-15.d             |  4 +--
+ gas/testsuite/gas/elf/dwarf2-16.d             |  4 +--
+ gas/testsuite/gas/elf/dwarf2-17.d             |  4 +--
+ gas/testsuite/gas/elf/dwarf2-18.d             |  4 +--
+ gas/testsuite/gas/elf/dwarf2-19.d             |  4 +--
+ gas/testsuite/gas/elf/dwarf2-5.d              |  4 +--
+ gas/testsuite/gas/lns/lns.exp                 |  1 +
+ .../gas/microblaze/dwarf2-fixed-advance.d     | 18 +++++++++++++
+ .../gas/microblaze/dwarf2-fixed-advance.exp   |  5 ++++
+ .../gas/microblaze/dwarf2-fixed-advance.s     | 16 +++++++++++
+ ld/testsuite/ld-microblaze/relax-line.d       | 19 +++++++++++++
+ ld/testsuite/ld-microblaze/relax-line.s       | 27 +++++++++++++++++++
+ 18 files changed, 114 insertions(+), 22 deletions(-)
+ create mode 100644 gas/testsuite/gas/microblaze/dwarf2-fixed-advance.d
+ create mode 100644 gas/testsuite/gas/microblaze/dwarf2-fixed-advance.exp
+ create mode 100644 gas/testsuite/gas/microblaze/dwarf2-fixed-advance.s
+ create mode 100644 ld/testsuite/ld-microblaze/relax-line.d
+ create mode 100644 ld/testsuite/ld-microblaze/relax-line.s
+
+diff --git a/gas/config/tc-microblaze.h b/gas/config/tc-microblaze.h
+index f5da32cb4d9..7da3b2f405a 100644
+--- a/gas/config/tc-microblaze.h
++++ b/gas/config/tc-microblaze.h
+@@ -133,6 +133,12 @@ extern void 	 cons_fix_new_microblaze       (fragS *, int, int,
+    one frag into relocations, since linker relaxation can change it.  */
+ #define md_pre_output_hook microblaze_pre_output_hook ()
+ extern void microblaze_pre_output_hook (void);
++
++/* Advance the address in gas-generated line tables with
++   DW_LNS_fixed_advance_pc, whose operand is a 16-bit difference of code
++   labels and so becomes an ADD16/SUB16 pair the linker can recompute
++   after relaxation.  From tc-riscv.h.  */
++#define DWARF2_USE_FIXED_ADVANCE_PC(FROM, TO) 1
+ #define DWARF2_CIE_DATA_ALIGNMENT -4
+ #define DWARF2_DEFAULT_RETURN_COLUMN 15
+ 
+diff --git a/gas/testsuite/gas/elf/dwarf-5-irp.d b/gas/testsuite/gas/elf/dwarf-5-irp.d
+index 781b2a32aaa..19681bc73af 100644
+--- a/gas/testsuite/gas/elf/dwarf-5-irp.d
++++ b/gas/testsuite/gas/elf/dwarf-5-irp.d
+@@ -1,11 +1,11 @@
+ #as: --gdwarf-5
+ #name: line number entries for section changes inside .irp
+ #readelf: -W -wlrR
+-# The am33 cr16 crx ft32 mn10* msp430 nds32* and rl78 targets do not evaluate the subtraction of symbols at assembly time.
++# The am33 cr16 crx ft32 mn10* microblaze msp430 nds32* and rl78 targets do not evaluate the subtraction of symbols at assembly time.
+ # The bfin target does not allow .subsection with an equated symbol as operand.
+ # The d30v target emits sufficiently different debug info, apparently also covering padding it inserts.
+ # The riscv targets do not support the subtraction of symbols.
+-#xfail: am33*-* bfin-* cr16-* crx-* d30v-* ft32-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
++#xfail: am33*-* bfin-* cr16-* crx-* d30v-* ft32-* microblaze*-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
+ 
+ Raw dump of debug contents .*
+ #...
+diff --git a/gas/testsuite/gas/elf/dwarf-5-loc0.d b/gas/testsuite/gas/elf/dwarf-5-loc0.d
+index 9439d103b1f..f9edc67eb88 100644
+--- a/gas/testsuite/gas/elf/dwarf-5-loc0.d
++++ b/gas/testsuite/gas/elf/dwarf-5-loc0.d
+@@ -1,9 +1,9 @@
+ #as: -gdwarf-5
+ #readelf: -W -wL
+ #name: DWARF5 .loc 0
+-# The am33 cr16 crx ft32 mn10 msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
++# The am33 cr16 crx ft32 mn10 microblaze msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
+ # The riscv targets do not support the subtraction of symbols.
+-#xfail: am3*-* cr16-* crx-* ft32*-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
++#xfail: am3*-* cr16-* crx-* ft32*-* microblaze*-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
+ 
+ Contents of the \.debug_line section:
+ 
+diff --git a/gas/testsuite/gas/elf/dwarf-5-macro-include.d b/gas/testsuite/gas/elf/dwarf-5-macro-include.d
+index 32ea6386992..200a9753ff1 100644
+--- a/gas/testsuite/gas/elf/dwarf-5-macro-include.d
++++ b/gas/testsuite/gas/elf/dwarf-5-macro-include.d
+@@ -1,10 +1,10 @@
+ #as: --gdwarf-5 -I${srcdir}/$subdir
+ #name: line number entries for expansions of .macro coming from .include
+ #readelf: -W -wl
+-# The am33 cr16 crx ft32 mn10* msp430 nds32* and rl78 targets do not evaluate the subtraction of symbols at assembly time.
++# The am33 cr16 crx ft32 mn10* microblaze msp430 nds32* and rl78 targets do not evaluate the subtraction of symbols at assembly time.
+ # The d30v target emits sufficiently different debug info, apparently also covering padding it inserts.
+ # The riscv targets do not support the subtraction of symbols.
+-#xfail: am33*-* cr16-* crx-* d30v-* ft32-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
++#xfail: am33*-* cr16-* crx-* d30v-* ft32-* microblaze*-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
+ 
+ Raw dump of debug contents .*
+ #...
+diff --git a/gas/testsuite/gas/elf/dwarf-5-macro.d b/gas/testsuite/gas/elf/dwarf-5-macro.d
+index 794e17a575e..77c4367f886 100644
+--- a/gas/testsuite/gas/elf/dwarf-5-macro.d
++++ b/gas/testsuite/gas/elf/dwarf-5-macro.d
+@@ -1,10 +1,10 @@
+ #as: --gdwarf-5
+ #name: line number entries for .macro expansions
+ #readelf: -W -wl
+-# The am33 cr16 crx ft32 mn10* msp430 nds32* and rl78 targets do not evaluate the subtraction of symbols at assembly time.
++# The am33 cr16 crx ft32 mn10* microblaze msp430 nds32* and rl78 targets do not evaluate the subtraction of symbols at assembly time.
+ # The d30v target emits sufficiently different debug info, apparently also covering padding it inserts.
+ # The riscv targets do not support the subtraction of symbols.
+-#xfail: am33*-* cr16-* crx-* d30v-* ft32-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
++#xfail: am33*-* cr16-* crx-* d30v-* ft32-* microblaze*-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
+ 
+ Raw dump of debug contents .*
+ #...
+diff --git a/gas/testsuite/gas/elf/dwarf2-11.d b/gas/testsuite/gas/elf/dwarf2-11.d
+index 2c30e55c695..b206982827b 100644
+--- a/gas/testsuite/gas/elf/dwarf2-11.d
++++ b/gas/testsuite/gas/elf/dwarf2-11.d
+@@ -1,9 +1,9 @@
+ #as:
+ #readelf: -wL
+ #name: DWARF2 11
+-# The am33 cr16 crx ft32 mn10 msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
++# The am33 cr16 crx ft32 mn10 microblaze msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
+ # The riscv targets do not support the subtraction of symbols.
+-#xfail: am3*-* cr16-* crx-* ft32*-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
++#xfail: am3*-* cr16-* crx-* ft32*-* microblaze*-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
+ 
+ Contents of the \.debug_line section:
+ 
+diff --git a/gas/testsuite/gas/elf/dwarf2-15.d b/gas/testsuite/gas/elf/dwarf2-15.d
+index 939c61598cb..9c1eb05d85f 100644
+--- a/gas/testsuite/gas/elf/dwarf2-15.d
++++ b/gas/testsuite/gas/elf/dwarf2-15.d
+@@ -1,9 +1,9 @@
+ #as:
+ #readelf: -x.rodata -wL
+ #name: DWARF2 15
+-# The am33 cr16 crx ft32 mn10 msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
++# The am33 cr16 crx ft32 mn10 microblaze msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
+ # The riscv targets do not support the subtraction of symbols.
+-#xfail: am3*-* cr16-* crx-* ft32*-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
++#xfail: am3*-* cr16-* crx-* ft32*-* microblaze*-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
+ 
+ Hex dump of section '\.rodata':
+   0x00000000 01 *.*
+diff --git a/gas/testsuite/gas/elf/dwarf2-16.d b/gas/testsuite/gas/elf/dwarf2-16.d
+index 8e35d493619..592d9be82ea 100644
+--- a/gas/testsuite/gas/elf/dwarf2-16.d
++++ b/gas/testsuite/gas/elf/dwarf2-16.d
+@@ -1,10 +1,10 @@
+ #as:
+ #readelf: -x.rodata -wL
+ #name: DWARF2 16
+-# The am33 cr16 crx ft32 mn10 msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
++# The am33 cr16 crx ft32 mn10 microblaze msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
+ # The mep target tries to relay code sections which breaks symbolic view computations.
+ # The riscv targets do not support the subtraction of symbols.
+-#xfail: am3*-* cr16-* crx-* ft32*-* mep-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
++#xfail: am3*-* cr16-* crx-* ft32*-* mep-* microblaze*-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
+ 
+ Hex dump of section '\.rodata':
+   0x00000000 01 *.*
+diff --git a/gas/testsuite/gas/elf/dwarf2-17.d b/gas/testsuite/gas/elf/dwarf2-17.d
+index 881477cf95b..15221a7154a 100644
+--- a/gas/testsuite/gas/elf/dwarf2-17.d
++++ b/gas/testsuite/gas/elf/dwarf2-17.d
+@@ -1,10 +1,10 @@
+ #as:
+ #readelf: -x.rodata -wL
+ #name: DWARF2 17
+-# The am33 cr16 crx ft32 mn10 msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
++# The am33 cr16 crx ft32 mn10 microblaze msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
+ # The mep target tries to relay code sections which breaks symbolic view computations.
+ # The riscv targets do not support the subtraction of symbols.
+-#xfail: am3*-* cr16-* crx-* ft32*-* mep-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
++#xfail: am3*-* cr16-* crx-* ft32*-* mep-* microblaze*-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
+ 
+ Hex dump of section '\.rodata':
+   0x00000000 00 *.*
+diff --git a/gas/testsuite/gas/elf/dwarf2-18.d b/gas/testsuite/gas/elf/dwarf2-18.d
+index fbaebaa9019..8ea493cca2f 100644
+--- a/gas/testsuite/gas/elf/dwarf2-18.d
++++ b/gas/testsuite/gas/elf/dwarf2-18.d
+@@ -1,9 +1,9 @@
+ #as:
+ #readelf: -x.rodata -wL
+ #name: DWARF2 18
+-# The am33 cr16 crx ft32 mn10 msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
++# The am33 cr16 crx ft32 mn10 microblaze msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
+ # The riscv targets do not support the subtraction of symbols.
+-#xfail: am3*-* cr16-* crx-* ft32*-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
++#xfail: am3*-* cr16-* crx-* ft32*-* microblaze*-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
+ 
+ Hex dump of section '\.rodata':
+   0x00000000 0100 *.*
+diff --git a/gas/testsuite/gas/elf/dwarf2-19.d b/gas/testsuite/gas/elf/dwarf2-19.d
+index 55d0caf4cb1..b6ac967b5b7 100644
+--- a/gas/testsuite/gas/elf/dwarf2-19.d
++++ b/gas/testsuite/gas/elf/dwarf2-19.d
+@@ -1,10 +1,10 @@
+ #as:
+ #readelf: -x.rodata -wL
+ #name: DWARF2 19
+-# The am33 cr16 crx ft32 mn10 msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
++# The am33 cr16 crx ft32 mn10 microblaze msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
+ # The mep targets turns some view computations into complex relocations.
+ # The riscv targets do not support the subtraction of symbols.
+-#xfail: am3*-* cr16-* crx-* ft32*-* mep-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
++#xfail: am3*-* cr16-* crx-* ft32*-* mep-* microblaze*-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
+ 
+ Hex dump of section '\.rodata':
+   0x00000000 01000102 *.*
+diff --git a/gas/testsuite/gas/elf/dwarf2-5.d b/gas/testsuite/gas/elf/dwarf2-5.d
+index bf1eeb5bbfd..35ca7adce89 100644
+--- a/gas/testsuite/gas/elf/dwarf2-5.d
++++ b/gas/testsuite/gas/elf/dwarf2-5.d
+@@ -1,10 +1,10 @@
+ #as: --gdwarf-3
+ #readelf: -x.rodata -wlL
+ #name: DWARF2 5
+-# The am33 cr16 crx ft32 mn10 msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
++# The am33 cr16 crx ft32 mn10 microblaze msp430 nds32 and rl78 targets do not evaluate the subtraction of symbols at assembly time.
+ # The mep target tries to relay code sections which breaks symbolic view computations.
+ # The riscv targets do not support the subtraction of symbols.
+-#xfail: am3*-* cr16-* crx-* ft32*-* mep-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
++#xfail: am3*-* cr16-* crx-* ft32*-* mep-* microblaze*-* mn10*-* msp430-* nds32*-* riscv*-* rl78-*
+ 
+ Hex dump of section '\.rodata':
+   0x00000000 01010201 010203 *.*
+diff --git a/gas/testsuite/gas/lns/lns.exp b/gas/testsuite/gas/lns/lns.exp
+index 58c2235b628..8f089559520 100644
+--- a/gas/testsuite/gas/lns/lns.exp
++++ b/gas/testsuite/gas/lns/lns.exp
+@@ -31,6 +31,7 @@ if { ![istarget s390*-*-*] } {
+ 	 || [istarget cr16-*-*]
+ 	 || [istarget crx-*-*]
+ 	 || [istarget ft32*-*]
++	 || [istarget microblaze*-*-*]
+ 	 || [istarget mn10*-*-*]
+ 	 || [istarget msp430-*-*]
+ 	 || [istarget nds32*-*-*]
+diff --git a/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.d b/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.d
+new file mode 100644
+index 00000000000..2f377e52bde
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.d
+@@ -0,0 +1,18 @@
++#objdump: -r -j .debug_line
++#name: MicroBlaze line table advances as relocations
++#source: dwarf2-fixed-advance.s
++
++# Each advance is a DW_LNS_fixed_advance_pc operand with an ADD16
++# against the new address and a SUB16 against the old one.
++
++.*: +file format .*
++
++RELOCATION RECORDS FOR \[\.debug_line\]:
++OFFSET +TYPE +VALUE
++[0-9a-f]+ R_MICROBLAZE_32 +\.text
++[0-9a-f]+ R_MICROBLAZE_ADD16 +\.text\+0x0+8
++[0-9a-f]+ R_MICROBLAZE_SUB16 +.*
++[0-9a-f]+ R_MICROBLAZE_ADD16 +\.text\+0x0+10
++[0-9a-f]+ R_MICROBLAZE_SUB16 +.*
++[0-9a-f]+ R_MICROBLAZE_ADD16 +\.text\+0x0+18
++[0-9a-f]+ R_MICROBLAZE_SUB16 +.*
+diff --git a/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.exp b/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.exp
+new file mode 100644
+index 00000000000..16bd140d9f3
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.exp
+@@ -0,0 +1,5 @@
++# Line table address advances on MicroBlaze.
++
++if [istarget microblaze*-*-*] {
++    run_dump_test "dwarf2-fixed-advance"
++}
+diff --git a/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.s b/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.s
+new file mode 100644
+index 00000000000..dfbbd1aaf00
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.s
+@@ -0,0 +1,16 @@
++# Line table address advances are emitted as DW_LNS_fixed_advance_pc
++# with an ADD16/SUB16 pair, so that the linker can recompute them after
++# relaxation.
++
++	.file	1 "dwarf2-fixed-advance.c"
++	.text
++	.globl	f
++f:
++	.loc	1 1 0
++	addik	r1, r1, -8
++	.loc	1 2 0
++	brlid	r15, g
++	nop
++	.loc	1 3 0
++	rtsd	r15, 8
++	addik	r1, r1, 8
+diff --git a/ld/testsuite/ld-microblaze/relax-line.d b/ld/testsuite/ld-microblaze/relax-line.d
+new file mode 100644
+index 00000000000..fd7b7021957
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-line.d
+@@ -0,0 +1,19 @@
++#source: relax-line.s
++#as: -EL
++#ld: -EL -relax -T $srcdir/$subdir/relax-diff.ld
++#objdump: --dwarf=decodedline
++#name: MicroBlaze relaxation keeps line table rows with the code
++
++# Both IMMs are deleted, so each row after them moves back 4 or 8 bytes.
++# When the assembler resolved the advances, line 2 was at 0x90000008
++# (after the deleted IMM rather than at the brlid) and the sequence
++# ended at 0x90000024, inside far.
++
++#...
++relax-line.c +1 +0x90000000 .*
++relax-line.c +2 +0x90000004 .*
++relax-line.c +3 +0x9000000c .*
++relax-line.c +4 +0x90000014 .*
++relax-line.c +5 +0x90000018 .*
++relax-line.c +- +0x9000001c
++#pass
+diff --git a/ld/testsuite/ld-microblaze/relax-line.s b/ld/testsuite/ld-microblaze/relax-line.s
+new file mode 100644
+index 00000000000..475dd367007
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-line.s
+@@ -0,0 +1,27 @@
++/* _start loses two IMMs to relaxation.  The line table rows after them
++   must follow the code.  far is in another section, so the assembler
++   leaves the IMMs for the linker to delete.  */
++
++	.file	1 "relax-line.c"
++	.section .text.aaa,"ax",@progbits
++	.globl	_start
++	.type	_start, @function
++_start:
++	.loc	1 1 0
++	addik	r1, r1, -8
++	.loc	1 2 0
++	brlid	r15, far
++	nop
++	.loc	1 3 0
++	brlid	r15, far
++	nop
++	.loc	1 4 0
++	rtsd	r15, 8
++	.loc	1 5 0
++	addik	r1, r1, 8
++	.size	_start, .-_start
++
++	.section .text.zz,"ax",@progbits
++far:
++	rtsd	r15, 8
++	nop
+-- 
+2.39.5 (Apple Git-154)
+

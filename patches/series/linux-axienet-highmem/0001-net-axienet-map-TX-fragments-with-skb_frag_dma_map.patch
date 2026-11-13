@@ -1,0 +1,122 @@
+From 48a13c35684545a4001d66d9e00b27d9e13fe0f2 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 20:52:36 -0500
+Subject: [PATCH net-next 1/2] net: axienet: map TX fragments with
+ skb_frag_dma_map()
+
+axienet_start_xmit() maps each skb fragment with
+
+	phys = dma_map_single(lp->dev, skb_frag_address(frag), ...);
+
+skb_frag_address() is page_address() plus the offset, so it needs the
+page in the kernel's linear mapping.  For a highmem page it returns
+NULL and the descriptor gets the DMA address of NULL plus the offset.
+This does not happen today only because the driver does not set
+NETIF_F_HIGHDMA: harmonize_features() then clears NETIF_F_SG for any
+skb with a highmem fragment, and validate_xmit_skb() linearises it
+before the driver sees it.
+
+Map fragments with skb_frag_dma_map(), which uses dma_map_page() on the
+fragment's page and offset and needs no virtual address; most Ethernet
+drivers do the same.  Release those mappings with dma_unmap_page().
+The new axienet_unmap_tx_bd() picks the unmap call from
+XAXIDMA_BD_CTRL_TXSOF_MASK: only the first descriptor of a packet
+carries it, and only that descriptor holds skb->data mapped with
+dma_map_single().  This needs no new field in struct axidma_bd.  Both
+TX reclaim paths, axienet_free_tx_chain() and axienet_free_tx_bufs(),
+use the helper.
+
+The dmaengine TX path already maps with skb_to_sgvec() and
+dma_map_sg(), which handle highmem pages, and is not changed.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ .../net/ethernet/xilinx/xilinx_axienet_main.c | 44 ++++++++++++-------
+ 1 file changed, 27 insertions(+), 17 deletions(-)
+
+diff --git a/drivers/net/ethernet/xilinx/xilinx_axienet_main.c b/drivers/net/ethernet/xilinx/xilinx_axienet_main.c
+index 7e83c4b5f193..cc2110eb5af8 100644
+--- a/drivers/net/ethernet/xilinx/xilinx_axienet_main.c
++++ b/drivers/net/ethernet/xilinx/xilinx_axienet_main.c
+@@ -175,6 +175,27 @@ static dma_addr_t desc_get_phys_addr(struct axienet_local *lp,
+ 	return ret;
+ }
+ 
++/**
++ * axienet_unmap_tx_bd - Unmap the buffer of a TX descriptor
++ * @lp:		Pointer to the axienet_local structure
++ * @cur_p:	TX descriptor whose buffer is mapped
++ *
++ * The first descriptor of a packet holds the linear part of the skb,
++ * mapped with dma_map_single().  The others hold page fragments, mapped
++ * with skb_frag_dma_map(), so they are unmapped with dma_unmap_page().
++ */
++static void axienet_unmap_tx_bd(struct axienet_local *lp,
++				struct axidma_bd *cur_p)
++{
++	dma_addr_t addr = desc_get_phys_addr(lp, cur_p);
++	size_t len = cur_p->cntrl & XAXIDMA_BD_CTRL_LENGTH_MASK;
++
++	if (cur_p->cntrl & XAXIDMA_BD_CTRL_TXSOF_MASK)
++		dma_unmap_single(lp->dev, addr, len, DMA_TO_DEVICE);
++	else
++		dma_unmap_page(lp->dev, addr, len, DMA_TO_DEVICE);
++}
++
+ /**
+  * axienet_free_tx_bufs - Release the buffers still held by the TX ring
+  * @lp:		Pointer to the axienet_local structure
+@@ -191,14 +212,8 @@ static void axienet_free_tx_bufs(struct axienet_local *lp)
+ 
+ 	for (i = 0; i < lp->tx_bd_num; i++) {
+ 		cur_p = &lp->tx_bd_v[i];
+-		if (cur_p->cntrl) {
+-			dma_addr_t addr = desc_get_phys_addr(lp, cur_p);
+-
+-			dma_unmap_single(lp->dev, addr,
+-					 (cur_p->cntrl &
+-					  XAXIDMA_BD_CTRL_LENGTH_MASK),
+-					 DMA_TO_DEVICE);
+-		}
++		if (cur_p->cntrl)
++			axienet_unmap_tx_bd(lp, cur_p);
+ 		/* not reclaimed by axienet_free_tx_chain(), so a drop */
+ 		if (cur_p->skb)
+ 			dev_kfree_skb_any(cur_p->skb);
+@@ -837,7 +852,6 @@ static int axienet_free_tx_chain(struct axienet_local *lp, u32 first_bd,
+ 	struct axidma_bd *cur_p;
+ 	unsigned int status;
+ 	int i, packets = 0;
+-	dma_addr_t phys;
+ 
+ 	for (i = 0; i < nr_bds; i++) {
+ 		cur_p = &lp->tx_bd_v[(first_bd + i) % lp->tx_bd_num];
+@@ -851,10 +865,7 @@ static int axienet_free_tx_chain(struct axienet_local *lp, u32 first_bd,
+ 
+ 		/* Ensure we see complete descriptor update */
+ 		dma_rmb();
+-		phys = desc_get_phys_addr(lp, cur_p);
+-		dma_unmap_single(lp->dev, phys,
+-				 (cur_p->cntrl & XAXIDMA_BD_CTRL_LENGTH_MASK),
+-				 DMA_TO_DEVICE);
++		axienet_unmap_tx_bd(lp, cur_p);
+ 
+ 		if (cur_p->skb && (status & XAXIDMA_BD_STS_COMPLETE_MASK)) {
+ 			if (sizep)
+@@ -1165,10 +1176,9 @@ axienet_start_xmit(struct sk_buff *skb, struct net_device *ndev)
+ 			new_tail_ptr = 0;
+ 		cur_p = &lp->tx_bd_v[new_tail_ptr];
+ 		frag = &skb_shinfo(skb)->frags[ii];
+-		phys = dma_map_single(lp->dev,
+-				      skb_frag_address(frag),
+-				      skb_frag_size(frag),
+-				      DMA_TO_DEVICE);
++		phys = skb_frag_dma_map(lp->dev, frag, 0,
++					skb_frag_size(frag),
++					DMA_TO_DEVICE);
+ 		if (unlikely(dma_mapping_error(lp->dev, phys))) {
+ 			if (net_ratelimit())
+ 				netdev_err(ndev, "TX DMA mapping error\n");
+-- 
+2.39.5 (Apple Git-154)
+

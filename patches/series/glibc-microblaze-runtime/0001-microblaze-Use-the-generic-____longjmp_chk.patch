@@ -1,0 +1,71 @@
+From e925d48156506031a5fd86e8fcee00551cf61d55 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:03:39 -0500
+Subject: [PATCH 1/8] microblaze: Use the generic ____longjmp_chk
+
+The MicroBlaze ____longjmp_chk has been a placeholder since the port
+was added in 2012:
+
+	ENTRY (____longjmp_chk)
+		rtsd	r15,0
+		nop
+
+It never jumps.  Worse, "rtsd r15,0" returns to the address of the
+call instruction itself rather than past its delay slot, so
+__longjmp_chk calls ____longjmp_chk, which returns to the call, which
+calls it again, forever.  Every longjmp or siglongjmp compiled with
+_FORTIFY_SOURCE hangs on MicroBlaze.  GDB defines _FORTIFY_SOURCE=2
+by default (gdbsupport/common-defs.h) and uses longjmp to propagate
+errors out of the readline callback, so a native gdb spins forever
+on the first error it handles.
+
+Remove the stub and provide JB_FRAME_ADDRESS so that the generic
+sysdeps/unix/sysv/linux/____longjmp_chk.c is used instead, the same
+way riscv and loongarch do.
+
+Tested on a microblazeel-linux-gnu cross build run under qemu-user:
+debug/tst-longjmp_chk, tst-longjmp_chk2 and tst-longjmp_chk3 time
+out before this change and pass after it.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ .../jmpbuf-offsets.h}                           | 17 +++++------------
+ 1 file changed, 5 insertions(+), 12 deletions(-)
+ rename sysdeps/{unix/sysv/linux/microblaze/____longjmp_chk.S => microblaze/jmpbuf-offsets.h} (74%)
+
+diff --git a/sysdeps/unix/sysv/linux/microblaze/____longjmp_chk.S b/sysdeps/microblaze/jmpbuf-offsets.h
+similarity index 74%
+rename from sysdeps/unix/sysv/linux/microblaze/____longjmp_chk.S
+rename to sysdeps/microblaze/jmpbuf-offsets.h
+index 92b3016941..ab74896ae6 100644
+--- a/sysdeps/unix/sysv/linux/microblaze/____longjmp_chk.S
++++ b/sysdeps/microblaze/jmpbuf-offsets.h
+@@ -1,5 +1,5 @@
+-/* Copyright (C) 1997-2026 Free Software Foundation, Inc.
+-
++/* Private macros for accessing __jmp_buf contents.  MicroBlaze version.
++   Copyright (C) 2026 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -16,14 +16,7 @@
+    License along with the GNU C Library; if not, see
+    <https://www.gnu.org/licenses/>.  */
+ 
+-#include <sysdep.h>
++#include <jmpbuf-unwind.h>
+ 
+-	.text
+-ENTRY (__revisit_longjmp_chk)
+-	rtsd	r15,0
+-	nop
+-PSEUDO_END (__revisit_longjmp_chk)
+-ENTRY (____longjmp_chk)
+-	rtsd	r15,0
+-	nop
+-PSEUDO_END (____longjmp_chk)
++/* Helper for generic ____longjmp_chk().  */
++#define JB_FRAME_ADDRESS(buf) ((void *) _jmpbuf_sp (buf))
+-- 
+2.39.5 (Apple Git-154)
+

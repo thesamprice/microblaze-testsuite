@@ -1,0 +1,204 @@
+From 57e9d0f9c6053c4d988a9a18fc4b646d79b61ac7 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 22:43:12 -0500
+Subject: [PATCH] 7, edge, next: Use mainline tools for microblaze
+
+The microblaze build sets use binutils 2.36 with 13 patches from the
+Xilinx meta-xilinx layer, and GCC 12 with 13 Xilinx patches and three
+RTEMS patches.  The comment says MicroBlaze GCC and binutils are not
+upstream, which is no longer true.
+
+The binutils patches a 32-bit MicroBlaze needs have been upstream since
+2023: the TLSTPREL fix (54fd15eef72), the address extension
+instructions (b90eb3e5b25), the bit-field instructions and their
+masking fix (bb0d05ff74f, 2d1777b530d, 1a5e256f200), the constant range
+check (2677a57064a) and the R_MICROBLAZE_32_NONE reloc (d605374748f).
+The others are obsolete, Xilinx-local, or concern 64-bit MicroBlaze.
+So the build sets use the default binutils.
+
+Of the GCC patches, 0001 to 0007 change only the testsuite.  0010 fixes
+a crash with -msmall-divides and -mxl-barrel-shift, a combination no
+RTEMS BSP uses by default, and 0011 and 0012 are optimizations.  0008
+and 0009 fix the atomic compare and swap, which GCC fixed with
+84e2023455a0 (PR target/118280), in 15.3.0 but not in 15.2.0.  0013
+removes the broken moddi3.S, which GCC fixed with 3a721dc02388 on master
+and 382046ec124a on releases/gcc-15, not in 15.3.0.  The three RTEMS
+patches are still needed: the GCC releases lack __USE_INIT_FINI__ (added
+on master as 271186ef4643), _init() and _fini() in crti.o, which newlib
+calls, and __ELF__, which rtems-libbsd needs.
+
+Add tools/rtems-microblaze-gcc-*-newlib-head.cfg, which include the
+default GCC configuration of the build set and add the patches it
+lacks, and use them for microblaze.  The rtems-xilinx-* configurations
+are then unused.
+
+I built 7/rtems-microblaze on arm64 macOS and ran the sptests and
+samples of the petalogix_s3adsp1800 BSP in upstream QEMU: 231 of 235
+pass.  One is a regression from the RTEMS 7 tools: samples/cdtest
+hangs after its first caught C++ exception.  It passes when linked with
+-Wl,--no-relax, so linker relaxation breaks exception unwinding with
+binutils 2.47.  next and edge are not built.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ rtems/config/7/rtems-microblaze.bset          |  5 ++-
+ rtems/config/edge/rtems-microblaze.bset       |  5 ++-
+ rtems/config/next/rtems-microblaze.bset       |  5 ++-
+ .../rtems-microblaze-gcc-15.2-newlib-head.cfg | 33 +++++++++++++++++++
+ .../rtems-microblaze-gcc-15.3-newlib-head.cfg | 26 +++++++++++++++
+ .../rtems-microblaze-gcc-head-newlib-head.cfg | 25 ++++++++++++++
+ 6 files changed, 90 insertions(+), 9 deletions(-)
+ create mode 100644 rtems/config/tools/rtems-microblaze-gcc-15.2-newlib-head.cfg
+ create mode 100644 rtems/config/tools/rtems-microblaze-gcc-15.3-newlib-head.cfg
+ create mode 100644 rtems/config/tools/rtems-microblaze-gcc-head-newlib-head.cfg
+
+diff --git a/rtems/config/7/rtems-microblaze.bset b/rtems/config/7/rtems-microblaze.bset
+index e6279d4..880049c 100644
+--- a/rtems/config/7/rtems-microblaze.bset
++++ b/rtems/config/7/rtems-microblaze.bset
+@@ -1,8 +1,7 @@
+ %define release 1
+ %define rtems_arch microblaze
+ 
+-# Microblaze gcc and binutils are not upstream
+-%define with_rtems_binutils tools/rtems-xilinx-binutils-2.36
+-%define with_rtems_gcc tools/rtems-xilinx-gcc-12-newlib-head
++# GCC lacks some MicroBlaze RTEMS support, see the configuration
++%define with_rtems_gcc tools/rtems-microblaze-gcc-15.2-newlib-head
+ 
+ %include 7/rtems-default
+diff --git a/rtems/config/edge/rtems-microblaze.bset b/rtems/config/edge/rtems-microblaze.bset
+index 6e14812..a65c6c9 100644
+--- a/rtems/config/edge/rtems-microblaze.bset
++++ b/rtems/config/edge/rtems-microblaze.bset
+@@ -1,8 +1,7 @@
+ %define release 1
+ %define rtems_arch microblaze
+ 
+-# Microblaze gcc and binutils are not upstream
+-%define with_rtems_binutils tools/rtems-xilinx-binutils-2.36
+-%define with_rtems_gcc tools/rtems-xilinx-gcc-12-newlib-head
++# GCC lacks some MicroBlaze RTEMS support, see the configuration
++%define with_rtems_gcc tools/rtems-microblaze-gcc-head-newlib-head
+ 
+ %include edge/rtems-default
+diff --git a/rtems/config/next/rtems-microblaze.bset b/rtems/config/next/rtems-microblaze.bset
+index e812e48..160cc62 100644
+--- a/rtems/config/next/rtems-microblaze.bset
++++ b/rtems/config/next/rtems-microblaze.bset
+@@ -1,8 +1,7 @@
+ %define release 1
+ %define rtems_arch microblaze
+ 
+-# Microblaze gcc and binutils are not upstream
+-%define with_rtems_binutils tools/rtems-xilinx-binutils-2.36
+-%define with_rtems_gcc tools/rtems-xilinx-gcc-12-newlib-head
++# GCC lacks some MicroBlaze RTEMS support, see the configuration
++%define with_rtems_gcc tools/rtems-microblaze-gcc-15.3-newlib-head
+ 
+ %include next/rtems-default
+diff --git a/rtems/config/tools/rtems-microblaze-gcc-15.2-newlib-head.cfg b/rtems/config/tools/rtems-microblaze-gcc-15.2-newlib-head.cfg
+new file mode 100644
+index 0000000..22e70a2
+--- /dev/null
++++ b/rtems/config/tools/rtems-microblaze-gcc-15.2-newlib-head.cfg
+@@ -0,0 +1,33 @@
++%include tools/rtems-gcc-15.2-newlib-head.cfg
++
++#
++# MicroBlaze RTEMS support missing from this GCC release.
++#
++
++# Run the global constructors through __libc_init_array().
++# Backport of GCC commit 271186ef4643.
++%patch add gcc -p1 https://gitlab.rtems.org/rtems/rtos/rtems/-/blob/main/assets/tracmigration/ticket_attachments/0001-gcc-config-aarch64-rtems.h-Define-__USE_INIT_FINI__.patch
++%hash sha512 0001-gcc-config-aarch64-rtems.h-Define-__USE_INIT_FINI__.patch \
++  hCU8PBgPv8a2QP/acuhXT5VmG98xMlA6zD8bc6j3iusFCMBtuzLRyDY/8IN2UZTu/xTkZEWUaWnFGkSY0rOg5w==
++
++# The C library calls _init() and _fini() from crti.o.
++%patch add gcc -p1 https://gitlab.rtems.org/rtems/rtos/rtems/-/blob/main/assets/tracmigration/ticket_attachments/0002-config-microblaze-crti.S-Add-single-underscore-init-.patch
++%hash sha512 0002-config-microblaze-crti.S-Add-single-underscore-init-.patch \
++  vx7H7/DdUdFU3QUH7bCFRYyQoAD1o8zvsQZBR8+P2v4BEdIJQ3LhZJdvIZPCib/56mPcrUNVXJCJMnKklLfneQ==
++
++%patch add gcc -p1 https://gitlab.rtems.org/rtems/rtos/rtems/-/blob/main/assets/tracmigration/ticket_attachments/0001-microblaze-Define-__ELF__-for-RTEMS-target.patch
++%hash sha512 0001-microblaze-Define-__ELF__-for-RTEMS-target.patch \
++  OcBmbC5cVgRH8A7ZE80HJh6cDbBbDMVJQAZnATzPHUFAwL17AS1g3WKCNb964nVkRgpF6Wnpz/ddFO2Uv9gmMg==
++
++# Fix __moddi3() for every input.  Backport of GCC commit 382046ec124a
++# from the releases/gcc-15 branch.
++%patch add gcc -p1 --rsb-file=gcc-microblaze-moddi3-382046ec124a.patch https://gcc.gnu.org/git/?p=gcc.git;a=patch;h=382046ec124a92d5a4b589622cf47db4a3189cb9
++%hash sha512 gcc-microblaze-moddi3-382046ec124a.patch \
++  BrXKejQico9cR7hWZfF3URb+ef4AiZHuPOZKRJvM9cxLJBMkdw9Wgos2/fjnFyHoaATt0V/2HDBAEReZPyVcPQ==
++
++# Fix the side effects and the result of the atomic compare and swap and add
++# atomic_test_and_set.  Backport of GCC commit 84e2023455a0 from the
++# releases/gcc-15 branch (PR target/118280).
++%patch add gcc -p1 --rsb-file=gcc-microblaze-atomic-84e2023455a0.patch https://gcc.gnu.org/git/?p=gcc.git;a=patch;h=84e2023455a0180c9b6420bac5bdeec0041529b0
++%hash sha512 gcc-microblaze-atomic-84e2023455a0.patch \
++  M2T73B/R6QTrFCSL1AR+XeUeZ8Ap5+T3Uk3SsgHCVc7hbJr1taw95HLVqzBZKO2vy/EK9/yN2da+V9Gd6pViMQ==
+diff --git a/rtems/config/tools/rtems-microblaze-gcc-15.3-newlib-head.cfg b/rtems/config/tools/rtems-microblaze-gcc-15.3-newlib-head.cfg
+new file mode 100644
+index 0000000..6b80579
+--- /dev/null
++++ b/rtems/config/tools/rtems-microblaze-gcc-15.3-newlib-head.cfg
+@@ -0,0 +1,26 @@
++%include tools/rtems-gcc-15.3-newlib-head.cfg
++
++#
++# MicroBlaze RTEMS support missing from this GCC release.
++#
++
++# Run the global constructors through __libc_init_array().
++# Backport of GCC commit 271186ef4643.
++%patch add gcc -p1 https://gitlab.rtems.org/rtems/rtos/rtems/-/blob/main/assets/tracmigration/ticket_attachments/0001-gcc-config-aarch64-rtems.h-Define-__USE_INIT_FINI__.patch
++%hash sha512 0001-gcc-config-aarch64-rtems.h-Define-__USE_INIT_FINI__.patch \
++  hCU8PBgPv8a2QP/acuhXT5VmG98xMlA6zD8bc6j3iusFCMBtuzLRyDY/8IN2UZTu/xTkZEWUaWnFGkSY0rOg5w==
++
++# The C library calls _init() and _fini() from crti.o.
++%patch add gcc -p1 https://gitlab.rtems.org/rtems/rtos/rtems/-/blob/main/assets/tracmigration/ticket_attachments/0002-config-microblaze-crti.S-Add-single-underscore-init-.patch
++%hash sha512 0002-config-microblaze-crti.S-Add-single-underscore-init-.patch \
++  vx7H7/DdUdFU3QUH7bCFRYyQoAD1o8zvsQZBR8+P2v4BEdIJQ3LhZJdvIZPCib/56mPcrUNVXJCJMnKklLfneQ==
++
++%patch add gcc -p1 https://gitlab.rtems.org/rtems/rtos/rtems/-/blob/main/assets/tracmigration/ticket_attachments/0001-microblaze-Define-__ELF__-for-RTEMS-target.patch
++%hash sha512 0001-microblaze-Define-__ELF__-for-RTEMS-target.patch \
++  OcBmbC5cVgRH8A7ZE80HJh6cDbBbDMVJQAZnATzPHUFAwL17AS1g3WKCNb964nVkRgpF6Wnpz/ddFO2Uv9gmMg==
++
++# Fix __moddi3() for every input.  Backport of GCC commit 382046ec124a
++# from the releases/gcc-15 branch.
++%patch add gcc -p1 --rsb-file=gcc-microblaze-moddi3-382046ec124a.patch https://gcc.gnu.org/git/?p=gcc.git;a=patch;h=382046ec124a92d5a4b589622cf47db4a3189cb9
++%hash sha512 gcc-microblaze-moddi3-382046ec124a.patch \
++  BrXKejQico9cR7hWZfF3URb+ef4AiZHuPOZKRJvM9cxLJBMkdw9Wgos2/fjnFyHoaATt0V/2HDBAEReZPyVcPQ==
+diff --git a/rtems/config/tools/rtems-microblaze-gcc-head-newlib-head.cfg b/rtems/config/tools/rtems-microblaze-gcc-head-newlib-head.cfg
+new file mode 100644
+index 0000000..749c211
+--- /dev/null
++++ b/rtems/config/tools/rtems-microblaze-gcc-head-newlib-head.cfg
+@@ -0,0 +1,25 @@
++%include tools/rtems-gcc-head-newlib-head.cfg
++
++#
++# MicroBlaze RTEMS support missing from this GCC snapshot.
++#
++
++# Run the global constructors through __libc_init_array().
++# Backport of GCC commit 271186ef4643.
++%patch add gcc -p1 https://gitlab.rtems.org/rtems/rtos/rtems/-/blob/main/assets/tracmigration/ticket_attachments/0001-gcc-config-aarch64-rtems.h-Define-__USE_INIT_FINI__.patch
++%hash sha512 0001-gcc-config-aarch64-rtems.h-Define-__USE_INIT_FINI__.patch \
++  hCU8PBgPv8a2QP/acuhXT5VmG98xMlA6zD8bc6j3iusFCMBtuzLRyDY/8IN2UZTu/xTkZEWUaWnFGkSY0rOg5w==
++
++# The C library calls _init() and _fini() from crti.o.
++%patch add gcc -p1 https://gitlab.rtems.org/rtems/rtos/rtems/-/blob/main/assets/tracmigration/ticket_attachments/0002-config-microblaze-crti.S-Add-single-underscore-init-.patch
++%hash sha512 0002-config-microblaze-crti.S-Add-single-underscore-init-.patch \
++  vx7H7/DdUdFU3QUH7bCFRYyQoAD1o8zvsQZBR8+P2v4BEdIJQ3LhZJdvIZPCib/56mPcrUNVXJCJMnKklLfneQ==
++
++%patch add gcc -p1 https://gitlab.rtems.org/rtems/rtos/rtems/-/blob/main/assets/tracmigration/ticket_attachments/0001-microblaze-Define-__ELF__-for-RTEMS-target.patch
++%hash sha512 0001-microblaze-Define-__ELF__-for-RTEMS-target.patch \
++  OcBmbC5cVgRH8A7ZE80HJh6cDbBbDMVJQAZnATzPHUFAwL17AS1g3WKCNb964nVkRgpF6Wnpz/ddFO2Uv9gmMg==
++
++# Fix __moddi3() for every input.  Backport of GCC commit 3a721dc02388.
++%patch add gcc -p1 --rsb-file=gcc-microblaze-moddi3-3a721dc02388.patch https://gcc.gnu.org/git/?p=gcc.git;a=patch;h=3a721dc0238851e1d58d1cbf74c1164ca1aa21fa
++%hash sha512 gcc-microblaze-moddi3-3a721dc02388.patch \
++  8VqVm12uqSODDdp+Si048txQXMiT6YFh58kGxP7JWIknRASjxk33laMH9LDpmuw8fri0QBlk3IwHKZIrE5/vMQ==
+-- 
+2.39.5 (Apple Git-154)
+

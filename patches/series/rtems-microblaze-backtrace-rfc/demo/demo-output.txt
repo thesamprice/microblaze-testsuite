@@ -1,0 +1,51 @@
+PASS backtrace01
+  Init init.c:113
+  _Thread_Entry_adaptor_numeric threadentryadaptornumeric.c:47
+  _Thread_Handler threadhandler.c:166
+  L0 microblaze-context-switch.S:124
+PASS btdemo1
+backtrace from fatal extension: 12 frames
+  report init.c:18
+  _User_extensions_Fatal_visitor userextiterate.c:156
+  _User_extensions_Iterate userextiterate.c:200
+  _User_extensions_Fatal userextimpl.h:463
+  rtems_fatal fatal.h:160
+  L0 _exception_handler.S:145
+  g2 init.c:48
+  g1 init.c:61
+  Init init.c:76
+  _Thread_Entry_adaptor_numeric threadentryadaptornumeric.c:47
+  _Thread_Handler threadhandler.c:166
+  L0 microblaze-context-switch.S:124
+PASS btdemo2
+backtrace from fatal extension: 12 frames
+  report init.c:18
+  _User_extensions_Fatal_visitor userextiterate.c:156
+  _User_extensions_Iterate userextiterate.c:200
+  _User_extensions_Fatal userextimpl.h:463
+  rtems_fatal fatal.h:160
+  L0 _debug_sw_break_handler.S:148
+  g2 init.c:50
+  g1 init.c:61
+  Init init.c:76
+  _Thread_Entry_adaptor_numeric threadentryadaptornumeric.c:47
+  _Thread_Handler threadhandler.c:166
+  L0 microblaze-context-switch.S:124
+PASS btdemo3
+backtrace from timer service routine: 16 frames
+  report init.c:18
+  tsr init.c:40
+  _Timer_Routine_adaptor timercreate.c:76
+  _Watchdog_Do_tickle watchdogtick.c:76
+  _Watchdog_Tick watchdogtick.c:115
+  _Timecounter_Tick_simple kern_tc.c:2391
+  rtems_timecounter_simple_downcounter_tick timecounter.h:256
+  microblaze_clock_handler clock.c:137
+  bsp_interrupt_dispatch_entries irq-generic.h:575
+  L0 cpu_asm.S:111
+  g2 init.c:52
+  g1 init.c:61
+  Init init.c:76
+  _Thread_Entry_adaptor_numeric threadentryadaptornumeric.c:47
+  _Thread_Handler threadhandler.c:166
+  L0 microblaze-context-switch.S:124

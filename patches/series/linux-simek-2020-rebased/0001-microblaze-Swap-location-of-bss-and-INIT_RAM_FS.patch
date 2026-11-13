@@ -1,0 +1,100 @@
+From edf8dbd18ec2a000cd3dc5d70901dc4c5d335263 Mon Sep 17 00:00:00 2001
+From: Michal Simek <michal.simek@xilinx.com>
+Date: Wed, 25 Nov 2020 12:44:47 +0100
+Subject: [PATCH 1/3] microblaze: Swap location of bss and INIT_RAM_FS
+
+Microblaze is doing early mapping with two TLBs with 16MB each. It means
+machine_early_init() with MMU ON can work just with 32MB memory max. If
+kernel includes initramfs which increase kernel footprint above 32MB bss
+section can't be clear and HW exception happens because memory is not
+mapped.
+Swapping bss section with INIT_RAM_FS ensures that bss section stays in
+mapped region and bss can be cleared by machine_early_init() code.
+
+The patch is causing hole in binary and extend binary with bss size but it
+is better to apply this patch and support bigger initramfs size then 32MB
+in total with kernel.
+
+Also there is need to allocate initramfs because origin mapping is done
+only to the _end symbol which stayed at the same location. The follow up
+patch will explain reasons behind it.
+
+Signed-off-by: Michal Simek <michal.simek@xilinx.com>
+---
+ arch/microblaze/include/asm/sections.h |  2 ++
+ arch/microblaze/kernel/vmlinux.lds.S   | 11 +++++------
+ arch/microblaze/mm/init.c              |  7 ++++++-
+ 3 files changed, 13 insertions(+), 7 deletions(-)
+
+diff --git a/arch/microblaze/include/asm/sections.h b/arch/microblaze/include/asm/sections.h
+index f5008f5e7a5c..c94bcbf178d1 100644
+--- a/arch/microblaze/include/asm/sections.h
++++ b/arch/microblaze/include/asm/sections.h
+@@ -14,6 +14,8 @@
+ extern char _ssbss[], _esbss[];
+ extern unsigned long __ivt_start[], __ivt_end[];
+ 
++extern char __initramfs_end[];
++
+ extern u32 _fdt_start[], _fdt_end[];
+ 
+ # endif /* !__ASSEMBLER__ */
+diff --git a/arch/microblaze/kernel/vmlinux.lds.S b/arch/microblaze/kernel/vmlinux.lds.S
+index ae50d3d04a7d..d404d350b6a0 100644
+--- a/arch/microblaze/kernel/vmlinux.lds.S
++++ b/arch/microblaze/kernel/vmlinux.lds.S
+@@ -119,12 +119,6 @@ SECTIONS {
+ 		CON_INITCALL
+ 	}
+ 
+-	__init_end_before_initramfs = .;
+-
+-	.init.ramfs : AT(ADDR(.init.ramfs) - LOAD_OFFSET) {
+-		INIT_RAM_FS
+-	}
+-
+ 	__init_end = .;
+ 
+ 	.bss ALIGN (PAGE_SIZE) : AT(ADDR(.bss) - LOAD_OFFSET) {
+@@ -138,5 +132,10 @@ SECTIONS {
+ 	. = ALIGN(PAGE_SIZE);
+ 	_end = .;
+ 
++	.init.ramfs : AT(ADDR(.init.ramfs) - LOAD_OFFSET) {
++		INIT_RAM_FS
++	}
++	__initramfs_end = . ;
++
+ 	DISCARDS
+ }
+diff --git a/arch/microblaze/mm/init.c b/arch/microblaze/mm/init.c
+index 848cdee1380c..6730963fda07 100644
+--- a/arch/microblaze/mm/init.c
++++ b/arch/microblaze/mm/init.c
+@@ -165,6 +165,7 @@ static void __init mmu_init_hw(void)
+ asmlinkage void __init mmu_init(void)
+ {
+ 	unsigned int kstart, ksize;
++	phys_addr_t __maybe_unused size;
+ 
+ 	if ((u32) memblock.memory.regions[0].size < 0x400000) {
+ 		pr_emerg("Memory must be greater than 4MB\n");
+@@ -201,10 +202,14 @@ asmlinkage void __init mmu_init(void)
+ #if defined(CONFIG_BLK_DEV_INITRD)
+ 	/* Remove the init RAM disk from the available memory. */
+ 	if (initrd_start) {
+-		unsigned long size;
+ 		size = initrd_end - initrd_start;
+ 		memblock_reserve(__virt_to_phys(initrd_start), size);
+ 	}
++
++	size = __initramfs_end - __initramfs_start;
++	if (size)
++		memblock_reserve((phys_addr_t)__virt_to_phys(__initramfs_start),
++				 size);
+ #endif /* CONFIG_BLK_DEV_INITRD */
+ 
+ 	/* Initialize the MMU hardware */
+-- 
+2.39.5 (Apple Git-154)
+

@@ -1,0 +1,85 @@
+From 681db20bae669c080e56251195db3ba87a614c85 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:37:45 -0500
+Subject: [PATCH 8/8] microblaze: End the unwind at the start of a thread
+
+A thread starts in _Thread_Handler() with r15 set by
+_CPU_Context_Initialize().  _Thread_Handler() saves r15 like any other
+function, so an unwinder takes r15 + 8, the entry point, as the return
+address of the outermost frame.  It then looks up the call frame
+information for the address before it, which belongs to whatever
+function precedes _Thread_Handler() in memory, and goes on with
+garbage.  With the CFI added to the assembly code and RTEMS built with
+-fasynchronous-unwind-tables, a backtrace from a thread repeated the
+frame of _Thread_Get() until the buffer was full.
+
+Start a new thread in _MicroBlaze_Thread_start(), which calls the entry
+point held in r19 and marks r15 undefined, so the walk ends there.
+r19 is callee-saved, so _CPU_Context_switch() restores it with the rest
+of the context.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ cpukit/score/cpu/microblaze/cpu.c                   |  3 ++-
+ .../cpu/microblaze/include/rtems/score/cpuimpl.h    |  2 ++
+ .../cpu/microblaze/microblaze-context-switch.S      | 13 +++++++++++++
+ 3 files changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/cpukit/score/cpu/microblaze/cpu.c b/cpukit/score/cpu/microblaze/cpu.c
+index e14cdcb727..005dccb152 100644
+--- a/cpukit/score/cpu/microblaze/cpu.c
++++ b/cpukit/score/cpu/microblaze/cpu.c
+@@ -71,7 +71,8 @@ void _CPU_Context_Initialize(
+ 
+   context->r1 = stack_high - 64;
+   /* _CPU_Context_switch() returns with "rtsd r15, 8" */
+-  context->r15 = (uint32_t) entry_point - 8;
++  context->r15 = (uint32_t) _MicroBlaze_Thread_start - 8;
++  context->r19 = (uint32_t) entry_point;
+ 
+   uint32_t msr;
+   _CPU_MSR_GET( msr );
+diff --git a/cpukit/score/cpu/microblaze/include/rtems/score/cpuimpl.h b/cpukit/score/cpu/microblaze/include/rtems/score/cpuimpl.h
+index d9b4cc9821..183b138a67 100644
+--- a/cpukit/score/cpu/microblaze/include/rtems/score/cpuimpl.h
++++ b/cpukit/score/cpu/microblaze/include/rtems/score/cpuimpl.h
+@@ -90,6 +90,8 @@ void _CPU_Context_volatile_clobber( uintptr_t pattern );
+ 
+ void _CPU_Context_validate( uintptr_t pattern );
+ 
++void _MicroBlaze_Thread_start( void );
++
+ static inline void _CPU_Instruction_illegal( void )
+ {
+   __asm__ volatile ( ".word 0x0" );
+diff --git a/cpukit/score/cpu/microblaze/microblaze-context-switch.S b/cpukit/score/cpu/microblaze/microblaze-context-switch.S
+index 34e8b1839c..759327fb55 100644
+--- a/cpukit/score/cpu/microblaze/microblaze-context-switch.S
++++ b/cpukit/score/cpu/microblaze/microblaze-context-switch.S
+@@ -48,6 +48,7 @@ PUBLIC(_CPU_Context_switch)
+ PUBLIC(_CPU_Context_restore)
+ PUBLIC(_CPU_Context_restore_fp)
+ PUBLIC(_CPU_Context_save_fp)
++PUBLIC(_MicroBlaze_Thread_start)
+ 
+ SYM(_CPU_Context_switch):
+     CFI_STARTPROC
+@@ -110,3 +111,15 @@ SYM(_CPU_Context_restore):
+     add   r6, r5, r0
+     brai  restore
+     CFI_ENDPROC
++
++/*
++ * A new thread starts here with the entry point in r19, see
++ * _CPU_Context_Initialize().  The thread has no caller, so an unwinder ends
++ * its walk here.
++ */
++SYM(_MicroBlaze_Thread_start):
++    CFI_STARTPROC
++    CFI_UNDEFINED(r15)
++    brald   r15, r19
++    nop
++    CFI_ENDPROC
+-- 
+2.39.5 (Apple Git-154)
+

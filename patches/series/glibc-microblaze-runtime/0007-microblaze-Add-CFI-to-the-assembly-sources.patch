@@ -1,0 +1,366 @@
+From 4e2990aa427dd1a3c288c8e17f2cdcdcd349e793 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:03:43 -0500
+Subject: [PATCH 7/8] microblaze: Add CFI to the assembly sources
+
+No hand-written MicroBlaze assembly in glibc carries unwind
+information: ENTRY and END do not emit cfi_startproc/cfi_endproc, and
+the few functions that build a frame (_dl_runtime_resolve, _mcount,
+the PIC syscall error handler) say nothing about it.  Any unwind that
+reaches such a frame stops there, and elf/tst-unwind-main aborts
+because _start has no FDE that marks it as the outermost frame.
+
+The assembler in released binutils rejects .cfi_* directives for
+MicroBlaze ("CFI is not supported for this target"), so add a
+configure probe and make the cfi_* macros expand to nothing when the
+assembler cannot take them.  With that in place, emit
+cfi_startproc/cfi_endproc from ENTRY/END as or1k, csky and arc do,
+describe the frames of _dl_runtime_resolve, _dl_runtime_profile,
+_mcount and the reentrant PIC SYSCALL_ERROR_HANDLER, and mark r15
+undefined in _start, in the child branch of clone and in
+__startcontext, which have no caller.  The return-address column is
+r15, as the assembler support defines it.
+
+The cancel path of __syscall_cancel_arch needs no CFI of its own once
+it tail-calls __syscall_do_cancel (sent separately), since it then
+has no frame to describe.
+
+With an assembler that lacks the support the generated code is
+unchanged.  Unwinding through a signal frame additionally needs
+libgcc's MD_FALLBACK_FRAME_STATE_FOR for MicroBlaze, which is a
+separate GCC change.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ config.h.in                                   |  3 ++
+ sysdeps/microblaze/_mcount.S                  |  6 +++
+ sysdeps/microblaze/configure                  | 36 +++++++++++++++++
+ sysdeps/microblaze/configure.ac               | 22 +++++++++++
+ sysdeps/microblaze/dl-trampoline.S            |  8 ++++
+ sysdeps/microblaze/start.S                    |  6 +++
+ sysdeps/microblaze/sysdep.h                   | 39 ++++++++++++++++++-
+ sysdeps/unix/sysv/linux/microblaze/clone.S    |  2 +
+ .../unix/sysv/linux/microblaze/setcontext.S   |  3 ++
+ sysdeps/unix/sysv/linux/microblaze/sysdep.h   |  6 +++
+ 10 files changed, 130 insertions(+), 1 deletion(-)
+
+diff --git a/config.h.in b/config.h.in
+index 17bdd30570..baeccd08e4 100644
+--- a/config.h.in
++++ b/config.h.in
+@@ -92,6 +92,9 @@
+    need dynamic relocations.  */
+ #undef	HIDDEN_VAR_NEEDS_DYNAMIC_RELOC
+ 
++/* Define if the assembler accepts CFI directives for MicroBlaze.  */
++#undef	HAVE_MICROBLAZE_ASM_CFI
++
+ /* Define this to disable the 'hidden_proto' et al macros in
+    include/libc-symbols.h that avoid PLT slots in PIE.  */
+ #undef  NO_HIDDEN_EXTERN_FUNC_IN_PIE
+diff --git a/sysdeps/microblaze/_mcount.S b/sysdeps/microblaze/_mcount.S
+index abdff90523..33f7667507 100644
+--- a/sysdeps/microblaze/_mcount.S
++++ b/sysdeps/microblaze/_mcount.S
+@@ -16,11 +16,15 @@
+    License along with the GNU C Library.  If not, see
+    <https://www.gnu.org/licenses/>.  */
+ 
++#include <sysdep.h>
++
+ 	.global	_mcount
+ 	.type	_mcount, @function
+ _mcount:
++	cfi_startproc
+ 	# Save regs.
+ 	addik   r1, r1,-4 * 24
++	cfi_adjust_cfa_offset (4 * 24)
+ 	swi	r31, r1, 4 * 23
+ 	swi	r30, r1, 4 * 22
+ 	swi	r29, r1, 4 * 21
+@@ -35,6 +39,7 @@ _mcount:
+ 	swi	r20, r1, 4 * 12
+ 	swi	r19, r1, 4 * 11
+ 	swi	r15, r1, 4 * 10
++	cfi_rel_offset (r15, 4 * 10)
+ 	swi	r12, r1, 4 * 9
+ 	swi	r11, r1, 4 * 8
+ 	swi	r10, r1, 4 * 7
+@@ -88,4 +93,5 @@ _mcount:
+ 	rtsd	r15, 8
+ 	addik	r1, r1, 4 * 24
+ 
++	cfi_endproc
+ 	.size	_mcount, . - _mcount
+diff --git a/sysdeps/microblaze/configure b/sysdeps/microblaze/configure
+index cae87f450f..1ef6d0c074 100755
+--- a/sysdeps/microblaze/configure
++++ b/sysdeps/microblaze/configure
+@@ -8,5 +8,41 @@ printf "%s\n" "#define HIDDEN_VAR_NEEDS_DYNAMIC_RELOC 1" >>confdefs.h
+ # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=103613
+ printf "%s\n" "#define PIE_UNSUPPORTED 1" >>confdefs.h
+ 
++
++# The MicroBlaze assembler in released binutils rejects .cfi_* directives
++# ("CFI is not supported for this target").  The assembly sources use the
++# cfi_* macros unconditionally; sysdep.h defines them to nothing when the
++# assembler cannot take them.
++{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether the assembler supports CFI directives for MicroBlaze" >&5
++printf %s "checking whether the assembler supports CFI directives for MicroBlaze... " >&6; }
++if test ${libc_cv_microblaze_asm_cfi+y}
++then :
++  printf %s "(cached) " >&6
++else case e in #(
++  e) cat > conftest.s <<\EOF
++	.text
++	.cfi_startproc
++	nop
++	.cfi_endproc
++EOF
++if { ac_try='${CC-cc} -c conftest.s 1>&5'
++  { { eval echo "\"\$as_me\":${as_lineno-$LINENO}: \"$ac_try\""; } >&5
++  (eval $ac_try) 2>&5
++  ac_status=$?
++  printf "%s\n" "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
++  test $ac_status = 0; }; }; then
++  libc_cv_microblaze_asm_cfi=yes
++else
++  libc_cv_microblaze_asm_cfi=no
++fi
++rm -f conftest* ;;
++esac
++fi
++{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $libc_cv_microblaze_asm_cfi" >&5
++printf "%s\n" "$libc_cv_microblaze_asm_cfi" >&6; }
++if test $libc_cv_microblaze_asm_cfi = yes; then
++  printf "%s\n" "#define HAVE_MICROBLAZE_ASM_CFI 1" >>confdefs.h
++
++fi
+ # work around problem with autoconf and empty lines at the end of files
+ 
+diff --git a/sysdeps/microblaze/configure.ac b/sysdeps/microblaze/configure.ac
+index 0b451df111..126320fef8 100644
+--- a/sysdeps/microblaze/configure.ac
++++ b/sysdeps/microblaze/configure.ac
+@@ -6,4 +6,26 @@ AC_DEFINE(HIDDEN_VAR_NEEDS_DYNAMIC_RELOC)
+ # gcc 11.2.1 and earlier crash with an internal compiler error, see:
+ # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=103613
+ AC_DEFINE(PIE_UNSUPPORTED)
++
++# The MicroBlaze assembler in released binutils rejects .cfi_* directives
++# ("CFI is not supported for this target").  The assembly sources use the
++# cfi_* macros unconditionally; sysdep.h defines them to nothing when the
++# assembler cannot take them.
++AC_CACHE_CHECK([whether the assembler supports CFI directives for MicroBlaze],
++  libc_cv_microblaze_asm_cfi, [dnl
++cat > conftest.s <<\EOF
++	.text
++	.cfi_startproc
++	nop
++	.cfi_endproc
++EOF
++if AC_TRY_COMMAND(${CC-cc} -c conftest.s 1>&AS_MESSAGE_LOG_FD); then
++  libc_cv_microblaze_asm_cfi=yes
++else
++  libc_cv_microblaze_asm_cfi=no
++fi
++rm -f conftest*])
++if test $libc_cv_microblaze_asm_cfi = yes; then
++  AC_DEFINE(HAVE_MICROBLAZE_ASM_CFI)
++fi
+ # work around problem with autoconf and empty lines at the end of files
+diff --git a/sysdeps/microblaze/dl-trampoline.S b/sysdeps/microblaze/dl-trampoline.S
+index c573596197..42def39623 100644
+--- a/sysdeps/microblaze/dl-trampoline.S
++++ b/sysdeps/microblaze/dl-trampoline.S
+@@ -26,7 +26,9 @@
+     .type   _dl_runtime_resolve, @function
+     .align  4
+ _dl_runtime_resolve:
++    cfi_startproc
+     addik r1,r1,-40
++    cfi_adjust_cfa_offset (40)
+     swi   r5,r1,12
+     swi   r6,r1,16
+     swi   r7,r1,20
+@@ -34,6 +36,7 @@ _dl_runtime_resolve:
+     swi   r9,r1,28
+     swi   r10,r1,32
+     swi   r15,r1,0
++    cfi_rel_offset (r15, 0)
+     addk r5,r0,r4
+     brlid r15, _dl_fixup
+     addk r6,r0,r3; /* delay slot.  */
+@@ -46,6 +49,7 @@ _dl_runtime_resolve:
+     lwi   r15,r1,0
+     brad  r3
+     addik r1,r1,40; /* delay slot.  */
++    cfi_endproc
+     .size _dl_runtime_resolve, . - _dl_runtime_resolve
+ 
+     .text
+@@ -53,7 +57,9 @@ _dl_runtime_resolve:
+     .type   _dl_runtime_profile, @function
+     .align  4
+ _dl_runtime_profile:
++    cfi_startproc
+     addik r1,r1,-40
++    cfi_adjust_cfa_offset (40)
+     swi   r5,r1,12
+     swi   r6,r1,16
+     swi   r7,r1,20
+@@ -61,6 +67,7 @@ _dl_runtime_profile:
+     swi   r9,r1,28
+     swi   r10,r1,32
+     swi   r15,r1,0
++    cfi_rel_offset (r15, 0)
+     addk r5,r0,r4
+     brlid r15, _dl_profile_fixup
+     addk r6,r0,r3; /* delay slot.  */
+@@ -73,6 +80,7 @@ _dl_runtime_profile:
+     lwi   r15,r1,0
+     brad  r3
+     addik r1,r1,40; /* delay slot.  */
++    cfi_endproc
+     .size _dl_runtime_profile, . - _dl_runtime_profile
+ 
+ #else
+diff --git a/sysdeps/microblaze/start.S b/sysdeps/microblaze/start.S
+index 8afd245e76..8c9e7b87c2 100644
+--- a/sysdeps/microblaze/start.S
++++ b/sysdeps/microblaze/start.S
+@@ -33,10 +33,15 @@
+    License along with the GNU C Library.  If not, see
+    <https://www.gnu.org/licenses/>.  */
+ 
++#include <sysdep.h>
++
+     .text
+     .globl _start
+     .type _start,@function
+ _start:
++    cfi_startproc
++    /* Nothing to unwind to: the return address is not meaningful.  */
++    cfi_undefined (r15)
+     /* On entry the stack contains the following args:
+          r1+0 - argc
+          r1+4 - argv[0]
+@@ -81,6 +86,7 @@ _start:
+     brid    __libc_start_main
+     addk    r9,r0,r0		/* Used to be fini.  */
+ #endif
++    cfi_endproc
+ 
+ /* Define a symbol for the first piece of initialized data.  */
+     .data
+diff --git a/sysdeps/microblaze/sysdep.h b/sysdeps/microblaze/sysdep.h
+index 1a9b778cb0..2c60a28f4e 100644
+--- a/sysdeps/microblaze/sysdep.h
++++ b/sysdeps/microblaze/sysdep.h
+@@ -31,10 +31,47 @@
+   .type C_SYMBOL_NAME(name),@function;        \
+   .align ALIGNARG(2);                         \
+   C_LABEL(name)                               \
++  cfi_startproc;                              \
+   CALL_MCOUNT
+ 
+ # undef END
+-# define END(name) ASM_SIZE_DIRECTIVE(name)
++# define END(name)                            \
++  cfi_endproc;                                \
++  ASM_SIZE_DIRECTIVE(name)
++
++/* The MicroBlaze assembler in released binutils cannot assemble .cfi_*
++   directives (see configure.ac).  Keep the sources uniform and drop the
++   directives instead.  */
++# ifndef HAVE_MICROBLAZE_ASM_CFI
++#  undef cfi_startproc
++#  undef cfi_endproc
++#  undef cfi_def_cfa
++#  undef cfi_def_cfa_register
++#  undef cfi_def_cfa_offset
++#  undef cfi_adjust_cfa_offset
++#  undef cfi_offset
++#  undef cfi_rel_offset
++#  undef cfi_register
++#  undef cfi_restore
++#  undef cfi_same_value
++#  undef cfi_undefined
++#  undef cfi_remember_state
++#  undef cfi_restore_state
++#  define cfi_startproc
++#  define cfi_endproc
++#  define cfi_def_cfa(reg, off)
++#  define cfi_def_cfa_register(reg)
++#  define cfi_def_cfa_offset(off)
++#  define cfi_adjust_cfa_offset(off)
++#  define cfi_offset(reg, off)
++#  define cfi_rel_offset(reg, off)
++#  define cfi_register(r1, r2)
++#  define cfi_restore(reg)
++#  define cfi_same_value(reg)
++#  define cfi_undefined(reg)
++#  define cfi_remember_state
++#  define cfi_restore_state
++# endif
+ 
+ 
+ /* If compiled for profiling, call `_mcount' at the start of each function.  */
+diff --git a/sysdeps/unix/sysv/linux/microblaze/clone.S b/sysdeps/unix/sysv/linux/microblaze/clone.S
+index 00b610e7ad..0343fa68ff 100644
+--- a/sysdeps/unix/sysv/linux/microblaze/clone.S
++++ b/sysdeps/unix/sysv/linux/microblaze/clone.S
+@@ -59,6 +59,8 @@ ENTRY (__clone)
+ 	nop
+ 
+ L(thread_start):
++	/* Terminate the unwind chain in the child.  */
++	cfi_undefined (r15)
+ 	lwi	r12,r1,0		; // fn
+ 	lwi	r5,r1,4			; // arg
+ 	brald	r15,r12
+diff --git a/sysdeps/unix/sysv/linux/microblaze/setcontext.S b/sysdeps/unix/sysv/linux/microblaze/setcontext.S
+index da49cafb54..2a5f030fec 100644
+--- a/sysdeps/unix/sysv/linux/microblaze/setcontext.S
++++ b/sysdeps/unix/sysv/linux/microblaze/setcontext.S
+@@ -93,6 +93,9 @@ weak_alias (__setcontext, setcontext)
+ 	nop
+ 
+ ENTRY (__startcontext)
++	/* This is the outermost frame of the context; there is nothing to
++	   unwind to.  */
++	cfi_undefined (r15)
+ 	/* makecontext put uc_link in r19, which the function preserved.  */
+ 	beqid	r19,1f
+ 	addk	r5,r19,r0
+diff --git a/sysdeps/unix/sysv/linux/microblaze/sysdep.h b/sysdeps/unix/sysv/linux/microblaze/sysdep.h
+index 8179cca4e4..e251652358 100644
+--- a/sysdeps/unix/sysv/linux/microblaze/sysdep.h
++++ b/sysdeps/unix/sysv/linux/microblaze/sysdep.h
+@@ -128,8 +128,11 @@ SYSCALL_ERROR_LABEL_DCL:                            \
+ #    define SYSCALL_ERROR_HANDLER                   \
+ SYSCALL_ERROR_LABEL_DCL:                            \
+     addik r1,r1,-16;                                \
++    cfi_adjust_cfa_offset (16);                     \
+     swi   r15,r1,0;                                 \
++    cfi_rel_offset (r15, 0);                        \
+     swi   r20,r1,8;                                 \
++    cfi_rel_offset (r20, 8);                        \
+     rsubk r3,r3,r0;                                 \
+     swi   r3,r1,12;                                 \
+     mfs   r20,rpc;                                  \
+@@ -139,8 +142,11 @@ SYSCALL_ERROR_LABEL_DCL:                            \
+     lwi   r4,r1,12;                                 \
+     swi   r4,r3,0;                                  \
+     lwi   r20,r1,8;                                 \
++    cfi_restore (r20);                              \
+     lwi   r15,r1,0;                                 \
++    cfi_restore (r15);                              \
+     addik r1,r1,16;                                 \
++    cfi_adjust_cfa_offset (-16);                    \
+     rtsd  r15,8;                                    \
+     addik r3,r0,-1;
+ #   else /* !_LIBC_REENTRANT.  */
+-- 
+2.39.5 (Apple Git-154)
+

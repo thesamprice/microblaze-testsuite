@@ -1,0 +1,273 @@
+From 19267f895062f632237bc6a775c43fb889574326 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:03:43 -0500
+Subject: [PATCH 8/8] microblaze: Use the generic backtrace
+
+The MicroBlaze backtrace walks the stack by scanning backwards from
+each return address for an "addik r1,r1,-N" instruction and treating
+that as the frame allocation.  That misfires on any function whose
+prologue is not of that exact shape, stops after a handful of frames,
+and reports __backtrace itself as the first entry, so
+debug/tst-backtrace2 and tst-backtrace3 fail without any signal
+involved.  It also carries its own copy of the kernel signal
+trampoline matching (backtrace_linux.c) for the signal-frame case,
+which belongs in libgcc.
+
+GCC emits DWARF unwind information for MicroBlaze, so drop the port
+version and use debug/backtrace.c, which walks with _Unwind_Backtrace
+like every other port.  Frames in the hand-written assembly are only
+walkable once it carries CFI, and unwinding through a signal frame
+needs libgcc's MD_FALLBACK_FRAME_STATE_FOR for MicroBlaze, which is
+what tst-backtrace4 through 6 exercise.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ sysdeps/microblaze/Makefile                 |   4 -
+ sysdeps/microblaze/backtrace.c              | 143 --------------------
+ sysdeps/microblaze/backtrace_linux.c        |  59 --------
+ sysdeps/unix/sysv/linux/microblaze/Makefile |   4 -
+ 4 files changed, 210 deletions(-)
+ delete mode 100644 sysdeps/microblaze/backtrace.c
+ delete mode 100644 sysdeps/microblaze/backtrace_linux.c
+
+diff --git a/sysdeps/microblaze/Makefile b/sysdeps/microblaze/Makefile
+index f7c95ae115..6ca8d02fed 100644
+--- a/sysdeps/microblaze/Makefile
++++ b/sysdeps/microblaze/Makefile
+@@ -5,7 +5,3 @@ endif
+ ifeq ($(subdir),gmon)
+ sysdep_routines += _mcount
+ endif
+-
+-ifeq ($(subdir),resource)
+-sysdep_routines += backtrace_linux
+-endif
+diff --git a/sysdeps/microblaze/backtrace.c b/sysdeps/microblaze/backtrace.c
+deleted file mode 100644
+index 54c8a6482a..0000000000
+--- a/sysdeps/microblaze/backtrace.c
++++ /dev/null
+@@ -1,143 +0,0 @@
+-/* Copyright (C) 2005-2026 Free Software Foundation, Inc.
+-
+-   This file is part of the GNU C Library.
+-
+-   The GNU C Library is free software; you can redistribute it and/or
+-   modify it under the terms of the GNU Lesser General Public License as
+-   published by the Free Software Foundation; either version 2.1 of the
+-   License, or (at your option) any later version.
+-
+-   The GNU C Library is distributed in the hope that it will be useful,
+-   but WITHOUT ANY WARRANTY; without even the implied warranty of
+-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+-   Lesser General Public License for more details.
+-
+-   You should have received a copy of the GNU Lesser General Public
+-   License along with the GNU C Library; if not, see
+-   <https://www.gnu.org/licenses/>.  */
+-
+-#include <stdio.h>
+-#include <stdlib.h>
+-#include <string.h>
+-#include <sysdep.h>
+-#include <signal.h>
+-#include <execinfo.h>
+-
+-extern int
+-_identify_sighandler (unsigned long fp, unsigned long pc,
+-                      unsigned long *pprev_fp, unsigned long *pprev_pc,
+-                      unsigned long *retaddr);
+-
+-static inline long
+-get_frame_size (unsigned long instr)
+-{
+-  return abs ((short signed) (instr & 0xFFFF));
+-}
+-
+-static unsigned long *
+-find_frame_creation (unsigned long *pc)
+-{
+-  int i;
+-
+-  /* NOTE: Distance to search is arbitrary.
+-     250 works well for most things,
+-     750 picks up things like tcp_recvmsg,
+-     1000 needed for fat_fill_super.  */
+-  for (i = 0; i < 1000; i++, pc--)
+-    {
+-      unsigned long instr;
+-      unsigned long frame_size;
+-
+-      instr = *pc;
+-
+-      /* Is the instruction of the form
+-         addik r1, r1, foo ? */
+-      if ((instr & 0xFFFF0000) != 0x30210000)
+-        continue;
+-
+-      frame_size = get_frame_size (instr);
+-
+-      if ((frame_size < 8) || (frame_size & 3))
+-        return NULL;
+-
+-      return pc;
+-    }
+-  return NULL;
+-}
+-
+-static int
+-lookup_prev_stack_frame (unsigned long fp, unsigned long pc,
+-                         unsigned long *pprev_fp, unsigned long *pprev_pc,
+-                         unsigned long *retaddr)
+-{
+-  unsigned long *prologue = NULL;
+-
+-  int is_signalhandler = _identify_sighandler (fp, pc, pprev_fp,
+-                                               pprev_pc, retaddr);
+-
+-  if (!is_signalhandler)
+-    {
+-      prologue = find_frame_creation ((unsigned long *) pc);
+-
+-      if (prologue)
+-        {
+-          long frame_size = get_frame_size (*prologue);
+-          *pprev_fp = fp + frame_size;
+-          if (*retaddr != 0)
+-            *pprev_pc = *retaddr;
+-          else
+-            *pprev_pc = *(unsigned long *) fp;
+-
+-          *retaddr = 0;
+-          if (!*pprev_pc || (*pprev_pc & 3))
+-            prologue=0;
+-        }
+-      else
+-        {
+-          *pprev_pc = 0;
+-          *pprev_fp = fp;
+-          *retaddr = 0;
+-        }
+-    }
+-    return (!*pprev_pc || (*pprev_pc & 3)) ? -1 : 0;
+-}
+-
+-int
+-__backtrace (void **array, int size)
+-{
+-  unsigned long pc, fp;
+-  unsigned long ppc, pfp;
+-  /* Return address(r15) is required in the signal handler case, since the
+-     return address of the function which causes the signal may not be
+-     recorded in the stack.  */
+-  unsigned long retaddr;
+-
+-  int count;
+-  int rc = 0;
+-
+-  if (size <= 0)
+-    return 0;
+-
+-  __asm__ __volatile__ ("mfs %0, rpc"
+-                        : "=r"(pc));
+-
+-  __asm__ __volatile__ ("add %0, r1, r0"
+-                        : "=r"(fp));
+-
+-  array[0] = (void *) pc;
+-  retaddr = 0;
+-  for (count = 1; count < size; count++)
+-    {
+-      rc = lookup_prev_stack_frame (fp, pc, &pfp, &ppc, &retaddr);
+-
+-      fp = pfp;
+-      pc = ppc;
+-      array[count] = (void *) pc;
+-      if (rc)
+-        return count;
+-    }
+-  return count;
+-}
+-
+-weak_alias (__backtrace, backtrace)
+-libc_hidden_def (__backtrace)
+diff --git a/sysdeps/microblaze/backtrace_linux.c b/sysdeps/microblaze/backtrace_linux.c
+deleted file mode 100644
+index c5533a1ef8..0000000000
+--- a/sysdeps/microblaze/backtrace_linux.c
++++ /dev/null
+@@ -1,59 +0,0 @@
+-/* Copyright (C) 2005-2026 Free Software Foundation, Inc.
+-
+-   This file is part of the GNU C Library.
+-
+-   The GNU C Library is free software; you can redistribute it and/or
+-   modify it under the terms of the GNU Lesser General Public License as
+-   published by the Free Software Foundation; either version 2.1 of the
+-   License, or (at your option) any later version.
+-
+-   The GNU C Library is distributed in the hope that it will be useful,
+-   but WITHOUT ANY WARRANTY; without even the implied warranty of
+-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+-   Lesser General Public License for more details.
+-
+-   You should have received a copy of the GNU Lesser General Public
+-   License along with the GNU C Library; if not, see
+-   <https://www.gnu.org/licenses/>.  */
+-
+-#include <stddef.h>
+-#include <asm/sigcontext.h>
+-#include <linux/signal.h>
+-#include <asm-generic/ucontext.h>
+-#include <sys/syscall.h>
+-
+-int
+-_identify_sighandler (unsigned long fp, unsigned long pc,
+-                      unsigned long *pprev_fp, unsigned long *pprev_pc,
+-                      unsigned long *retaddr)
+-{
+-  unsigned long *tramp = 0;
+-  struct ucontext *uc;
+-
+-  if (*retaddr == 0)
+-    {
+-      /* Kernel inserts the tramp between the signal handler frame and the
+-         caller frame in signal handling.  */
+-      tramp = (unsigned long *) pc;
+-      tramp += 2;
+-      if ((*tramp == (0x31800000 | __NR_rt_sigreturn))
+-          && (*(tramp+1) == 0xb9cc0008))
+-        {
+-          /* Signal handler function argument are:
+-             int sig_num, siginfo_t * info, void * ucontext
+-             therefore ucontext is the 3rd argument.  */
+-          unsigned long ucptr = ((unsigned long) tramp
+-                                 - sizeof (struct ucontext));
+-          uc = (struct ucontext *) ucptr;
+-          *pprev_pc = uc->uc_mcontext.regs.pc;
+-          /* Need to record the return address since the return address of the
+-             function which causes this signal may not be recorded in the
+-             stack.  */
+-          *pprev_fp = uc->uc_mcontext.regs.r1;
+-          *retaddr = uc->uc_mcontext.regs.r15;
+-          /* It is a signal handler.  */
+-          return 1;
+-        }
+-    }
+-  return 0;
+-}
+diff --git a/sysdeps/unix/sysv/linux/microblaze/Makefile b/sysdeps/unix/sysv/linux/microblaze/Makefile
+index 0606c34dcd..6e91e80da7 100644
+--- a/sysdeps/unix/sysv/linux/microblaze/Makefile
++++ b/sysdeps/unix/sysv/linux/microblaze/Makefile
+@@ -1,7 +1,3 @@
+-ifeq ($(subdir),resource)
+-sysdep_routines += backtrace_linux
+-endif
+-
+ ifeq ($(subdir),elf)
+ THP-PAGE-SIZE = 0
+ endif
+-- 
+2.39.5 (Apple Git-154)
+

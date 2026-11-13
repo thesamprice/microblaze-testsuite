@@ -1,0 +1,34 @@
+From 488383d26bdd251ca52e5b41d47f951c32a0298e Mon Sep 17 00:00:00 2001
+From: Michal Simek <michal.simek@xilinx.com>
+Date: Wed, 8 Jan 2020 15:13:00 +0100
+Subject: [PATCH 3/3] microblaze: Fix message about compiled-in FDT location
+
+%p is not working that early (don't know why)
+
+Before this patch:
+Compiled-in FDT at (ptrval)
+
+After:
+Compiled-in FDT at 0xc043c24c
+
+Signed-off-by: Michal Simek <michal.simek@xilinx.com>
+---
+ arch/microblaze/kernel/setup.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/microblaze/kernel/setup.c b/arch/microblaze/kernel/setup.c
+index f417333eccae..847811898d01 100644
+--- a/arch/microblaze/kernel/setup.c
++++ b/arch/microblaze/kernel/setup.c
+@@ -132,7 +132,7 @@ void __init machine_early_init(const char *cmdline, unsigned int ram,
+ 	if (fdt)
+ 		pr_info("FDT at 0x%08x\n", fdt);
+ 	else
+-		pr_info("Compiled-in FDT at %p\n", _fdt_start);
++		pr_info("Compiled-in FDT at 0x%08x\n", (unsigned)&_fdt_start);
+ 
+ #ifdef CONFIG_MTD_UCLINUX
+ 	pr_info("Found romfs @ 0x%08x (0x%08x)\n",
+-- 
+2.39.5 (Apple Git-154)
+

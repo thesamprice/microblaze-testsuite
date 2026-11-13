@@ -1,0 +1,475 @@
+From fb893d061a6caf1ee73b7d53a53c020b09943254 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:25:50 -0500
+Subject: [PATCH] microblaze: Implement the ucontext functions
+
+MicroBlaze has only ever had the generic ENOSYS stubs of getcontext,
+setcontext, swapcontext and makecontext, so the stdlib/tst-setcontext*
+and tst-swapcontext* tests fail and anything using ucontext (coroutine
+libraries, some interpreters) does not work on this target.
+
+getcontext saves r1, r2, r13, r15 and the callee-saved r19-r31 into
+uc_mcontext.regs, records the resume address r15 + 8 in the pc slot,
+and reads the signal mask with rt_sigprocmask.  setcontext restores
+the mask, the argument registers r5-r10 (for a context set up by
+makecontext), the saved registers, and jumps to pc with r3 = 0.
+swapcontext does both with a single rt_sigprocmask call.  setcontext
+and swapcontext keep ucp in r19 across the system call, and keep the
+caller's r19 in the r5 save slot that the caller reserves, so that a
+failing call returns -1 with r19 intact.
+
+makecontext lays out the stack with the 28-byte area the ABI reserves
+at the callee's sp (link slot plus six argument save slots) and any
+arguments beyond the sixth above it, keeps uc_link in the callee-saved
+r19, and sets r15 to __startcontext - 8 so the function's "rtsd r15,8"
+returns to __startcontext, which resumes uc_link or calls exit.
+__startcontext is preceded by padding so that an unwinder's lookup of
+the address before it does not find __setcontext, as on sparc
+(BZ #22919, BZ #34978).
+
+The symbols already exist in the ABI list as the stubs, so no new
+version is needed.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ sysdeps/unix/sysv/linux/microblaze/Makefile   |   4 +
+ .../unix/sysv/linux/microblaze/getcontext.S   |  68 +++++++++++
+ .../unix/sysv/linux/microblaze/makecontext.c  |  75 ++++++++++++
+ .../unix/sysv/linux/microblaze/setcontext.S   | 113 ++++++++++++++++++
+ .../unix/sysv/linux/microblaze/swapcontext.S  | 103 ++++++++++++++++
+ .../unix/sysv/linux/microblaze/ucontext_i.sym |  24 ++++
+ 6 files changed, 387 insertions(+)
+ create mode 100644 sysdeps/unix/sysv/linux/microblaze/getcontext.S
+ create mode 100644 sysdeps/unix/sysv/linux/microblaze/makecontext.c
+ create mode 100644 sysdeps/unix/sysv/linux/microblaze/setcontext.S
+ create mode 100644 sysdeps/unix/sysv/linux/microblaze/swapcontext.S
+ create mode 100644 sysdeps/unix/sysv/linux/microblaze/ucontext_i.sym
+
+diff --git a/sysdeps/unix/sysv/linux/microblaze/Makefile b/sysdeps/unix/sysv/linux/microblaze/Makefile
+index 31a7c382ce..0606c34dcd 100644
+--- a/sysdeps/unix/sysv/linux/microblaze/Makefile
++++ b/sysdeps/unix/sysv/linux/microblaze/Makefile
+@@ -5,3 +5,7 @@ endif
+ ifeq ($(subdir),elf)
+ THP-PAGE-SIZE = 0
+ endif
++
++ifeq ($(subdir),stdlib)
++gen-as-const-headers += ucontext_i.sym
++endif
+diff --git a/sysdeps/unix/sysv/linux/microblaze/getcontext.S b/sysdeps/unix/sysv/linux/microblaze/getcontext.S
+new file mode 100644
+index 0000000000..d132cd2a10
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/microblaze/getcontext.S
+@@ -0,0 +1,68 @@
++/* Save current context.  MicroBlaze version.
++   Copyright (C) 2026 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, see
++   <https://www.gnu.org/licenses/>.  */
++
++#include <sysdep.h>
++#include "ucontext_i.h"
++
++/* int getcontext (ucontext_t *ucp)
++
++   Saves the registers the ABI makes the callee preserve (r1, r2, r13,
++   r19-r31), the return address in r15, and the address the caller
++   resumes at, then reads the signal mask into uc_sigmask.  Returns 0;
++   a context resumed with setcontext also returns 0 from here.  */
++
++	.text
++ENTRY (__getcontext)
++	swi	r1,r5,UCONTEXT_MCONTEXT + 1*4
++	swi	r2,r5,UCONTEXT_MCONTEXT + 2*4
++	swi	r13,r5,UCONTEXT_MCONTEXT + 13*4
++	swi	r15,r5,UCONTEXT_MCONTEXT + 15*4
++	swi	r19,r5,UCONTEXT_MCONTEXT + 19*4
++	swi	r20,r5,UCONTEXT_MCONTEXT + 20*4
++	swi	r21,r5,UCONTEXT_MCONTEXT + 21*4
++	swi	r22,r5,UCONTEXT_MCONTEXT + 22*4
++	swi	r23,r5,UCONTEXT_MCONTEXT + 23*4
++	swi	r24,r5,UCONTEXT_MCONTEXT + 24*4
++	swi	r25,r5,UCONTEXT_MCONTEXT + 25*4
++	swi	r26,r5,UCONTEXT_MCONTEXT + 26*4
++	swi	r27,r5,UCONTEXT_MCONTEXT + 27*4
++	swi	r28,r5,UCONTEXT_MCONTEXT + 28*4
++	swi	r29,r5,UCONTEXT_MCONTEXT + 29*4
++	swi	r30,r5,UCONTEXT_MCONTEXT + 30*4
++	swi	r31,r5,UCONTEXT_MCONTEXT + 31*4
++	/* Resume after the call that brought us here.  */
++	addik	r3,r15,8
++	swi	r3,r5,MCONTEXT_PC
++
++	/* rt_sigprocmask (SIG_BLOCK, NULL, &ucp->uc_sigmask, _NSIG8).  */
++	addik	r7,r5,UCONTEXT_SIGMASK
++	addk	r6,r0,r0
++	addik	r8,r0,_NSIG8
++	addik	r5,r0,SIG_BLOCK
++	addik	r12,r0,SYS_ify (rt_sigprocmask)
++	brki	r14,8
++	nop
++	addik	r12,r0,-4095
++	cmpu	r12,r12,r3
++	bgei	r12,SYSCALL_ERROR_LABEL
++
++	rtsd	r15,8
++	addk	r3,r0,r0
++PSEUDO_END (__getcontext)
++
++weak_alias (__getcontext, getcontext)
+diff --git a/sysdeps/unix/sysv/linux/microblaze/makecontext.c b/sysdeps/unix/sysv/linux/microblaze/makecontext.c
+new file mode 100644
+index 0000000000..b47e49a402
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/microblaze/makecontext.c
+@@ -0,0 +1,75 @@
++/* Create new context.  MicroBlaze version.
++   Copyright (C) 2026 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, see
++   <https://www.gnu.org/licenses/>.  */
++
++#include <stdarg.h>
++#include <stdint.h>
++#include <ucontext.h>
++
++/* makecontext sets up a stack and the registers so that setcontext
++   starts FUNC with ARGC arguments and returns to __startcontext.
++
++   The stack looks like this:
++
++		+-----------------------+
++		| padding as required   |
++		+-----------------------+
++		| parameters 7 to n     |
++		+-----------------------+
++		| six argument home     |
++		| slots and the link    |
++		| register slot (28     |
++    sp ->	| bytes, ABI reserved)  |
++		+-----------------------+
++
++   The registers are set up like this:
++     r5-r10 : parameters 1 to 6
++     r19    : uc_link, preserved by FUNC and read by __startcontext
++     r15    : __startcontext - 8, so that FUNC's "rtsd r15,8" returns there
++     r1     : stack pointer
++     pc     : FUNC.  */
++
++void
++__makecontext (ucontext_t *ucp, void (*func) (void), int argc, ...)
++{
++  extern void __startcontext (void);
++  unsigned long int *sp;
++  va_list ap;
++  int i;
++
++  sp = (unsigned long int *)
++    ((uintptr_t) ucp->uc_stack.ss_sp + ucp->uc_stack.ss_size);
++
++  /* Stack parameters, then the 28-byte area the callee expects.  */
++  sp -= (argc > 6 ? argc - 6 : 0) + 7;
++  sp = (unsigned long int *) ((uintptr_t) sp & -8L);
++
++  ucp->uc_mcontext.regs.r1 = (uintptr_t) sp;
++  ucp->uc_mcontext.regs.r15 = (uintptr_t) &__startcontext - 8;
++  ucp->uc_mcontext.regs.r19 = (uintptr_t) ucp->uc_link;
++  ucp->uc_mcontext.regs.pc = (uintptr_t) func;
++
++  va_start (ap, argc);
++  for (i = 0; i < argc; ++i)
++    if (i < 6)
++      (&ucp->uc_mcontext.regs.r5)[i] = va_arg (ap, unsigned long int);
++    else
++      sp[7 + i - 6] = va_arg (ap, unsigned long int);
++  va_end (ap);
++}
++
++weak_alias (__makecontext, makecontext)
+diff --git a/sysdeps/unix/sysv/linux/microblaze/setcontext.S b/sysdeps/unix/sysv/linux/microblaze/setcontext.S
+new file mode 100644
+index 0000000000..da49cafb54
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/microblaze/setcontext.S
+@@ -0,0 +1,113 @@
++/* Install given context.  MicroBlaze version.
++   Copyright (C) 2026 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, see
++   <https://www.gnu.org/licenses/>.  */
++
++#include <sysdep.h>
++#include "ucontext_i.h"
++
++/* int setcontext (const ucontext_t *ucp)
++
++   Restores the signal mask, the argument registers (for a context made
++   by makecontext), the registers saved by getcontext, and jumps to the
++   saved pc with r3 = 0.  */
++
++	.text
++ENTRY (__setcontext)
++	/* Keep ucp in the callee-saved r19 across the system call.  The
++	   caller's r19 goes in the save slot the caller reserves for r5,
++	   so that a failing call can restore it; on success r19 is
++	   reloaded from the context.  */
++	swi	r19,r1,4
++	addk	r19,r5,r0
++
++	/* rt_sigprocmask (SIG_SETMASK, &ucp->uc_sigmask, NULL, _NSIG8).  */
++	addik	r6,r5,UCONTEXT_SIGMASK
++	addk	r7,r0,r0
++	addik	r8,r0,_NSIG8
++	addik	r5,r0,SIG_SETMASK
++	addik	r12,r0,SYS_ify (rt_sigprocmask)
++	brki	r14,8
++	nop
++	addik	r12,r0,-4095
++	cmpu	r12,r12,r3
++	bgei	r12,L(error)
++
++	/* Argument registers, for a context set up by makecontext.  */
++	lwi	r5,r19,UCONTEXT_MCONTEXT + 5*4
++	lwi	r6,r19,UCONTEXT_MCONTEXT + 6*4
++	lwi	r7,r19,UCONTEXT_MCONTEXT + 7*4
++	lwi	r8,r19,UCONTEXT_MCONTEXT + 8*4
++	lwi	r9,r19,UCONTEXT_MCONTEXT + 9*4
++	lwi	r10,r19,UCONTEXT_MCONTEXT + 10*4
++
++	/* Registers saved by getcontext.  */
++	lwi	r1,r19,UCONTEXT_MCONTEXT + 1*4
++	lwi	r2,r19,UCONTEXT_MCONTEXT + 2*4
++	lwi	r13,r19,UCONTEXT_MCONTEXT + 13*4
++	lwi	r15,r19,UCONTEXT_MCONTEXT + 15*4
++	lwi	r20,r19,UCONTEXT_MCONTEXT + 20*4
++	lwi	r21,r19,UCONTEXT_MCONTEXT + 21*4
++	lwi	r22,r19,UCONTEXT_MCONTEXT + 22*4
++	lwi	r23,r19,UCONTEXT_MCONTEXT + 23*4
++	lwi	r24,r19,UCONTEXT_MCONTEXT + 24*4
++	lwi	r25,r19,UCONTEXT_MCONTEXT + 25*4
++	lwi	r26,r19,UCONTEXT_MCONTEXT + 26*4
++	lwi	r27,r19,UCONTEXT_MCONTEXT + 27*4
++	lwi	r28,r19,UCONTEXT_MCONTEXT + 28*4
++	lwi	r29,r19,UCONTEXT_MCONTEXT + 29*4
++	lwi	r30,r19,UCONTEXT_MCONTEXT + 30*4
++	lwi	r31,r19,UCONTEXT_MCONTEXT + 31*4
++	lwi	r12,r19,MCONTEXT_PC
++	lwi	r19,r19,UCONTEXT_MCONTEXT + 19*4
++
++	brad	r12
++	addk	r3,r0,r0
++
++L(error):
++	brid	SYSCALL_ERROR_LABEL
++	lwi	r19,r1,4
++PSEUDO_END (__setcontext)
++
++weak_alias (__setcontext, setcontext)
++
++	/* A function started by makecontext returns here through r15 =
++	   __startcontext - 8, and an unwinder looks up the FDE for the
++	   address before __startcontext.  Keep that address outside any
++	   FDE, as sparc does, so that the lookup does not find
++	   __setcontext.  */
++	nop
++	nop
++
++ENTRY (__startcontext)
++	/* makecontext put uc_link in r19, which the function preserved.  */
++	beqid	r19,1f
++	addk	r5,r19,r0
++	brid	__setcontext
++	nop
++1:
++#ifdef PIC
++	mfs	r20,rpc
++	addik	r20,r20,_GLOBAL_OFFSET_TABLE_+8
++	lwi	r12,r20,exit@GOT
++	brald	r15,r12
++	addk	r5,r0,r0
++#else
++	brlid	r15,exit
++	addk	r5,r0,r0
++#endif
++	nop
++END (__startcontext)
+diff --git a/sysdeps/unix/sysv/linux/microblaze/swapcontext.S b/sysdeps/unix/sysv/linux/microblaze/swapcontext.S
+new file mode 100644
+index 0000000000..baf0de62bc
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/microblaze/swapcontext.S
+@@ -0,0 +1,103 @@
++/* Save current context and install the given one.  MicroBlaze version.
++   Copyright (C) 2026 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, see
++   <https://www.gnu.org/licenses/>.  */
++
++#include <sysdep.h>
++#include "ucontext_i.h"
++
++/* int swapcontext (ucontext_t *oucp, const ucontext_t *ucp)
++
++   getcontext into oucp, swap the signal mask in one system call, then
++   setcontext from ucp.  */
++
++	.text
++ENTRY (__swapcontext)
++	swi	r1,r5,UCONTEXT_MCONTEXT + 1*4
++	swi	r2,r5,UCONTEXT_MCONTEXT + 2*4
++	swi	r13,r5,UCONTEXT_MCONTEXT + 13*4
++	swi	r15,r5,UCONTEXT_MCONTEXT + 15*4
++	swi	r19,r5,UCONTEXT_MCONTEXT + 19*4
++	swi	r20,r5,UCONTEXT_MCONTEXT + 20*4
++	swi	r21,r5,UCONTEXT_MCONTEXT + 21*4
++	swi	r22,r5,UCONTEXT_MCONTEXT + 22*4
++	swi	r23,r5,UCONTEXT_MCONTEXT + 23*4
++	swi	r24,r5,UCONTEXT_MCONTEXT + 24*4
++	swi	r25,r5,UCONTEXT_MCONTEXT + 25*4
++	swi	r26,r5,UCONTEXT_MCONTEXT + 26*4
++	swi	r27,r5,UCONTEXT_MCONTEXT + 27*4
++	swi	r28,r5,UCONTEXT_MCONTEXT + 28*4
++	swi	r29,r5,UCONTEXT_MCONTEXT + 29*4
++	swi	r30,r5,UCONTEXT_MCONTEXT + 30*4
++	swi	r31,r5,UCONTEXT_MCONTEXT + 31*4
++	addik	r3,r15,8
++	swi	r3,r5,MCONTEXT_PC
++
++	/* Keep ucp in the callee-saved r19 across the system call.  The
++	   caller's r19 goes in the save slot the caller reserves for r5,
++	   so that a failing call can restore it; on success r19 is
++	   reloaded from the new context.  */
++	swi	r19,r1,4
++	addk	r19,r6,r0
++
++	/* rt_sigprocmask (SIG_SETMASK, &ucp->uc_sigmask, &oucp->uc_sigmask,
++	   _NSIG8).  */
++	addik	r7,r5,UCONTEXT_SIGMASK
++	addik	r6,r19,UCONTEXT_SIGMASK
++	addik	r8,r0,_NSIG8
++	addik	r5,r0,SIG_SETMASK
++	addik	r12,r0,SYS_ify (rt_sigprocmask)
++	brki	r14,8
++	nop
++	addik	r12,r0,-4095
++	cmpu	r12,r12,r3
++	bgei	r12,L(error)
++
++	lwi	r5,r19,UCONTEXT_MCONTEXT + 5*4
++	lwi	r6,r19,UCONTEXT_MCONTEXT + 6*4
++	lwi	r7,r19,UCONTEXT_MCONTEXT + 7*4
++	lwi	r8,r19,UCONTEXT_MCONTEXT + 8*4
++	lwi	r9,r19,UCONTEXT_MCONTEXT + 9*4
++	lwi	r10,r19,UCONTEXT_MCONTEXT + 10*4
++
++	lwi	r1,r19,UCONTEXT_MCONTEXT + 1*4
++	lwi	r2,r19,UCONTEXT_MCONTEXT + 2*4
++	lwi	r13,r19,UCONTEXT_MCONTEXT + 13*4
++	lwi	r15,r19,UCONTEXT_MCONTEXT + 15*4
++	lwi	r20,r19,UCONTEXT_MCONTEXT + 20*4
++	lwi	r21,r19,UCONTEXT_MCONTEXT + 21*4
++	lwi	r22,r19,UCONTEXT_MCONTEXT + 22*4
++	lwi	r23,r19,UCONTEXT_MCONTEXT + 23*4
++	lwi	r24,r19,UCONTEXT_MCONTEXT + 24*4
++	lwi	r25,r19,UCONTEXT_MCONTEXT + 25*4
++	lwi	r26,r19,UCONTEXT_MCONTEXT + 26*4
++	lwi	r27,r19,UCONTEXT_MCONTEXT + 27*4
++	lwi	r28,r19,UCONTEXT_MCONTEXT + 28*4
++	lwi	r29,r19,UCONTEXT_MCONTEXT + 29*4
++	lwi	r30,r19,UCONTEXT_MCONTEXT + 30*4
++	lwi	r31,r19,UCONTEXT_MCONTEXT + 31*4
++	lwi	r12,r19,MCONTEXT_PC
++	lwi	r19,r19,UCONTEXT_MCONTEXT + 19*4
++
++	brad	r12
++	addk	r3,r0,r0
++
++L(error):
++	brid	SYSCALL_ERROR_LABEL
++	lwi	r19,r1,4
++PSEUDO_END (__swapcontext)
++
++weak_alias (__swapcontext, swapcontext)
+diff --git a/sysdeps/unix/sysv/linux/microblaze/ucontext_i.sym b/sysdeps/unix/sysv/linux/microblaze/ucontext_i.sym
+new file mode 100644
+index 0000000000..98d10f7432
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/microblaze/ucontext_i.sym
+@@ -0,0 +1,24 @@
++#include <inttypes.h>
++#include <signal.h>
++#include <stddef.h>
++#include <sys/ucontext.h>
++
++-- Constants used by the rt_sigprocmask call.
++
++SIG_BLOCK
++SIG_SETMASK
++
++_NSIG8				(_NSIG / 8)
++
++-- Offsets of the fields in the ucontext_t structure.
++#define ucontext(member)	offsetof (ucontext_t, member)
++
++UCONTEXT_LINK			ucontext (uc_link)
++UCONTEXT_STACK			ucontext (uc_stack)
++UCONTEXT_MCONTEXT		ucontext (uc_mcontext)
++UCONTEXT_SIGMASK		ucontext (uc_sigmask)
++
++-- mcontext_t holds r0..r31 consecutively, then pc.
++MCONTEXT_PC			(ucontext (uc_mcontext) + 32 * 4)
++
++UCONTEXT_SIZE			sizeof (ucontext_t)
+-- 
+2.39.5 (Apple Git-154)
+

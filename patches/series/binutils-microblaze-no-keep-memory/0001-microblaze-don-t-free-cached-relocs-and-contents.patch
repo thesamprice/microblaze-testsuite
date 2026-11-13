@@ -1,0 +1,238 @@
+From 8a78af55c50cf8acfa61a277b5d03ec48068cfd2 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 20:27:33 -0500
+Subject: [PATCH] microblaze: don't free cached relocs and contents
+
+microblaze_elf_relax_section frees what it read unless keep_memory is
+set:
+
+	if (! link_info->keep_memory)
+	  free_relocs = internal_relocs;
+
+With --no-keep-memory that goes wrong in two ways.  When a pass
+deletes an IMM, the relocs are cached in elf_section_data (sec)->relocs.
+The next pass gets the same pointer back from _bfd_elf_link_read_relocs,
+deletes nothing, and frees it, so the final link reads freed relocs and
+_bfd_elf_free_cached_info frees them a second time.  Separately, the
+contents are stored in this_hdr.contents as soon as they are read and
+freed when the pass deletes nothing, which leaves this_hdr.contents
+pointing at freed memory.
+
+On microblaze-elf, "ld -relax --no-keep-memory" aborts in free for a
+call to another section.  For an IMM that cannot be deleted the link
+succeeds, but under MallocScribble=1 on macOS the output section holds
+the 0xaa fill of freed memory.
+
+Free the relocs, contents and local symbols only when they are not the
+cached copy, and with keep_memory cache the contents and symbols
+instead, as sh_elf_relax_section does (elf32-sh.c:786-822); 22 other
+relax_section functions make the same comparison.  The contents are no
+longer cached as soon as they are read, only when the pass changed them
+or keep_memory is set.  Local symbols that were read and then neither
+freed nor cached when nothing was deleted are now handled the same way.
+
+The test has one section of each kind.  I have only run it on macOS,
+where ld aborts without the change.  The output with --no-keep-memory
+now matches the output without it.
+
+The problem was reported to AMD by dednev@rambler.ru.
+
+bfd/
+	* elf32-microblaze.c (microblaze_elf_relax_section): Free the
+	relocs, contents and local symbols only when they are not cached,
+	following sh_elf_relax_section.  Don't cache the contents as soon
+	as they are read.
+
+ld/
+	* testsuite/ld-microblaze/relax-no-keep-memory.s: New file.
+	* testsuite/ld-microblaze/relax-no-keep-memory.ld: New file.
+	* testsuite/ld-microblaze/relax-no-keep-memory.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ bfd/elf32-microblaze.c                        | 43 +++++++++++--------
+ .../ld-microblaze/relax-no-keep-memory.d      | 15 +++++++
+ .../ld-microblaze/relax-no-keep-memory.ld     | 12 ++++++
+ .../ld-microblaze/relax-no-keep-memory.s      | 29 +++++++++++++
+ 4 files changed, 81 insertions(+), 18 deletions(-)
+ create mode 100644 ld/testsuite/ld-microblaze/relax-no-keep-memory.d
+ create mode 100644 ld/testsuite/ld-microblaze/relax-no-keep-memory.ld
+ create mode 100644 ld/testsuite/ld-microblaze/relax-no-keep-memory.s
+
+diff --git a/bfd/elf32-microblaze.c b/bfd/elf32-microblaze.c
+index 14172094c3e..1766ec701ec 100644
+--- a/bfd/elf32-microblaze.c
++++ b/bfd/elf32-microblaze.c
+@@ -1860,11 +1860,9 @@ microblaze_elf_relax_section (bfd *abfd,
+ 			      bool *again)
+ {
+   Elf_Internal_Shdr *symtab_hdr;
+-  Elf_Internal_Rela *internal_relocs;
+-  Elf_Internal_Rela *free_relocs = NULL;
++  Elf_Internal_Rela *internal_relocs = NULL;
+   Elf_Internal_Rela *irel, *irelend;
+   bfd_byte *contents = NULL;
+-  bfd_byte *free_contents = NULL;
+   unsigned int shndx;
+   size_t i, sym_index;
+   asection *o;
+@@ -1910,8 +1908,6 @@ microblaze_elf_relax_section (bfd *abfd,
+ 					       link_info->keep_memory);
+   if (internal_relocs == NULL)
+     goto error_return;
+-  if (! link_info->keep_memory)
+-    free_relocs = internal_relocs;
+ 
+   sdata->relax_count = 0;
+   sdata->relax = (struct relax_table *) bfd_malloc ((sec->reloc_count + 1)
+@@ -1938,12 +1934,10 @@ microblaze_elf_relax_section (bfd *abfd,
+ 	      contents = (bfd_byte *) bfd_malloc (sec->size);
+ 	      if (contents == NULL)
+ 		goto error_return;
+-	      free_contents = contents;
+ 
+ 	      if (!bfd_get_section_contents (abfd, sec, contents,
+ 					     (file_ptr) 0, sec->size))
+ 		goto error_return;
+-	      elf_section_data (sec)->this_hdr.contents = contents;
+ 	    }
+ 	}
+ 
+@@ -2370,27 +2364,36 @@ microblaze_elf_relax_section (bfd *abfd,
+ 	}
+ 
+       elf_section_data (sec)->relocs = internal_relocs;
+-      free_relocs = NULL;
+-
+       elf_section_data (sec)->this_hdr.contents = contents;
+-      free_contents = NULL;
+-
+       symtab_hdr->contents = (bfd_byte *) isymbuf;
+     }
+ 
+-  free (free_relocs);
+-  free_relocs = NULL;
++  /* Free or cache what was read above.  Any of the three may already be
++     cached, either just above or by an earlier pass over this section,
++     so compare before freeing, as sh_elf_relax_section does.  */
++  if (isymbuf != NULL
++      && symtab_hdr->contents != (unsigned char *) isymbuf)
++    {
++      if (!link_info->keep_memory)
++	free (isymbuf);
++      else
++	/* Cache the symbols for elf_link_input_bfd.  */
++	symtab_hdr->contents = (unsigned char *) isymbuf;
++    }
+ 
+-  if (free_contents != NULL)
++  if (contents != NULL
++      && elf_section_data (sec)->this_hdr.contents != contents)
+     {
+       if (!link_info->keep_memory)
+-	free (free_contents);
++	free (contents);
+       else
+ 	/* Cache the section contents for elf_link_input_bfd.  */
+ 	elf_section_data (sec)->this_hdr.contents = contents;
+-      free_contents = NULL;
+     }
+ 
++  if (elf_section_data (sec)->relocs != internal_relocs)
++    free (internal_relocs);
++
+   if (sdata->relax_count == 0)
+     {
+       *again = false;
+@@ -2402,8 +2405,12 @@ microblaze_elf_relax_section (bfd *abfd,
+   return true;
+ 
+  error_return:
+-  free (free_relocs);
+-  free (free_contents);
++  if (symtab_hdr->contents != (unsigned char *) isymbuf)
++    free (isymbuf);
++  if (elf_section_data (sec)->this_hdr.contents != contents)
++    free (contents);
++  if (elf_section_data (sec)->relocs != internal_relocs)
++    free (internal_relocs);
+   free (sdata->relax);
+   sdata->relax = NULL;
+   sdata->relax_count = 0;
+diff --git a/ld/testsuite/ld-microblaze/relax-no-keep-memory.d b/ld/testsuite/ld-microblaze/relax-no-keep-memory.d
+new file mode 100644
+index 00000000000..bc6795ba53e
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-no-keep-memory.d
+@@ -0,0 +1,15 @@
++#source: relax-no-keep-memory.s
++#as: -EL
++#ld: -EL -relax --no-keep-memory -T $srcdir/$subdir/relax-no-keep-memory.ld
++#objdump: -d
++#name: MicroBlaze relaxation with --no-keep-memory
++
++.*: +file format .*
++#...
++90000000 <_start>:
++[ 	]*90000000:[ 	]+b9f40010[ 	]+brlid[ 	]+r15, 16
++#...
++90000010 <callee>:
++[ 	]*90000010:[ 	]+b0009000[ 	]+imm[ 	]+-28672
++[ 	]*90000014:[ 	]+e8601000[ 	]+lwi[ 	]+r3, r0, 4096
++#pass
+diff --git a/ld/testsuite/ld-microblaze/relax-no-keep-memory.ld b/ld/testsuite/ld-microblaze/relax-no-keep-memory.ld
+new file mode 100644
+index 00000000000..78d8a693edb
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-no-keep-memory.ld
+@@ -0,0 +1,12 @@
++ENTRY(_start)
++SECTIONS
++{
++  . = 0x90000000;
++  .text : {
++    *(.text.aaa_relaxed)
++    *(.text.zzz_kept)
++  }
++  . = 0x90001000;
++  .data : { *(.data) }
++  /DISCARD/ : { *(.comment) *(.note*) }
++}
+diff --git a/ld/testsuite/ld-microblaze/relax-no-keep-memory.s b/ld/testsuite/ld-microblaze/relax-no-keep-memory.s
+new file mode 100644
+index 00000000000..c7d437d561e
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-no-keep-memory.s
+@@ -0,0 +1,29 @@
++# With --no-keep-memory, microblaze_elf_relax_section used to free the
++# relocations and section contents it had read even when they were
++# cached in the section's elf_section_data, and the cached pointers
++# were later used and freed again.
++#
++# .text.aaa_relaxed loses an IMM in the first relaxation pass, so its
++# relocations are cached and the second pass finds them there.
++# .text.zzz_kept has an IMM that cannot be deleted, since gvar is out
++# of range of a 16-bit immediate, so nothing is cached for it.
++
++	.section .text.aaa_relaxed,"ax",@progbits
++	.globl	_start
++_start:
++	brlid	r15, callee		# IMM + BRLID; the IMM is deleted
++	nop
++	rtsd	r15, 8
++	nop
++
++	.section .text.zzz_kept,"ax",@progbits
++	.globl	callee
++callee:
++	lwi	r3, r0, gvar		# IMM + LWI; the IMM is kept
++	rtsd	r15, 8
++	nop
++
++	.data
++	.globl	gvar
++gvar:
++	.4byte	0
+-- 
+2.39.5 (Apple Git-154)
+

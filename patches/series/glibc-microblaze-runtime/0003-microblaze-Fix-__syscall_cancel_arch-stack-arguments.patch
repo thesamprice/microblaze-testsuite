@@ -1,0 +1,49 @@
+From 01d01d163c1cdd7a127cc0ba5d815c87e4f56f5a Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:03:40 -0500
+Subject: [PATCH 3/8] microblaze: Fix __syscall_cancel_arch stack arguments
+
+__syscall_cancel_arch reads its 7th and 8th arguments (syscall
+arguments 5 and 6, passed on the stack) from r1+56 and r1+60.  On
+MicroBlaze the incoming stack arguments begin at r1+28: the
+link-register word sits at r1+0, followed by the six register-argument
+save slots r1+4..r1+24, so argument 7 is at r1+28 and argument 8 at
+r1+32.
+
+With the wrong offsets every cancellable syscall that passes arguments
+on the stack reads uninitialised caller stack.  The practical victims
+are pread64 and pwrite64, whose 5th syscall argument is the high word
+of the 64-bit offset: a valid offset such as 0 becomes a huge or
+negative value.  pread64 (pipe, .., 0) then fails with EINVAL instead
+of ESPIPE, which defeats the ESPIPE fallback to read in
+rt/aio_misc.c.  aio_read completes immediately with EINVAL, so
+aio_suspend returns before it can block and cannot be cancelled, and
+nptl/tst-cancel17 fails.
+
+Tested on qemu-system-microblazeel: with the fix pread64 (pipe, .., 0)
+fails with ESPIPE, the AIO request blocks, and nptl/tst-cancel17
+passes.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ sysdeps/unix/sysv/linux/microblaze/syscall_cancel.S | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/sysdeps/unix/sysv/linux/microblaze/syscall_cancel.S b/sysdeps/unix/sysv/linux/microblaze/syscall_cancel.S
+index 64b74948f2..d6ae1fcf9c 100644
+--- a/sysdeps/unix/sysv/linux/microblaze/syscall_cancel.S
++++ b/sysdeps/unix/sysv/linux/microblaze/syscall_cancel.S
+@@ -42,8 +42,8 @@ __syscall_cancel_arch_start:
+ 	addk	r6,r8,r0
+ 	addk	r7,r9,r0
+ 	addk	r8,r10,r0
+-	lwi	r9,r1,56
+-	lwi	r10,r1,60
++	lwi	r9,r1,28
++	lwi	r10,r1,32
+ 	brki	r14,8
+ 
+ 	.globl __syscall_cancel_arch_end
+-- 
+2.39.5 (Apple Git-154)
+

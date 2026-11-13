@@ -1,0 +1,50 @@
+From ffc2192456a3937c73b2ab04ee9e8987c16c64db Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:03:41 -0500
+Subject: [PATCH 4/8] microblaze: Tail-call __syscall_do_cancel
+
+On the cancel path, __syscall_cancel_arch reaches __syscall_do_cancel
+with "brlid r15, __syscall_do_cancel", which overwrites r15, the
+return address into the cancellable syscall wrapper, and so makes the
+hand-written __syscall_cancel_arch a stack frame of its own that
+_Unwind_ForcedUnwind must step through.  The assembler in released
+binutils cannot assemble .cfi directives for MicroBlaze, so this
+function has no .eh_frame entry, and the forced unwind used by
+-fexceptions cancellation stops there: cleanup handlers in the caller
+never run.  nptl/tst-cancelx4 and nptl/tst-cancelx17 fail for every
+cancellation point reached this way.
+
+__syscall_do_cancel is _Noreturn, so the link is not needed.  Branch
+to it with "brid" instead, leaving r15 pointing into the syscall
+wrapper.  The assembly then contributes no frame:
+__syscall_do_cancel, which is C and has unwind information, is
+entered as if the wrapper had called it, and the unwind goes from
+__syscall_do_cancel to the wrapper to the cleanup handler.
+
+Tested on qemu-system-microblazeel: the early-cancel phase of
+nptl/tst-cancelx4 goes from "cleanup handler not called" at every
+cancellation point to passing at all of them.  The remaining
+in-time and asynchronous failures unwind through a signal frame,
+which needs a separate libgcc change.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ sysdeps/unix/sysv/linux/microblaze/syscall_cancel.S | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/sysdeps/unix/sysv/linux/microblaze/syscall_cancel.S b/sysdeps/unix/sysv/linux/microblaze/syscall_cancel.S
+index d6ae1fcf9c..115ade95e2 100644
+--- a/sysdeps/unix/sysv/linux/microblaze/syscall_cancel.S
++++ b/sysdeps/unix/sysv/linux/microblaze/syscall_cancel.S
+@@ -54,7 +54,7 @@ __syscall_cancel_arch_end:
+ 	nop
+ 
+ 1:
+-	brlid	r15, __syscall_do_cancel
++	brid	__syscall_do_cancel
+ 	nop
+ 
+ END (__syscall_cancel_arch)
+-- 
+2.39.5 (Apple Git-154)
+

@@ -1,0 +1,22 @@
+target/microblaze: fix fcmp.le, fcmp.ge and fint
+
+LOCAL ONLY: not for submission to qemu-devel (QEMU AI policy).
+Reference for a hand-written fix.
+
+Two FPU helpers disagree with UG984.
+
+1/2 makes fcmp.le and fcmp.ge compare rB with rA, as Table 104 and the
+other fcmp helpers do, and makes fcmp.ge return 0 for unordered
+operands.  GCC emits "fcmp.le rD, rB_operand, rA_operand" for a <= b,
+so hard-float C code got the inverse of every <= and >= comparison.
+
+2/2 makes fint truncate, as UG984 says, instead of rounding to nearest.
+
+The same two bugs were fixed in Xilinx's tree in 2020 by Joe Komlodi
+(ac8e7d0b77, 82a2b73d73).  1/2 differs from his fcmp.ge for NaN
+operands: his returns 1, Table 104 says 0.
+
+Testing: test/run.sh (in the series directory) on petalogix-s3adsp1800,
+big and little endian: fpu.S, 17 instruction-level checks, and
+fpu-c.c, 9 checks through GCC -mhard-float -mxl-float-convert.  Before:
+fpu.S fails at check 3, fpu-c.c at check 1.  After: both pass.

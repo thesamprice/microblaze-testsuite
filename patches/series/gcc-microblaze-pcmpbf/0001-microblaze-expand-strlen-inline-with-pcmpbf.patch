@@ -1,0 +1,390 @@
+From 9777be92cc00190c495aa12876ce1b069a4306f8 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 22:12:21 -0500
+Subject: [PATCH] microblaze: expand strlen inline with pcmpbf
+
+With -mxl-pattern-compare, MicroBlaze has pcmpbf, which returns 1 to 4
+for the first byte of rA, counting from the most significant, that
+equals the same byte of rB, and 0 if none does.  Against r0 it finds a
+zero byte in one instruction.  GCC used pattern compare only for
+cstoresi4 (pcmpeq and pcmpne), and strlen was always a call.
+
+Add a strlensi expander.  For a string known to be word-aligned it
+loads a word at a time until pcmpbf finds a zero byte, a loop of four
+instructions including the delay slot.  Without a known alignment, at
+-Os, or without -mxl-pattern-compare it fails and strlen stays a call.
+This follows the rs6000 strlensi expander, which does the same with
+dlmzb, and riscv_expand_strlen_scalar, which uses orc.b; both require
+the alignment, because an aligned word load cannot fault where a byte
+load of the string would not.
+
+pcmpbf numbers the bytes in register order, so on a little-endian core
+the first byte in memory is byte 4.  There the loop still finds the
+word.  With -mxl-reorder the word is reversed with swapb and searched
+again; otherwise the zero byte is found with byte loads.
+
+Under QEMU with -icount, strlen of a word-aligned 255-byte string takes
+263 instructions inline on big-endian, against 601 calling newlib's
+microblaze strlen.c and 346 calling it built with -mxl-pattern-compare;
+an empty string takes 11, against 25 and 19.
+
+Tested on microblaze-elf (big-endian) with gcc.target/microblaze and
+gcc.c-torture/execute under QEMU.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze-protos.h
+	(microblaze_expand_strlen): Declare.
+	* config/microblaze/microblaze.cc (microblaze_expand_strlen): New.
+	* config/microblaze/microblaze.md (UNSPEC_PCMPBF, UNSPEC_STRLEN):
+	New unspecs.
+	(pcmpbf, strlensi): New patterns.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/isa/strlen-pcmpbf.c: New test.
+	* gcc.target/microblaze/isa/strlen-pcmpbf-le.c: New test.
+	* gcc.target/microblaze/isa/strlen-pcmpbf-le-reorder.c: New test.
+	* gcc.target/microblaze/isa/strlen-pcmpbf-nopcmp.c: New test.
+	* gcc.target/microblaze/isa/strlen-pcmpbf-os.c: New test.
+	* gcc.target/microblaze/isa/strlen-pcmpbf-unaligned.c: New test.
+	* gcc.target/microblaze/others/strlen-pcmpbf-run.c: New test.
+---
+ gcc/config/microblaze/microblaze-protos.h     |  1 +
+ gcc/config/microblaze/microblaze.cc           | 66 +++++++++++++++++++
+ gcc/config/microblaze/microblaze.md           | 37 +++++++++++
+ .../microblaze/isa/strlen-pcmpbf-le-reorder.c | 16 +++++
+ .../microblaze/isa/strlen-pcmpbf-le.c         | 19 ++++++
+ .../microblaze/isa/strlen-pcmpbf-nopcmp.c     | 12 ++++
+ .../microblaze/isa/strlen-pcmpbf-os.c         | 14 ++++
+ .../microblaze/isa/strlen-pcmpbf-unaligned.c  | 15 +++++
+ .../gcc.target/microblaze/isa/strlen-pcmpbf.c | 15 +++++
+ .../microblaze/others/strlen-pcmpbf-run.c     | 37 +++++++++++
+ 10 files changed, 232 insertions(+)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-le-reorder.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-le.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-nopcmp.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-os.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-unaligned.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/strlen-pcmpbf-run.c
+
+diff --git a/gcc/config/microblaze/microblaze-protos.h b/gcc/config/microblaze/microblaze-protos.h
+index 09397c684..e0d3b8c92 100644
+--- a/gcc/config/microblaze/microblaze-protos.h
++++ b/gcc/config/microblaze/microblaze-protos.h
+@@ -34,6 +34,7 @@ extern void override_options (void);
+ extern int microblaze_expand_shift (rtx *);
+ extern bool microblaze_expand_move (machine_mode, rtx *);
+ extern bool microblaze_expand_block_move (rtx, rtx, rtx, rtx);
++extern bool microblaze_expand_strlen (rtx, rtx, rtx);
+ extern void microblaze_expand_divide (rtx *);
+ extern void microblaze_expand_conditional_branch (machine_mode, rtx *);
+ extern void microblaze_expand_conditional_branch_reg (machine_mode, rtx *);
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index d2ccfbac7..5e6ca7345 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -1303,6 +1303,72 @@ microblaze_expand_block_move (rtx dest, rtx src, rtx length, rtx align_rtx)
+   return false;
+ }
+ 
++/* Expand strlen of the string at SRC into RESULT.  ALIGN is the known
++   alignment of SRC in bytes.  Return false to emit a call instead.
++
++   Load a word at a time and stop at the first word in which pcmpbf
++   against r0 finds a zero byte.  An aligned word load cannot cross a
++   page or region boundary, so it faults only where a byte load of the
++   same word would; that is why the alignment has to be known.  The
++   rs6000 strlensi expander does the same with dlmzb.  */
++
++bool
++microblaze_expand_strlen (rtx result, rtx src, rtx align)
++{
++  if (!CONST_INT_P (align) || INTVAL (align) < UNITS_PER_WORD)
++    return false;
++
++  rtx start = copy_addr_to_reg (XEXP (src, 0));
++  rtx addr = gen_reg_rtx (Pmode);
++  rtx word = gen_reg_rtx (SImode);
++  rtx pos = gen_reg_rtx (SImode);
++  rtx_code_label *loop = gen_label_rtx ();
++
++  emit_move_insn (addr, start);
++  emit_label (loop);
++  emit_move_insn (word, change_address (src, SImode, addr));
++  emit_insn (gen_addsi3 (addr, addr, GEN_INT (UNITS_PER_WORD)));
++  emit_insn (gen_pcmpbf (pos, word, const0_rtx));
++  emit_cmp_and_jump_insns (pos, const0_rtx, EQ, NULL_RTX, SImode, 1, loop);
++
++  /* ADDR is now one word past the word holding the zero byte.  pcmpbf
++     numbers the bytes 1 to 4 from the most significant, which is memory
++     order only when big-endian.  */
++  if (!BYTES_BIG_ENDIAN)
++    {
++      if (TARGET_REORDER)
++	{
++	  emit_insn (gen_bswapsi2 (word, word));
++	  emit_insn (gen_pcmpbf (pos, word, const0_rtx));
++	}
++      else
++	{
++	  /* Find the zero byte with byte loads; one of the four is zero.  */
++	  rtx byte = gen_reg_rtx (SImode);
++	  rtx_code_label *bloop = gen_label_rtx ();
++	  rtx_code_label *found = gen_label_rtx ();
++	  emit_insn (gen_addsi3 (addr, addr, GEN_INT (-UNITS_PER_WORD)));
++	  emit_label (bloop);
++	  emit_insn (gen_zero_extendqisi2 (byte,
++					   change_address (src, QImode,
++							   addr)));
++	  emit_cmp_and_jump_insns (byte, const0_rtx, EQ, NULL_RTX, SImode, 1,
++				   found);
++	  emit_insn (gen_addsi3 (addr, addr, const1_rtx));
++	  emit_jump (bloop);
++	  emit_label (found);
++	  emit_insn (gen_subsi3 (result, addr, start));
++	  return true;
++	}
++    }
++
++  /* The zero byte is at ADDR - UNITS_PER_WORD + POS - 1.  */
++  emit_insn (gen_addsi3 (addr, addr, pos));
++  emit_insn (gen_addsi3 (start, start, GEN_INT (UNITS_PER_WORD + 1)));
++  emit_insn (gen_subsi3 (result, addr, start));
++  return true;
++}
++
+ /* Compute memory address *aligned_mem and corresponding shift value (*shift)
+    from a QImode memory reference MEM */
+ void
+diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
+index eff3b64b2..f38c0add5 100644
+--- a/gcc/config/microblaze/microblaze.md
++++ b/gcc/config/microblaze/microblaze.md
+@@ -52,6 +52,8 @@
+ 
+ (define_c_enum "unspec" [
+   UNSPEC_IPREFETCH
++  UNSPEC_PCMPBF
++  UNSPEC_STRLEN
+ ])
+ 
+ ;;----------------------------------------------------
+@@ -1660,6 +1662,41 @@
+   (set_attr "length"	"4")]
+ )              
+ 
++;;----------------------------------------------------------------
++;; String length
++;;----------------------------------------------------------------
++
++;; pcmpbf: 1 to 4 for the first byte, counting from the most
++;; significant, that equals the same byte of operand 2; 0 if none does.
++(define_insn "pcmpbf"
++  [(set (match_operand:SI 0 "register_operand" "=d")
++	(unspec:SI [(match_operand:SI 1 "register_operand" "d")
++		    (match_operand:SI 2 "reg_or_0_operand" "dJ")]
++		   UNSPEC_PCMPBF))]
++  "TARGET_PATTERN_COMPARE"
++  "pcmpbf\t%0,%1,%z2"
++  [(set_attr "type"	"arith")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"4")]
++)
++
++;; Operand 0 is the length, 1 the string, 2 the character searched for
++;; (always zero) and 3 the known alignment in bytes.
++(define_expand "strlensi"
++  [(set (match_operand:SI 0 "register_operand")
++	(unspec:SI [(match_operand:BLK 1 "memory_operand")
++		    (match_operand:SI 2 "const_int_operand")
++		    (match_operand:SI 3 "const_int_operand")]
++		   UNSPEC_STRLEN))]
++  "TARGET_PATTERN_COMPARE"
++{
++  if (operands[2] != const0_rtx
++      || optimize_insn_for_size_p ()
++      || !microblaze_expand_strlen (operands[0], operands[1], operands[3]))
++    FAIL;
++  DONE;
++})
++
+ ;;----------------------------------------------------------------
+ ;; Setting a register from an floating point comparison. 
+ ;;----------------------------------------------------------------
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-le-reorder.c b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-le-reorder.c
+new file mode 100644
+index 000000000..5279930fe
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-le-reorder.c
+@@ -0,0 +1,16 @@
++/* { dg-options "-O2 -mcpu=v10.0 -mxl-pattern-compare -mlittle-endian -mxl-reorder" } */
++
++/* With swapb, the word that holds the zero is byte-reversed and
++   searched again, so pcmpbf numbers its bytes in memory order.  */
++
++typedef __SIZE_TYPE__ size_t;
++
++size_t
++aligned (const char *p)
++{
++  return __builtin_strlen (__builtin_assume_aligned (p, 4));
++}
++
++/* { dg-final { scan-assembler-times "pcmpbf\tr\[0-9\]+,r\[0-9\]+,r0" 2 } } */
++/* { dg-final { scan-assembler "swapb\[ \t\]" } } */
++/* { dg-final { scan-assembler-not "brlid\tr15,strlen" } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-le.c b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-le.c
+new file mode 100644
+index 000000000..ace18f367
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-le.c
+@@ -0,0 +1,19 @@
++/* { dg-options "-O2 -mcpu=v10.0 -mxl-pattern-compare -mlittle-endian -mno-xl-reorder" } */
++
++/* pcmpbf numbers the bytes from the most significant one, which on a
++   little-endian core is the last byte of the word in memory.  It still
++   says whether the word holds a zero; the byte is then found with
++   byte loads.  */
++
++typedef __SIZE_TYPE__ size_t;
++
++size_t
++aligned (const char *p)
++{
++  return __builtin_strlen (__builtin_assume_aligned (p, 4));
++}
++
++/* { dg-final { scan-assembler-times "pcmpbf\tr\[0-9\]+,r\[0-9\]+,r0" 1 } } */
++/* { dg-final { scan-assembler "lbui\t" } } */
++/* { dg-final { scan-assembler-not "swapb" } } */
++/* { dg-final { scan-assembler-not "brlid\tr15,strlen" } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-nopcmp.c b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-nopcmp.c
+new file mode 100644
+index 000000000..c3f597591
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-nopcmp.c
+@@ -0,0 +1,12 @@
++/* { dg-options "-O2 -mcpu=v10.0 -mno-xl-pattern-compare" } */
++
++typedef __SIZE_TYPE__ size_t;
++
++size_t
++aligned (const char *p)
++{
++  return __builtin_strlen (__builtin_assume_aligned (p, 4));
++}
++
++/* { dg-final { scan-assembler-not "pcmpbf" } } */
++/* { dg-final { scan-assembler "brlid\tr15,strlen" } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-os.c b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-os.c
+new file mode 100644
+index 000000000..378e81ddb
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-os.c
+@@ -0,0 +1,14 @@
++/* { dg-options "-Os -mcpu=v10.0 -mxl-pattern-compare" } */
++
++/* The call is smaller than the loop.  */
++
++typedef __SIZE_TYPE__ size_t;
++
++size_t
++aligned (const char *p)
++{
++  return __builtin_strlen (__builtin_assume_aligned (p, 4));
++}
++
++/* { dg-final { scan-assembler-not "pcmpbf" } } */
++/* { dg-final { scan-assembler "brlid\tr15,strlen" } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-unaligned.c b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-unaligned.c
+new file mode 100644
+index 000000000..f7cb39431
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-unaligned.c
+@@ -0,0 +1,15 @@
++/* { dg-options "-O2 -mcpu=v10.0 -mxl-pattern-compare" } */
++
++/* Without a known word alignment, the word loads could fault past the
++   end of the string, so strlen stays a call.  */
++
++typedef __SIZE_TYPE__ size_t;
++
++size_t
++unaligned (const char *p)
++{
++  return __builtin_strlen (p);
++}
++
++/* { dg-final { scan-assembler-not "pcmpbf" } } */
++/* { dg-final { scan-assembler "brlid\tr15,strlen" } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf.c b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf.c
+new file mode 100644
+index 000000000..a5375d7b7
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf.c
+@@ -0,0 +1,15 @@
++/* { dg-options "-O2 -mcpu=v10.0 -mxl-pattern-compare" } */
++
++/* strlen of a word-aligned string is expanded inline, using pcmpbf
++   against r0 to find the first zero byte of each word.  */
++
++typedef __SIZE_TYPE__ size_t;
++
++size_t
++aligned (const char *p)
++{
++  return __builtin_strlen (__builtin_assume_aligned (p, 4));
++}
++
++/* { dg-final { scan-assembler "pcmpbf\tr\[0-9\]+,r\[0-9\]+,r0" } } */
++/* { dg-final { scan-assembler-not "brlid\tr15,strlen" } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/strlen-pcmpbf-run.c b/gcc/testsuite/gcc.target/microblaze/others/strlen-pcmpbf-run.c
+new file mode 100644
+index 000000000..18eabb720
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/strlen-pcmpbf-run.c
+@@ -0,0 +1,37 @@
++/* strlen expanded inline with pcmpbf: every length from 0 to 3 words,
++   from every word-aligned start, with nonzero and zero bytes after the
++   terminator in the same word.  */
++
++/* { dg-do run } */
++/* { dg-options "-mxl-pattern-compare" } */
++
++typedef __SIZE_TYPE__ size_t;
++
++__attribute__ ((noipa)) size_t
++len (const char *p)
++{
++  return __builtin_strlen (__builtin_assume_aligned (p, 4));
++}
++
++static union { char c[32]; unsigned w; } buf;
++
++static const unsigned char fill[] = { 0x01, 0x7f, 0x80, 0xff };
++
++int
++main (void)
++{
++  for (int start = 0; start < 8; start += 4)
++    for (int n = 0; n < 12; n++)
++      for (int f = 0; f < 4; f++)
++	for (int tail = 0; tail < 2; tail++)
++	  {
++	    for (int i = 0; i < 32; i++)
++	      buf.c[i] = tail ? 0 : fill[(i + f) & 3];
++	    for (int i = 0; i < n; i++)
++	      buf.c[start + i] = fill[(i + f) & 3];
++	    buf.c[start + n] = 0;
++	    if (len (buf.c + start) != (size_t) n)
++	      __builtin_abort ();
++	  }
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

@@ -1,0 +1,38 @@
+From 623f3838c27d08aab88f1e6f0f42ded2078e55c9 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 20:41:38 -0500
+Subject: [PATCH 2/2] target/microblaze: truncate in fint
+
+LOCAL ONLY: not for submission to qemu-devel (QEMU AI policy).
+Reference for a hand-written fix.
+
+UG984 describes fint as "a 32-bit truncating signed conversion", but
+helper_fint uses float32_to_int32, which rounds in the current
+rounding mode, round-to-nearest-even here because the FSR has no
+rounding-mode field.  fint of 2.5 gives 2 and of 2.75 gives 3, where
+the hardware gives 2 for both; -2.75 gives -3 rather than -2.
+
+Use float32_to_int32_round_to_zero, as C's float-to-int conversion
+does.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ target/microblaze/op_helper.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/target/microblaze/op_helper.c b/target/microblaze/op_helper.c
+index 91abb2dea..c7c1ce67e 100644
+--- a/target/microblaze/op_helper.c
++++ b/target/microblaze/op_helper.c
+@@ -344,7 +344,7 @@ uint32_t helper_fint(CPUMBState *env, uint32_t a)
+ 
+     set_float_exception_flags(0, &env->fp_status);
+     fa.l = a;
+-    r = float32_to_int32(fa.f, &env->fp_status);
++    r = float32_to_int32_round_to_zero(fa.f, &env->fp_status);
+     flags = get_float_exception_flags(&env->fp_status);
+     update_fpu_flags(env, flags, GETPC());
+ 
+-- 
+2.39.5 (Apple Git-154)
+

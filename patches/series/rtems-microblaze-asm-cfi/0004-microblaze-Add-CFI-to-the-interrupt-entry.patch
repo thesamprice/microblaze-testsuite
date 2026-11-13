@@ -1,0 +1,168 @@
+From 2da95057083ec3ad10ca3603e4d820199faf1ad3 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:10:37 -0500
+Subject: [PATCH 4/8] microblaze: Add CFI to the interrupt entry
+
+Describe the interrupt frame in _interrupt_handler and _ISR_Handler, so
+that an unwinder which starts in an interrupt handler continues with
+the interrupted context.  The CFA is the stack pointer of the
+interrupted context, the saved registers are at their offsets in the
+interrupt frame, and the interrupted program counter is the saved r14.
+
+In _ISR_Handler the CFA moves with the stack switch.  It is r1 + 56 on
+entry, r4 + 56 between the load of the interrupt stack pointer and the
+store of the ISR stack frame, and *(r1 + 0) + 56 while the ISR stack
+frame is in place.  The last one needs a DW_CFA_def_cfa_expression,
+since the CFA register would otherwise be r4, which the call of
+bsp_interrupt_dispatch() overwrites.  This relies on the preceding
+change, which builds the ISR stack frame on both paths.
+
+The rules after a DW_CFA_advance_loc are only correct if the linker
+does not relax an instruction before them in the function.  The
+_Per_CPU_Information accesses before the stack switch are relaxable if
+the address fits in 16 bits.  On the existing BSPs RAM starts at
+0x80000000 or 0x90000000, so they are not relaxed.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ .../start/_interrupt_handler.S                | 22 ++++++++++++
+ cpukit/score/cpu/microblaze/cpu_asm.S         | 36 +++++++++++++++++++
+ 2 files changed, 58 insertions(+)
+
+diff --git a/bsps/microblaze/microblaze_fpga/start/_interrupt_handler.S b/bsps/microblaze/microblaze_fpga/start/_interrupt_handler.S
+index 710d4cd48f..6f27226a12 100644
+--- a/bsps/microblaze/microblaze_fpga/start/_interrupt_handler.S
++++ b/bsps/microblaze/microblaze_fpga/start/_interrupt_handler.S
+@@ -31,8 +31,12 @@
+ 
+ */
+ 
++#include <rtems/asm.h>
+ #include <rtems/score/cpuimpl.h>
+ 
++#define FRAME_REG(n) \
++  CFI_OFFSET(r##n, MICROBLAZE_INTERRUPT_FRAME_R##n - CPU_INTERRUPT_FRAME_SIZE)
++
+ 	.text
+ 	.globl _interrupt_handler    # Interrupt Handler Label
+ 	.align 2
+@@ -42,8 +46,11 @@
+ 	rtid    r14, 0
+ 	nop
+ #else /* __rtems__ */
++	CFI_STARTPROC
++
+ 	/* Subtract stack frame */
+ 	addik r1, r1, -(CPU_INTERRUPT_FRAME_SIZE)
++	CFI_DEF_CFA_OFFSET(CPU_INTERRUPT_FRAME_SIZE)
+ 
+ 	/* Save stack frame */
+ 	swi  r3, r1, MICROBLAZE_INTERRUPT_FRAME_R3
+@@ -59,6 +66,20 @@
+ 	swi r14, r1, MICROBLAZE_INTERRUPT_FRAME_R14
+ 	swi r15, r1, MICROBLAZE_INTERRUPT_FRAME_R15
+ 	swi r18, r1, MICROBLAZE_INTERRUPT_FRAME_R18
++	FRAME_REG(3)
++	FRAME_REG(4)
++	FRAME_REG(5)
++	FRAME_REG(6)
++	FRAME_REG(7)
++	FRAME_REG(8)
++	FRAME_REG(9)
++	FRAME_REG(10)
++	FRAME_REG(11)
++	FRAME_REG(12)
++	FRAME_REG(14)
++	FRAME_REG(15)
++	FRAME_REG(18)
++	CFI_INTERRUPTED_FRAME(CPU_INTERRUPT_FRAME_SIZE - MICROBLAZE_INTERRUPT_FRAME_R14)
+ 	mfs r3, rmsr
+ 	swi  r3, r1, MICROBLAZE_INTERRUPT_FRAME_MSR
+ 
+@@ -67,4 +88,5 @@
+ 	/* braid has a delay slot; addik will occur prior to the branch. */
+ 	braid _ISR_Handler
+ 	addik r5, r0, 0xFF
++	CFI_ENDPROC
+ #endif /* __rtems__ */
+diff --git a/cpukit/score/cpu/microblaze/cpu_asm.S b/cpukit/score/cpu/microblaze/cpu_asm.S
+index 863ea28fef..8b390fdefb 100644
+--- a/cpukit/score/cpu/microblaze/cpu_asm.S
++++ b/cpukit/score/cpu/microblaze/cpu_asm.S
+@@ -37,11 +37,35 @@
+ #include <rtems/asm.h>
+ #include <rtems/score/percpu.h>
+ 
++#define FRAME_REG(n) \
++  CFI_OFFSET(r##n, MICROBLAZE_INTERRUPT_FRAME_R##n - CPU_INTERRUPT_FRAME_SIZE)
++
+ 	.text
+ 	.globl _ISR_Handler
+ 	.align 2
+ 
++/*
++ * The interrupt prologue of the BSP branches here with the interrupt frame at
++ * the stack pointer.
++ */
+ _ISR_Handler:
++	CFI_STARTPROC
++	CFI_INTERRUPTED_FRAME(CPU_INTERRUPT_FRAME_SIZE - MICROBLAZE_INTERRUPT_FRAME_R14)
++	CFI_DEF_CFA(r1, CPU_INTERRUPT_FRAME_SIZE)
++	FRAME_REG(3)
++	FRAME_REG(4)
++	FRAME_REG(5)
++	FRAME_REG(6)
++	FRAME_REG(7)
++	FRAME_REG(8)
++	FRAME_REG(9)
++	FRAME_REG(10)
++	FRAME_REG(11)
++	FRAME_REG(12)
++	FRAME_REG(14)
++	FRAME_REG(15)
++	FRAME_REG(18)
++
+ 	/* Disable dispatching */
+ 	lwi r3, r0, _Per_CPU_Information + 16
+ 	addik r3, r3, 1
+@@ -64,11 +88,20 @@ _ISR_Handler:
+ switch_to_interrupt_stack:
+ 	add r4, r0, r1
+ 	lwi r1, r0, _Per_CPU_Information + 4
++	CFI_DEF_CFA_REGISTER(r4)
+ 
+ build_isr_stack_frame:
+ 	addik r1, r1, -(CPU_INTERRUPT_FRAME_SIZE)
+ 	swi r4, r1, MICROBLAZE_ISR_STACK_FRAME_SP
+ 
++	/*
++	 * CFA = *(r1 + MICROBLAZE_ISR_STACK_FRAME_SP) + CPU_INTERRUPT_FRAME_SIZE:
++	 * DW_CFA_def_cfa_expression { DW_OP_breg1 MICROBLAZE_ISR_STACK_FRAME_SP;
++	 *   DW_OP_deref; DW_OP_plus_uconst CPU_INTERRUPT_FRAME_SIZE }
++	 */
++	CFI_ESCAPE(0x0f, 5, 0x71, MICROBLAZE_ISR_STACK_FRAME_SP, 0x06, 0x23, \
++	  CPU_INTERRUPT_FRAME_SIZE)
++
+ 	/* Add 1 to ISR_NEST_LEVEL */
+ 	lwi r3, r0, _Per_CPU_Information + 8
+ 	addik r3, r3, 1
+@@ -84,6 +117,7 @@ build_isr_stack_frame:
+ 
+ 	/* Switch back to the interrupt frame */
+ 	lwi r1, r1, MICROBLAZE_ISR_STACK_FRAME_SP
++	CFI_DEF_CFA(r1, CPU_INTERRUPT_FRAME_SIZE)
+ 
+ 	/* Subtract 1 from THREAD_DISPATCH_DISABLE_LEVEL */
+ 	lwi r3, r0, _Per_CPU_Information + 16
+@@ -123,6 +157,8 @@ quick_exit:
+ 
+ 	/* Remove stack frame */
+ 	addik r1, r1, CPU_INTERRUPT_FRAME_SIZE
++	CFI_DEF_CFA_OFFSET(0)
+ 
+ 	rtid r14, 0
+ 	nop
++	CFI_ENDPROC
+-- 
+2.39.5 (Apple Git-154)
+

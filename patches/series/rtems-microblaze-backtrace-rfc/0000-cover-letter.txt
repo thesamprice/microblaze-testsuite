@@ -1,0 +1,76 @@
+[RFC] libmisc: Add rtems_backtrace()
+
+RTEMS has no backtrace support.  There is nothing named backtrace in
+cpukit, and the only _Unwind_* user is libdl's ARM EXIDX lookup.  This
+RFC proposes the smallest API that gives an application a backtrace,
+and asks which shape RTEMS wants before more is built on it.
+
+1/2 adds rtems_backtrace(), which fills an array with the addresses of
+the frames of its caller, and rtems_backtrace_print(), which prints
+them with printk().  Both use _Unwind_Backtrace() of libgcc, so they
+read the DWARF call frame information in .eh_frame.  2/2 adds
+libtests/backtrace01.
+
+Design choices, and the alternatives I did not take:
+
+1. The unwinder.  _Unwind_Backtrace() is in libgcc for every GCC
+   target, already linked into C++ applications, and walks through
+   assembly code that carries CFI, including interrupt and exception
+   frames marked as signal frames.  The alternatives are a frame
+   pointer walk, which needs -fno-omit-frame-pointer everywhere and a
+   frame layout most RTEMS architectures do not have, or an RTEMS
+   unwinder for .debug_frame, which RTEMS already has in every -g
+   build but which is a lot of new code.
+
+2. Unwind tables.  The walk stops at the first function without
+   .eh_frame data.  RTEMS builds without -funwind-tables, so with
+   this RFC a backtrace covers application code built with unwind
+   tables and ends on entry to RTEMS.  backtrace.c itself is built
+   with -funwind-tables, since the walk starts there.  A walk from an
+   exception or interrupt handler back into the interrupted code also
+   needs cpukit built with unwind tables.  Options: leave it to the
+   user (OPTIMIZATION_FLAGS), add a build option that adds
+   -fasynchronous-unwind-tables to cpukit and the BSP, or turn it on
+   by default.  The cost is the .eh_frame size; I have not measured it
+   across BSPs.
+
+3. The API.  This is an RTEMS-native API rather than the glibc and
+   FreeBSD <execinfo.h> backtrace().  The signature matches glibc's
+   backtrace() so that one could be layered on it.  Providing
+   <execinfo.h> itself would put a header into the C library namespace
+   that newlib does not have, and backtrace_symbols() would need an
+   on-target symbol table.
+
+4. Symbolization.  The addresses are for offline lookup with
+   rtems-addr2line, which costs nothing on the target.  On-target
+   names would need the libdl symbol table (rtems-syms) or similar.
+   Each address is in the call instruction rather than at the return
+   address, so that addr2line reports the line of the call; for a
+   signal frame it is the interrupted instruction.  glibc returns raw
+   return addresses instead.
+
+5. Where it hangs off.  This is a callable API only.  An obvious next
+   step is a fatal extension that prints a backtrace, enabled by an
+   application configuration option, but I would like agreement on
+   1-4 first.
+
+What I have tested, on the petalogix_s3adsp1800 BSP in upstream QEMU
+(qemu-system-microblazeel):
+
+- With the RTEMS 7 MicroBlaze tools (GCC 12.4.1, Xilinx binutils
+  2.36), backtrace01 passes.  The walk covers the test's own functions
+  and ends one frame into RTEMS, at _Thread_Entry_adaptor_numeric().
+
+- With a binutils that accepts the MicroBlaze CFI directives (not yet
+  upstream), the MicroBlaze CFI series applied, and RTEMS built with
+  -fasynchronous-unwind-tables, backtrace01 walks to the start of the
+  thread and ends there.  A backtrace from a timer service routine
+  goes through the clock interrupt, _ISR_Handler and the interrupted
+  function into Init().  A backtrace from a fatal extension after a
+  "brki r17, 0x8" or "brki r16, 0x18" goes through _exception_handler
+  or _debug_sw_break_handler into the function that executed the
+  brki.  These demonstrations are not part of the series.
+
+Not tested: any architecture other than MicroBlaze.  The code is
+generic and libgcc provides _Unwind_Backtrace() on ARM (EHABI) too,
+but I have not built it there.

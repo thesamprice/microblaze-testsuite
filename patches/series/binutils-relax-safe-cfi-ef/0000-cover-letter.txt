@@ -1,0 +1,48 @@
+microblaze: line tables and ULEB128 differences under relaxation
+
+This continues the relax-safe CFI series (ADD/SUB/SET relocations,
+their relaxation, readelf support, gas emitting them for code label
+differences and CFA advances).  It applies on top of that series, which
+is patches 0001-0012 of patches/binutils in microblaze-testsuite, and
+numbers its patches from 13 to match.
+
+13/15 gas: microblaze: don't range-check ADD and SUB fixups
+
+  A bug in the series underneath: fixup_segment range-checks the
+  address it computed from the symbols, not the difference, so a 1- or
+  2-byte difference of code labels past 0xff/0xffff in a section fails
+  to assemble, and so does .cfi_* in any function more than 256 bytes
+  into a section.  It should be folded into "gas: microblaze: emit ADD
+  and SUB for code label differences" and "gas: microblaze: emit CFA
+  advances as relocations" before that series is sent; it is a
+  separate patch here only so the change is visible.
+
+14/15 gas: microblaze: emit line advances as relocations
+
+  DWARF2_USE_FIXED_ADVANCE_PC, as RISC-V.  Line tables gas generates
+  from .loc then survive relaxation through ADD16/SUB16 pairs.  Eleven
+  generic DWARF tests change output the way they already do for riscv
+  and the other targets that do not resolve label differences at
+  assembly time, and are xfailed the same way.
+
+15/15 microblaze: add SET_ULEB128 and SUB_ULEB128 relocations
+
+  The ULEB128 analogue, after RISC-V's SET_ULEB128/SUB_ULEB128.  This
+  is what fixes GCC's own line table (".uleb128 $LM2-$LM1") and its
+  location and range lists.  It takes relocation numbers 44 and 45,
+  which are as provisional as 36-43.
+
+To review 15/15, compare microblaze_uleb128_fix with
+riscv_insert_uleb128_fixes (tc-riscv.c) and the relocate_section cases
+with R_RISCV_SET_ULEB128/SUB_ULEB128 in elfnn-riscv.c.  The in-place
+rewrite pads with continuation bytes instead of RISC-V's
+memset-then-write, with the same result.
+
+Testing, microblaze-elf, macOS host, against the series underneath
+(0001-0012) as baseline: gas 334 PASS -> 327 PASS + 11 XFAIL (4 new
+tests, 11 generic DWARF tests PASS -> XFAIL); ld 556 -> 559 PASS (3 new
+tests); binutils 269 PASS both; no new FAILs.  The one ld FAIL in both
+runs, S-records, is fixed separately.  A gcc -O2 -g compile of a small
+file, assembled with this series and linked with relaxation (11 IMMs
+deleted), has all 35 line-table rows at the right relaxed address; with
+the series underneath alone, 24 of the 35 are wrong.

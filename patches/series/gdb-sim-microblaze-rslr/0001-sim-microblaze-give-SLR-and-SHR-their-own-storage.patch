@@ -1,0 +1,115 @@
+From c766a16da9d2f67b76508dbdfb5f96878708da59 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 20:25:44 -0500
+Subject: [PATCH] sim: microblaze: give SLR and SHR their own storage
+
+mts and mfs reach the special register through SA:
+
+	#define SA	CPU.spregs[IMM & 0x1]
+
+which selects the PC or the MSR by the low bit of the SPR number.  The
+stack protection registers, SLR (0x800) and SHR (0x802), are even, so
+"mts rshr, rA" and "mts rslr, rA" write the PC.  libgcc's crti.S does
+both in __init, before main:
+
+	la	r11, r0, _stack
+	mts	rshr, r11
+
+so every program linked by microblaze-elf-gcc jumps into its stack and
+never reaches main.  A newlib hello world runs in microblaze-elf-run
+until it is killed.
+
+Add slr and shr fields to struct microblaze_regset and have SA select
+them by SPR number.  They go after spregs, so the register numbers
+used by microblaze_reg_fetch and microblaze_reg_store do not change.
+Other SPR numbers still alias the PC or the MSR; nothing in libgcc or
+newlib writes them.
+
+The new test writes the address of a failure path to each register.
+Without the change the write branches there and the test fails.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ sim/microblaze/microblaze-sim.h        |  2 ++
+ sim/microblaze/microblaze.h            | 11 ++++++++-
+ sim/testsuite/microblaze/spr-slr-shr.s | 33 ++++++++++++++++++++++++++
+ 3 files changed, 45 insertions(+), 1 deletion(-)
+ create mode 100644 sim/testsuite/microblaze/spr-slr-shr.s
+
+diff --git a/sim/microblaze/microblaze-sim.h b/sim/microblaze/microblaze-sim.h
+index 858175839cb..e151f9977af 100644
+--- a/sim/microblaze/microblaze-sim.h
++++ b/sim/microblaze/microblaze-sim.h
+@@ -35,6 +35,8 @@
+ {
+   signed_4	regs[32];		/* primary registers */
+   signed_4	spregs[2];		/* pc + msr */
++  signed_4	slr;			/* stack low register */
++  signed_4	shr;			/* stack high register */
+   int		cycles;
+   int		insts;
+   unsigned_1	imm_enable;
+diff --git a/sim/microblaze/microblaze.h b/sim/microblaze/microblaze.h
+index 3185eaa4ed3..6661ec39923 100644
+--- a/sim/microblaze/microblaze.h
++++ b/sim/microblaze/microblaze.h
+@@ -31,7 +31,16 @@
+ #define RB      CPU.regs[rb]
+ /* #define IMM     immword */
+ 
+-#define SA	CPU.spregs[IMM & 0x1]
++/* The special register named by the SPR number in the low 14 bits of
++   an mts or mfs immediate.  Only the PC, the MSR and the stack
++   protection registers are modelled; any other number aliases the PC
++   or the MSR.  */
++#define SPR_NUM	(IMM & 0x3fff)
++#define SPR_SLR	0x800
++#define SPR_SHR	0x802
++#define SA	(*(SPR_NUM == SPR_SLR ? &CPU.slr			\
++		   : SPR_NUM == SPR_SHR ? &CPU.shr			\
++		   : &CPU.spregs[IMM & 0x1]))
+ 
+ #define IMM_H	CPU.imm_high
+ #define IMM_L	((inst & IMM_MASK) >> IMM_LOW)
+diff --git a/sim/testsuite/microblaze/spr-slr-shr.s b/sim/testsuite/microblaze/spr-slr-shr.s
+new file mode 100644
+index 00000000000..cf737e1ffb7
+--- /dev/null
++++ b/sim/testsuite/microblaze/spr-slr-shr.s
+@@ -0,0 +1,33 @@
++# check that mts to the stack protection registers does not write the PC.
++# mach: microblaze
++
++.include "testutils.inc"
++
++	start
++
++	# Each value written is the address of a branch to the failure
++	# path, so a write that lands in the PC ends up there.
++	addik	r5, r0, slr_bad
++	mts	rslr, r5
++	addik	r6, r0, shr_bad
++	mts	rshr, r6
++
++	mfs	r7, rslr
++	cmpu	r8, r5, r7
++	bnei	r8, bad
++	mfs	r7, rshr
++	cmpu	r8, r6, r7
++	bnei	r8, bad
++
++	pass
++
++	.text
++	# mts leaves the PC one instruction past the value written.
++slr_bad:
++	bri	bad
++	bri	bad
++shr_bad:
++	bri	bad
++	bri	bad
++bad:
++	fail
+-- 
+2.39.5 (Apple Git-154)
+

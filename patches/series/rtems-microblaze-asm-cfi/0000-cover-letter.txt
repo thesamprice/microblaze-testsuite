@@ -1,0 +1,81 @@
+microblaze: Add CFI to the assembly code
+
+None of the MicroBlaze assembly code in RTEMS has call frame
+information, because the assembler rejected the .cfi_* directives for
+MicroBlaze.  Support for them has been posted for binutils
+(gas: Support CFI directives for MicroBlaze) but is in no release, up
+to and including 2.47.  So the CFI goes behind macros which expand to
+nothing unless the configure step finds that the assembler accepts the
+directives.  With today's tools only the instructions changed by 3/8,
+5/8, 7/8 and 8/8 differ; the CFI macros add nothing.
+
+No other RTEMS architecture has CFI in its assembly code, apart from
+the x86_64 start code, so there is no RTEMS precedent to follow.  The
+reason to start with MicroBlaze is that this is where an unwinder was
+being used and stopped at the first assembly frame.
+
+1/8 adds the configure check and the macros, including one for frames
+entered from an interrupt or exception.  The libgcc unwinder adds 8 to
+the return address column on MicroBlaze, so the interrupted program
+counter minus 8 goes into the alternate return column with a
+DW_CFA_val_expression, and the frame is marked as a signal frame.
+
+2/8 covers the context switch functions and marks r15 undefined in the
+exception resume functions, which never return.
+
+3/8 changes _ISR_Handler to build the ISR stack frame also when the
+interrupted code was already on the interrupt stack.  Without this the
+location of the interrupt frame at the call of bsp_interrupt_dispatch()
+depends on the path taken, which CFI cannot describe.  It also stops
+the callee from writing its arguments over saved registers in the
+nested case.
+
+4/8 describes the interrupt frame in _interrupt_handler and
+_ISR_Handler, including the stack switch.
+
+5/8 describes the exception frame in _exception_handler and
+_debug_sw_break_handler, and calls the C handlers with bralid instead
+of branching to them, so that the return address leads back through
+the entry.
+
+6/8 covers the start code.
+
+7/8 fixes a bug found on the way: a new thread started 8 bytes into
+_Thread_Handler(), skipping its stack frame allocation.
+
+8/8 starts threads in a small assembly function which marks r15
+undefined, so that an unwind ends at the start of the thread.
+
+Review notes: the DW_CFA escapes in 1/8 and 4/8 are commented with
+their decoded form.  "readelf --debug-dump=frames-interp" on cpu_asm.o
+built with a CFI-capable assembler shows the CFA rules of _ISR_Handler
+change at the stack switch (r1+56, r4+56, expression, r1+56, r1+0).
+
+Testing: petalogix_s3adsp1800 BSP in upstream QEMU (petalogix-s3adsp1800
+machine, qemu-system-microblazeel), sptests and samples (235 programs),
+RTEMS 7 tools (GCC 12.4.1, Xilinx binutils 2.36), on a heavily loaded
+host:
+
+  unpatched                      220 pass, 7 fail, 8 timeout
+  series, assembler without CFI  222 pass, 8 fail, 5 timeout
+  series, assembler with CFI     214 pass, 8 fail, 13 timeout
+
+The "with CFI" build uses the same GCC with binutils master plus the
+posted MicroBlaze CFI and relaxation patches as assembler and linker.
+Every program that passed unpatched and not in a patched run was rerun
+alone; all passed except sp04, which fails intermittently in both
+patched builds (2 of 4 and 1 of 4 runs, unpatched 4 of 4 passed).  Its
+one-tick timer can expire before TA1 (priority 1) blocks, and then HIGH
+runs before LOW; I believe this is a race in the test that the changed
+timing exposes, but I have not proven it.  The failures common to all
+three builds are sp68, sp69, spcpucounter01, spedfsched02 and spfatal26;
+the timeouts common to all are timing tests on a QEMU whose clock runs
+slow under load.
+
+With the CFI-capable assembler, the series plus the backtrace RFC, and
+RTEMS built with -fasynchronous-unwind-tables, _Unwind_Backtrace() from
+a timer service routine walks through the clock interrupt, _ISR_Handler,
+the interrupted function and its callers, and ends at
+_MicroBlaze_Thread_start.  From a fatal extension after "brki r17, 0x8"
+or "brki r16, 0x18" it walks through _exception_handler or
+_debug_sw_break_handler into the function that executed the brki.

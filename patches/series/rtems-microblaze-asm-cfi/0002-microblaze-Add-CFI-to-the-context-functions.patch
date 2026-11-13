@@ -1,0 +1,159 @@
+From a3dd1810556d69aedd2936591bfdcb7db05d9fde Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:08:32 -0500
+Subject: [PATCH 2/8] microblaze: Add CFI to the context functions
+
+Add call frame information to _CPU_Context_switch(),
+_CPU_Context_restore(), _CPU_Context_validate() and
+_CPU_Context_volatile_clobber().  Only _CPU_Context_validate() has a
+frame; the others leave the stack pointer and r15 alone, so the CIE
+default rules describe them.
+
+_CPU_Exception_dispatch_and_resume() and the two resume functions do
+not return to their caller, and the call of _Thread_Dispatch()
+overwrites r15.  Mark r15 undefined in them, which ends the walk of an
+unwinder there instead of letting it follow a stale return address.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ .../cpu/microblaze/microblaze-context-switch.S  |  4 ++++
+ .../microblaze/microblaze-context-validate.S    | 17 +++++++++++++++++
+ .../microblaze-context-volatile-clobber.S       |  2 ++
+ .../microblaze-exception-extensions.S           | 13 +++++++++++++
+ 4 files changed, 36 insertions(+)
+
+diff --git a/cpukit/score/cpu/microblaze/microblaze-context-switch.S b/cpukit/score/cpu/microblaze/microblaze-context-switch.S
+index c5788b9801..34e8b1839c 100644
+--- a/cpukit/score/cpu/microblaze/microblaze-context-switch.S
++++ b/cpukit/score/cpu/microblaze/microblaze-context-switch.S
+@@ -50,6 +50,7 @@ PUBLIC(_CPU_Context_restore_fp)
+ PUBLIC(_CPU_Context_save_fp)
+ 
+ SYM(_CPU_Context_switch):
++    CFI_STARTPROC
+     swi     r1,  r5, 0
+     swi     r13, r5, 4
+     swi     r14, r5, 8
+@@ -102,7 +103,10 @@ SYM(restore):
+     lwi     r31, r6, 76
+ 
+     rtsd    r15, 8
++    CFI_ENDPROC
+ 
+ SYM(_CPU_Context_restore):
++    CFI_STARTPROC
+     add   r6, r5, r0
+     brai  restore
++    CFI_ENDPROC
+diff --git a/cpukit/score/cpu/microblaze/microblaze-context-validate.S b/cpukit/score/cpu/microblaze/microblaze-context-validate.S
+index 466c3a25b8..f580081c24 100644
+--- a/cpukit/score/cpu/microblaze/microblaze-context-validate.S
++++ b/cpukit/score/cpu/microblaze/microblaze-context-validate.S
+@@ -62,9 +62,11 @@
+ PUBLIC(_CPU_Context_validate)
+ 
+ SYM(_CPU_Context_validate):
++	CFI_STARTPROC
+ 
+ 	/* Save */
+ 	addik r1, r1, -FRAME_SIZE
++	CFI_DEF_CFA_OFFSET(FRAME_SIZE)
+ 	swi r19, r1, FRAME_OFFSET_R19
+ 	swi r20, r1, FRAME_OFFSET_R20
+ 	swi r21, r1, FRAME_OFFSET_R21
+@@ -78,6 +80,19 @@ SYM(_CPU_Context_validate):
+ 	swi r29, r1, FRAME_OFFSET_R29
+ 	swi r30, r1, FRAME_OFFSET_R30
+ 	swi r31, r1, FRAME_OFFSET_R31
++	CFI_OFFSET(r19, FRAME_OFFSET_R19 - FRAME_SIZE)
++	CFI_OFFSET(r20, FRAME_OFFSET_R20 - FRAME_SIZE)
++	CFI_OFFSET(r21, FRAME_OFFSET_R21 - FRAME_SIZE)
++	CFI_OFFSET(r22, FRAME_OFFSET_R22 - FRAME_SIZE)
++	CFI_OFFSET(r23, FRAME_OFFSET_R23 - FRAME_SIZE)
++	CFI_OFFSET(r24, FRAME_OFFSET_R24 - FRAME_SIZE)
++	CFI_OFFSET(r25, FRAME_OFFSET_R25 - FRAME_SIZE)
++	CFI_OFFSET(r26, FRAME_OFFSET_R26 - FRAME_SIZE)
++	CFI_OFFSET(r27, FRAME_OFFSET_R27 - FRAME_SIZE)
++	CFI_OFFSET(r28, FRAME_OFFSET_R28 - FRAME_SIZE)
++	CFI_OFFSET(r29, FRAME_OFFSET_R29 - FRAME_SIZE)
++	CFI_OFFSET(r30, FRAME_OFFSET_R30 - FRAME_SIZE)
++	CFI_OFFSET(r31, FRAME_OFFSET_R31 - FRAME_SIZE)
+ 
+ 	/* Fill */
+ 
+@@ -149,5 +164,7 @@ restore:
+ 	lwi r31, r1, FRAME_OFFSET_R31
+ 
+ 	addik r1, r1, FRAME_SIZE
++	CFI_DEF_CFA_OFFSET(0)
+ 
+ 	bra r15
++	CFI_ENDPROC
+diff --git a/cpukit/score/cpu/microblaze/microblaze-context-volatile-clobber.S b/cpukit/score/cpu/microblaze/microblaze-context-volatile-clobber.S
+index 9010ee2985..796035f619 100644
+--- a/cpukit/score/cpu/microblaze/microblaze-context-volatile-clobber.S
++++ b/cpukit/score/cpu/microblaze/microblaze-context-volatile-clobber.S
+@@ -46,6 +46,7 @@
+ PUBLIC(_CPU_Context_volatile_clobber)
+ 
+ SYM(_CPU_Context_volatile_clobber):
++	CFI_STARTPROC
+ 
+ .macro clobber_register reg
+ 	addi r5, r5, -1
+@@ -62,3 +63,4 @@ SYM(_CPU_Context_volatile_clobber):
+ 
+ 	rtsd	r15, 8
+ 	nop
++	CFI_ENDPROC
+diff --git a/cpukit/score/cpu/microblaze/microblaze-exception-extensions.S b/cpukit/score/cpu/microblaze/microblaze-exception-extensions.S
+index 70e6981f94..c856b33733 100644
+--- a/cpukit/score/cpu/microblaze/microblaze-exception-extensions.S
++++ b/cpukit/score/cpu/microblaze/microblaze-exception-extensions.S
+@@ -43,7 +43,13 @@
+         .globl _MicroBlaze_Exception_resume_from_break
+ 	.align 2
+ 
++/*
++ * None of these functions returns to its caller, and the call of
++ * _Thread_Dispatch() overwrites the return address.  The unwinder stops here.
++ */
+ _CPU_Exception_dispatch_and_resume:
++	CFI_STARTPROC
++	CFI_UNDEFINED(r15)
+ 	/* Subtract 1 from ISR_NEST_LEVEL */
+ 	lwi r3, r0, _Per_CPU_Information + 8
+ 	addik r3, r3, -1
+@@ -64,8 +70,11 @@ _CPU_Exception_dispatch_and_resume:
+ 	bralid r15, _Thread_Dispatch
+ 	nop
+ /* Fall through to restore exception frame */
++	CFI_ENDPROC
+ 
+ _MicroBlaze_Exception_resume_from_exception:
++	CFI_STARTPROC
++	CFI_UNDEFINED(r15)
+ 	/* Move argument to stack pointer */
+ 	addi r1, r5, 0
+ 
+@@ -120,9 +129,12 @@ _MicroBlaze_Exception_resume_from_exception:
+ 	/* Branch to BTR is handled by upper layers */
+ 	rted r17, 0
+ 	nop
++	CFI_ENDPROC
+ 
+ /* There is no dispatch version of resume from break */
+ _MicroBlaze_Exception_resume_from_break:
++	CFI_STARTPROC
++	CFI_UNDEFINED(r15)
+ 	/* Move argument to stack pointer */
+ 	addi r1, r5, 0
+ 
+@@ -176,3 +188,4 @@ _MicroBlaze_Exception_resume_from_break:
+ 	/* Return from debug mode */
+ 	rtbd r16, 0
+ 	nop
++	CFI_ENDPROC
+-- 
+2.39.5 (Apple Git-154)
+

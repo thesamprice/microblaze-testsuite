@@ -1,0 +1,93 @@
+From 3f30c22b13877191738f6406168a87929c17d12a Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:03:42 -0500
+Subject: [PATCH] microblaze: Disable libm exception and rounding tests
+
+MicroBlaze uses ieee754/soft-fp and the generic <bits/fenv.h>, which
+defines no FE_* exception macros and only to-nearest rounding, with
+the generic stub fesetround.  Nothing told the libm test harness, so
+test_exceptions in math/libm-test-support.c found no exception class
+to test and hit "assert (ran == 1)" in every libm test that checks
+exceptions: 933 of the math tests abort with SIGABRT on a cross build
+run under qemu-user.
+
+Add the same math-tests-exceptions.h and math-tests-rounding.h that
+the arc, riscv, loongarch and or1k nofpu configurations use.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ sysdeps/microblaze/math-tests-exceptions.h | 27 ++++++++++++++++++++++
+ sysdeps/microblaze/math-tests-rounding.h   | 27 ++++++++++++++++++++++
+ 2 files changed, 54 insertions(+)
+ create mode 100644 sysdeps/microblaze/math-tests-exceptions.h
+ create mode 100644 sysdeps/microblaze/math-tests-rounding.h
+
+diff --git a/sysdeps/microblaze/math-tests-exceptions.h b/sysdeps/microblaze/math-tests-exceptions.h
+new file mode 100644
+index 0000000000..5d7c129238
+--- /dev/null
++++ b/sysdeps/microblaze/math-tests-exceptions.h
+@@ -0,0 +1,27 @@
++/* Configuration for math tests: exception support.  MicroBlaze version.
++   Copyright (C) 2026 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, see
++   <https://www.gnu.org/licenses/>.  */
++
++#ifndef MICROBLAZE_MATH_TESTS_EXCEPTIONS_H
++#define MICROBLAZE_MATH_TESTS_EXCEPTIONS_H 1
++
++/* Soft-float does not support exceptions.  */
++#define EXCEPTION_TESTS_float		0
++#define EXCEPTION_TESTS_double		0
++#define EXCEPTION_TESTS_long_double	0
++
++#endif
+diff --git a/sysdeps/microblaze/math-tests-rounding.h b/sysdeps/microblaze/math-tests-rounding.h
+new file mode 100644
+index 0000000000..32c123139f
+--- /dev/null
++++ b/sysdeps/microblaze/math-tests-rounding.h
+@@ -0,0 +1,27 @@
++/* Configuration for math tests: rounding mode support.  MicroBlaze version.
++   Copyright (C) 2026 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, see
++   <https://www.gnu.org/licenses/>.  */
++
++#ifndef MICROBLAZE_MATH_TESTS_ROUNDING_H
++#define MICROBLAZE_MATH_TESTS_ROUNDING_H 1
++
++/* Soft-float only supports to-nearest rounding mode.  */
++#define ROUNDING_TESTS_float(MODE)		((MODE) == FE_TONEAREST)
++#define ROUNDING_TESTS_double(MODE)		((MODE) == FE_TONEAREST)
++#define ROUNDING_TESTS_long_double(MODE)	((MODE) == FE_TONEAREST)
++
++#endif
+-- 
+2.39.5 (Apple Git-154)
+

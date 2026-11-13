@@ -1,0 +1,25 @@
+microblaze: Fix two bugs in __syscall_cancel_arch
+
+Two fixes to sysdeps/unix/sysv/linux/microblaze/syscall_cancel.S, both
+on the cancellation path.  They touch different lines and apply in
+either order.
+
+1/2 reads syscall arguments 5 and 6 from r1+28 and r1+32, where the
+ABI puts the 7th and 8th arguments of __syscall_cancel_arch, instead
+of r1+56 and r1+60.  pread64 and pwrite64 through a cancellation point
+got a garbage high word of the offset, which is why nptl/tst-cancel17
+fails.
+
+2/2 branches to the _Noreturn __syscall_do_cancel with brid instead
+of brlid, so that __syscall_cancel_arch leaves no frame of its own and
+the forced unwind of -fexceptions cancellation goes straight from
+__syscall_do_cancel to the syscall wrapper.  The assembly has no
+unwind information because released binutils cannot assemble .cfi_*
+directives for MicroBlaze; with a tail call it needs none.
+
+Both were tested on qemu-system-microblazeel with a Linux kernel:
+nptl/tst-cancel17 passes with 1/2, and the early-cancel phase of
+nptl/tst-cancelx4 passes at every cancellation point with 2/2.  Those
+runs were of an earlier version on an older master; this version is
+build-tested only, for microblaze-linux-gnu with build-many-glibcs.py
+(each patch built cleanly and passed "make check-abi").

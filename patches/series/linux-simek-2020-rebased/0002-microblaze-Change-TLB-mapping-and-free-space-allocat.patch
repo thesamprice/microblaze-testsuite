@@ -1,0 +1,71 @@
+From 1a1950e84658bb9464e0715b2b5988c3d263097f Mon Sep 17 00:00:00 2001
+From: Michal Simek <michal.simek@xilinx.com>
+Date: Wed, 25 Nov 2020 12:43:35 +0100
+Subject: [PATCH 2/3] microblaze: Change TLB mapping and free space allocation
+
+Microblaze is doing initial TLB mapping (max 32MB) which has to include
+BSS section but also some space for early page allocation which are used
+for lowmem page mapping done by mapin_ram()->map_page()->early_get_page().
+Max size is 768MB in current setup. For mapping this size there is a need
+for 768M / 4K / 1024 = 192 PTE pages (size 0xc0000). There could be also
+need for other pages to be mapped that's why 1MB space is added behind
+_end. (Pad was 0xC0000 but it is not enough for big initramfs).
+
+Linux kernel maps TLBs between _text and _end_tlb_mapping. And also reserve
+memory between _text and _end for kernel itself. Initrd or initramfs is
+mapped below. That's why there is all the time gap between _end and
+__initramfs_start covered by TLB which can be used for early page
+allocation.
+
+Signed-off-by: Michal Simek <michal.simek@xilinx.com>
+---
+ arch/microblaze/include/asm/sections.h | 1 +
+ arch/microblaze/kernel/head.S          | 3 +--
+ arch/microblaze/kernel/vmlinux.lds.S   | 4 ++++
+ 3 files changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/arch/microblaze/include/asm/sections.h b/arch/microblaze/include/asm/sections.h
+index c94bcbf178d1..16f331a5f73c 100644
+--- a/arch/microblaze/include/asm/sections.h
++++ b/arch/microblaze/include/asm/sections.h
+@@ -15,6 +15,7 @@ extern char _ssbss[], _esbss[];
+ extern unsigned long __ivt_start[], __ivt_end[];
+ 
+ extern char __initramfs_end[];
++extern char _end_tlb_mapping[];
+ 
+ extern u32 _fdt_start[], _fdt_end[];
+ 
+diff --git a/arch/microblaze/kernel/head.S b/arch/microblaze/kernel/head.S
+index 9bd3e513c89b..9f64a3b7a35c 100644
+--- a/arch/microblaze/kernel/head.S
++++ b/arch/microblaze/kernel/head.S
+@@ -171,9 +171,8 @@ _invalidate:
+ 	tophys(r4,r3)			/* Load the kernel physical address */
+ 
+ 	/* start to do TLB calculation */
+-	addik	r12, r0, _end
++	addik	r12, r0, _end_tlb_mapping
+ 	rsub	r12, r3, r12
+-	addik	r12, r12, CONFIG_LOWMEM_SIZE >> PTE_SHIFT /* that's the pad */
+ 
+ 	or r9, r0, r0 /* TLB0 = 0 */
+ 	or r10, r0, r0 /* TLB1 = 0 */
+diff --git a/arch/microblaze/kernel/vmlinux.lds.S b/arch/microblaze/kernel/vmlinux.lds.S
+index d404d350b6a0..07d45ba20503 100644
+--- a/arch/microblaze/kernel/vmlinux.lds.S
++++ b/arch/microblaze/kernel/vmlinux.lds.S
+@@ -131,6 +131,10 @@ SECTIONS {
+ 	}
+ 	. = ALIGN(PAGE_SIZE);
+ 	_end = .;
++	/* Add space in TLB mapping for early free pages mapping */
++	. = . + 0x100000; /* CONFIG_LOWMEM_SIZE >> PTE_SHIFT + space */
++
++	_end_tlb_mapping = . ;
+ 
+ 	.init.ramfs : AT(ADDR(.init.ramfs) - LOAD_OFFSET) {
+ 		INIT_RAM_FS
+-- 
+2.39.5 (Apple Git-154)
+

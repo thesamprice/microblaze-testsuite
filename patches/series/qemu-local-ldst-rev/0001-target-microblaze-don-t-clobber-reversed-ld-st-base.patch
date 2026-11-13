@@ -1,0 +1,73 @@
+From f211332ee8780986341569f700669dac58de765c Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 20:40:39 -0500
+Subject: [PATCH] target/microblaze: don't clobber reversed ld/st base
+
+LOCAL ONLY: not for submission to qemu-devel (QEMU AI policy).
+Reference for a hand-written fix.
+
+do_load and do_store swizzle the address of a reversed sub-word
+access in place:
+
+	tcg_gen_xori_i32(addr, addr, 3 - size);
+
+Since 36a9529e60 ("target/microblaze: Simplify
+compute_ldst_addr_type{a,b}"), first released in v10.1.0,
+compute_ldst_addr_typea returns cpu_R[ra] or cpu_R[rb] itself when the
+other operand is r0, so lbur, lhur, sbr and shr now XOR the guest's
+base register with 3 or 2.  With r5 = 0x90001000, "lbur r3, r5, r0"
+leaves r5 = 0x90001003, and "shr r3, r0, r5" leaves 0x90001002.  When
+both operands are r0 the address is a TCG constant, which must not be
+written at all.
+
+Swizzle into a new temporary instead, which is what the code did
+before 36a9529e60, when compute_ldst_addr_typea always returned one.
+lwr and swr are unaffected: a word access is not swizzled.
+
+Fixes: 36a9529e60 ("target/microblaze: Simplify compute_ldst_addr_type{a,b}")
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ target/microblaze/translate.c | 20 ++++++++++++++++++--
+ 1 file changed, 18 insertions(+), 2 deletions(-)
+
+diff --git a/target/microblaze/translate.c b/target/microblaze/translate.c
+index fefe5cb55..4eac13f36 100644
+--- a/target/microblaze/translate.c
++++ b/target/microblaze/translate.c
+@@ -718,7 +718,15 @@ static bool do_load(DisasContext *dc, int rd, TCGv_i32 addr, MemOp mop,
+             mop ^= MO_BSWAP;
+         }
+         if (size < MO_32) {
+-            tcg_gen_xori_i32(addr, addr, 3 - size);
++            /*
++             * ADDR may be a guest register or a constant, as returned
++             * by compute_ldst_addr_type{a,b}, so don't modify it in
++             * place.
++             */
++            TCGv_i32 t = tcg_temp_new_i32();
++
++            tcg_gen_xori_i32(t, addr, 3 - size);
++            addr = t;
+         }
+     }
+ 
+@@ -878,7 +886,15 @@ static bool do_store(DisasContext *dc, int rd, TCGv_i32 addr, MemOp mop,
+             mop ^= MO_BSWAP;
+         }
+         if (size < MO_32) {
+-            tcg_gen_xori_i32(addr, addr, 3 - size);
++            /*
++             * ADDR may be a guest register or a constant, as returned
++             * by compute_ldst_addr_type{a,b}, so don't modify it in
++             * place.
++             */
++            TCGv_i32 t = tcg_temp_new_i32();
++
++            tcg_gen_xori_i32(t, addr, 3 - size);
++            addr = t;
+         }
+     }
+ 
+-- 
+2.39.5 (Apple Git-154)
+

@@ -1,0 +1,193 @@
+From 41a6772a85a29bc66bb9a685004d708d8165d07f Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:10:39 -0500
+Subject: [PATCH 5/8] bsps/microblaze: Add CFI to the exception entries
+
+Describe the exception frame in _exception_handler and
+_debug_sw_break_handler.  The CFA is the stack pointer of the
+interrupted context and the interrupted program counter is the saved
+r17 or r16.
+
+Both entries branched to their C handler:
+
+	braid _MicroBlaze_Exception_handle
+
+So r15 still held the return address of the interrupted function when
+the handler ran, and an unwinder starting in the handler continued in
+the caller of the interrupted function, skipping the function which
+raised the exception.  Call the handlers with bralid instead.  The
+return address then points into the entry, whose call frame information
+leads to the interrupted context.  _MicroBlaze_Exception_handle() and
+_MicroBlaze_Debug_handle() end in rtems_fatal() and do not return, so
+r15 is free.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ .../start/_debug_sw_break_handler.S           | 47 ++++++++++++++++++-
+ .../start/_exception_handler.S                | 47 ++++++++++++++++++-
+ 2 files changed, 90 insertions(+), 4 deletions(-)
+
+diff --git a/bsps/microblaze/microblaze_fpga/start/_debug_sw_break_handler.S b/bsps/microblaze/microblaze_fpga/start/_debug_sw_break_handler.S
+index 872f488889..e56ee78f08 100644
+--- a/bsps/microblaze/microblaze_fpga/start/_debug_sw_break_handler.S
++++ b/bsps/microblaze/microblaze_fpga/start/_debug_sw_break_handler.S
+@@ -33,18 +33,25 @@
+  * POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#include <rtems/asm.h>
+ #include <rtems/score/cpu.h>
+ 
++#define FRAME_REG(n) \
++  CFI_OFFSET(r##n, MICROBLAZE_EXCEPTION_FRAME_R##n - CPU_EXCEPTION_FRAME_SIZE)
++
+ 	.text
+ 	.globl _debug_sw_break_handler    # HW Exception Handler Label
+ 	.extern _MicroBlaze_Debug_handle
+ 	.align 2
+ 
+ 	_debug_sw_break_handler:
++	CFI_STARTPROC
++
+ 	/* The stack used here does not matter since debug cannot recurse */
+ 
+ 	/* Subtract exception frame */
+ 	addik r1, r1, -(CPU_EXCEPTION_FRAME_SIZE)
++	CFI_DEF_CFA_OFFSET(CPU_EXCEPTION_FRAME_SIZE)
+ 
+ 	/* Store program state */
+ 	swi  r2, r1, MICROBLAZE_EXCEPTION_FRAME_R2
+@@ -77,6 +84,37 @@
+ 	swi r29, r1, MICROBLAZE_EXCEPTION_FRAME_R29
+ 	swi r30, r1, MICROBLAZE_EXCEPTION_FRAME_R30
+ 	swi r31, r1, MICROBLAZE_EXCEPTION_FRAME_R31
++	FRAME_REG(2)
++	FRAME_REG(3)
++	FRAME_REG(4)
++	FRAME_REG(5)
++	FRAME_REG(6)
++	FRAME_REG(7)
++	FRAME_REG(8)
++	FRAME_REG(9)
++	FRAME_REG(10)
++	FRAME_REG(11)
++	FRAME_REG(12)
++	FRAME_REG(13)
++	FRAME_REG(14)
++	FRAME_REG(15)
++	FRAME_REG(16)
++	FRAME_REG(17)
++	FRAME_REG(18)
++	FRAME_REG(19)
++	FRAME_REG(20)
++	FRAME_REG(21)
++	FRAME_REG(22)
++	FRAME_REG(23)
++	FRAME_REG(24)
++	FRAME_REG(25)
++	FRAME_REG(26)
++	FRAME_REG(27)
++	FRAME_REG(28)
++	FRAME_REG(29)
++	FRAME_REG(30)
++	FRAME_REG(31)
++	CFI_INTERRUPTED_FRAME(CPU_EXCEPTION_FRAME_SIZE - MICROBLAZE_EXCEPTION_FRAME_R16)
+ 
+ 	/* Retrieve and store MSR */
+ 	mfs r3, rmsr
+@@ -101,6 +139,11 @@
+ 	/* set parameter 1 to CPU Exception frame */
+ 	addi r5, r1, 0
+ 
+-	/* call into the debug framework */
+-	braid _MicroBlaze_Debug_handle
++	/*
++	 * Call rather than branch, so that the unwinder finds the return address
++	 * in this function and continues with the interrupted context.  The
++	 * handler does not return.
++	 */
++	bralid r15, _MicroBlaze_Debug_handle
+ 	nop
++	CFI_ENDPROC
+diff --git a/bsps/microblaze/microblaze_fpga/start/_exception_handler.S b/bsps/microblaze/microblaze_fpga/start/_exception_handler.S
+index c3c05796a4..67794ddeb5 100644
+--- a/bsps/microblaze/microblaze_fpga/start/_exception_handler.S
++++ b/bsps/microblaze/microblaze_fpga/start/_exception_handler.S
+@@ -33,15 +33,22 @@
+  * POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#include <rtems/asm.h>
+ #include <rtems/score/cpu.h>
+ 
++#define FRAME_REG(n) \
++  CFI_OFFSET(r##n, MICROBLAZE_EXCEPTION_FRAME_R##n - CPU_EXCEPTION_FRAME_SIZE)
++
+ 	.text
+ 	.globl _exception_handler    # Exception Handler Label
+ 	.align 2
+ 
+ 	_exception_handler:
++	CFI_STARTPROC
++
+ 	/* Subtract exception frame */
+ 	addik r1, r1, -(CPU_EXCEPTION_FRAME_SIZE)
++	CFI_DEF_CFA_OFFSET(CPU_EXCEPTION_FRAME_SIZE)
+ 
+ 	/* Store program state */
+ 	swi  r2, r1, MICROBLAZE_EXCEPTION_FRAME_R2
+@@ -74,6 +81,37 @@
+ 	swi r29, r1, MICROBLAZE_EXCEPTION_FRAME_R29
+ 	swi r30, r1, MICROBLAZE_EXCEPTION_FRAME_R30
+ 	swi r31, r1, MICROBLAZE_EXCEPTION_FRAME_R31
++	FRAME_REG(2)
++	FRAME_REG(3)
++	FRAME_REG(4)
++	FRAME_REG(5)
++	FRAME_REG(6)
++	FRAME_REG(7)
++	FRAME_REG(8)
++	FRAME_REG(9)
++	FRAME_REG(10)
++	FRAME_REG(11)
++	FRAME_REG(12)
++	FRAME_REG(13)
++	FRAME_REG(14)
++	FRAME_REG(15)
++	FRAME_REG(16)
++	FRAME_REG(17)
++	FRAME_REG(18)
++	FRAME_REG(19)
++	FRAME_REG(20)
++	FRAME_REG(21)
++	FRAME_REG(22)
++	FRAME_REG(23)
++	FRAME_REG(24)
++	FRAME_REG(25)
++	FRAME_REG(26)
++	FRAME_REG(27)
++	FRAME_REG(28)
++	FRAME_REG(29)
++	FRAME_REG(30)
++	FRAME_REG(31)
++	CFI_INTERRUPTED_FRAME(CPU_EXCEPTION_FRAME_SIZE - MICROBLAZE_EXCEPTION_FRAME_R17)
+ 
+ 	/* Retrieve and store MSR */
+ 	mfs r3, rmsr
+@@ -98,6 +136,11 @@
+ 	/* set parameter 1 to CPU Exception frame */
+ 	addi r5, r1, 0
+ 
+-	/* call into the debug framework */
+-	braid _MicroBlaze_Exception_handle
++	/*
++	 * Call rather than branch, so that the unwinder finds the return address
++	 * in this function and continues with the interrupted context.  The
++	 * handler does not return.
++	 */
++	bralid r15, _MicroBlaze_Exception_handle
+ 	nop
++	CFI_ENDPROC
+-- 
+2.39.5 (Apple Git-154)
+

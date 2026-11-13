@@ -1,0 +1,362 @@
+From 423f5843bf0db281c5b27b5c4063816e7e37e570 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Fri, 13 Nov 2026 00:47:01 -0500
+Subject: [PATCH] microblaze: include elfos.h [PR target/101766]
+
+microblaze.h defines OBJECT_FORMAT_ELF, so __has_attribute (symver) is
+true, but no MicroBlaze configuration includes elfos.h, so
+ASM_OUTPUT_SYMVER_DIRECTIVE is missing and using the attribute fails
+with "symver is only supported on ELF platforms".  __ELF__ is not
+defined either.  microblaze.h carries its own copies of much of
+elfos.h instead.
+
+Add elfos.h to tm_file for microblaze*-*-elf, microblaze*-*-rtems* and
+microblaze*-*-linux*, ahead of microblaze.h, as lm32 does, so that
+microblaze.h overrides it.  Remove the definitions elfos.h now
+provides, and #undef the ones MicroBlaze keeps: .weakext, .rodata as a
+directive, $-prefixed internal labels, .space, .asciz, the
+MAX_OFILE_ALIGNMENT limit, the "ax" flags on .init and .fini, the
+empty ASM_DECLARE_FUNCTION_NAME (microblaze_function_prologue emits
+the label), and the plain .rodata section for constant-pool entries.
+microblaze_declare_object is no longer used and goes.
+
+The generated code is unchanged apart from __ELF__, .symver, and the
+.size of an object with an initialized flexible array member, which
+elfos.h takes from DECL_SIZE_UNIT and MicroBlaze took from the type
+(4 rather than 12 for struct { int n; int a[]; } x = { 2, { 3, 4 } }).
+The assembly also gains .file, .globl for libcalls and some spacing
+changes, none of which changes the object file.  I compared the objects
+for the 1678 gcc.c-torture/execute tests that compile as they are, at
+-O2, both byte orders, for microblaze-elf (also with -fPIC) and
+microblaze-rtems: only the two tests with such initializers,
+20010924-1.c and pr33382.c, differ.
+
+Tested on microblaze-elf (big-endian) with gcc.target/microblaze,
+gcc.c-torture/execute and gcc.dg/ipa/symver1.c under QEMU.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+	PR target/101766
+
+gcc/ChangeLog:
+
+	* config.gcc (microblaze*-linux*, microblaze*-*-rtems*)
+	(microblaze*-*-elf): Add elfos.h to tm_file.
+	* config/microblaze/microblaze.h (OBJECT_FORMAT_ELF)
+	(DWARF2_DEBUGGING_INFO, PREFERRED_DEBUGGING_TYPE)
+	(ASCII_DATA_ASM_OP, TYPE_ASM_OP, SIZE_ASM_OP, COMMON_ASM_OP)
+	(TYPE_OPERAND_FMT, ASM_DECLARE_OBJECT_NAME)
+	(ASM_FINISH_DECLARE_OBJECT, MAKE_DECL_ONE_ONLY)
+	(TARGET_ASM_NAMED_SECTION, TARGET_LIBC_HAS_FUNCTION): Remove;
+	elfos.h defines them.
+	(ASM_DECLARE_FUNCTION_NAME, ASM_GENERATE_INTERNAL_LABEL)
+	(ASM_OUTPUT_SKIP, STRING_ASM_OP, MAX_OFILE_ALIGNMENT)
+	(ASM_WEAKEN_LABEL, READONLY_DATA_SECTION_ASM_OP)
+	(INIT_SECTION_ASM_OP, FINI_SECTION_ASM_OP): Undefine elfos.h's
+	definition first.
+	(TARGET_ASM_SELECT_RTX_SECTION): Undefine.
+	* config/microblaze/microblaze.cc (microblaze_declare_object):
+	Remove.
+	* config/microblaze/microblaze-protos.h
+	(microblaze_declare_object): Remove.
+
+gcc/testsuite/ChangeLog:
+
+	PR target/101766
+	* gcc.target/microblaze/others/elf-size-flex.c: New test.
+	* gcc.target/microblaze/others/elf-symver.c: New test.
+---
+ gcc/config.gcc                                |  7 +-
+ gcc/config/microblaze/microblaze-protos.h     |  2 -
+ gcc/config/microblaze/microblaze.cc           | 14 ----
+ gcc/config/microblaze/microblaze.h            | 72 ++++---------------
+ .../microblaze/others/elf-size-flex.c         | 11 +++
+ .../gcc.target/microblaze/others/elf-symver.c | 22 ++++++
+ 6 files changed, 50 insertions(+), 78 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/elf-size-flex.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/elf-symver.c
+
+diff --git a/gcc/config.gcc b/gcc/config.gcc
+index d5fdbd0b8..72996de83 100644
+--- a/gcc/config.gcc
++++ b/gcc/config.gcc
+@@ -2504,7 +2504,7 @@ microblaze*-linux*)
+ 			tm_defines="${tm_defines} TARGET_BIG_ENDIAN_DEFAULT=4321"
+ 			;;
+ 	esac
+-	tm_file="${tm_file} gnu-user.h linux.h microblaze/linux.h"
++	tm_file="elfos.h ${tm_file} gnu-user.h linux.h microblaze/linux.h"
+ 	tm_file="${tm_file} glibc-stdint.h"
+ 	c_target_objs="${c_target_objs} microblaze-c.o"
+ 	cxx_target_objs="${cxx_target_objs} microblaze-c.o"
+@@ -2520,8 +2520,7 @@ microblaze*-*-rtems*)
+ 			tm_defines="${tm_defines} TARGET_BIG_ENDIAN_DEFAULT=4321"
+ 			;;
+ 	esac
+-	tm_file="${tm_file}"
+-	tm_file="${tm_file} microblaze/rtems.h rtems.h newlib-stdint.h"
++	tm_file="elfos.h ${tm_file} microblaze/rtems.h rtems.h newlib-stdint.h"
+ 	c_target_objs="${c_target_objs} microblaze-c.o"
+ 	cxx_target_objs="${cxx_target_objs} microblaze-c.o"
+ 	tmake_file="${tmake_file} microblaze/t-microblaze"
+@@ -2536,7 +2535,7 @@ microblaze*-*-elf)
+ 			tm_defines="${tm_defines} TARGET_BIG_ENDIAN_DEFAULT=4321"
+ 			;;
+ 	esac
+-	tm_file="${tm_file} newlib-stdint.h"
++	tm_file="elfos.h ${tm_file} newlib-stdint.h"
+ 	c_target_objs="${c_target_objs} microblaze-c.o"
+ 	cxx_target_objs="${cxx_target_objs} microblaze-c.o"
+ 	tmake_file="${tmake_file} microblaze/t-microblaze"
+diff --git a/gcc/config/microblaze/microblaze-protos.h b/gcc/config/microblaze/microblaze-protos.h
+index 09397c684..224d28fe0 100644
+--- a/gcc/config/microblaze/microblaze-protos.h
++++ b/gcc/config/microblaze/microblaze-protos.h
+@@ -54,8 +54,6 @@ extern int double_memory_operand (rtx, machine_mode);
+ extern void microblaze_order_regs_for_local_alloc (void);
+ extern int microblaze_regno_ok_for_base_p (int, int);
+ extern HOST_WIDE_INT microblaze_initial_elimination_offset (int, int);
+-extern void microblaze_declare_object (FILE *, const char *, const char *,
+-   const char *, int);
+ extern void microblaze_asm_output_ident (const char *);
+ extern int microblaze_legitimate_pic_operand (rtx);
+ extern bool microblaze_tls_referenced_p (rtx);
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index d2ccfbac7..d8841119c 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -2677,20 +2677,6 @@ print_operand_address (FILE * file, rtx addr)
+     }
+ }
+ 
+-/* Emit either a label, .comm, or .lcomm directive, and mark that the symbol
+-   is used, so that we don't emit an .extern for it in
+-   microblaze_asm_file_end.  */
+-
+-void
+-microblaze_declare_object (FILE * stream, const char *name,
+-			   const char *section, const char *fmt, int size)
+-{
+-
+-  fputs (section, stream);
+-  assemble_name (stream, name);
+-  fprintf (stream, fmt, size);
+-}
+-
+ /* Common code to emit the insns (or to write the instructions to a file)
+    to save/restore registers.
+ 
+diff --git a/gcc/config/microblaze/microblaze.h b/gcc/config/microblaze/microblaze.h
+index e27c38f70..9cb52a20a 100644
+--- a/gcc/config/microblaze/microblaze.h
++++ b/gcc/config/microblaze/microblaze.h
+@@ -46,8 +46,6 @@ extern int microblaze_has_clz;
+ extern int microblaze_has_bitfield;
+ extern enum pipeline_type microblaze_pipe;
+ 
+-#define OBJECT_FORMAT_ELF
+-
+ #if TARGET_BIG_ENDIAN_DEFAULT
+ #define TARGET_ENDIAN_DEFAULT    0
+ #define TARGET_ENDIAN_OPTION     "mbig-endian"
+@@ -212,10 +210,6 @@ extern enum pipeline_type microblaze_pipe;
+ #define ASM_PREFERRED_EH_DATA_FORMAT(CODE,GLOBAL) \
+   ((flag_pic || GLOBAL) ? DW_EH_PE_aligned : DW_EH_PE_absptr)
+ 
+-/* Use DWARF 2 debugging information by default.  */
+-#define DWARF2_DEBUGGING_INFO
+-#define PREFERRED_DEBUGGING_TYPE DWARF2_DEBUG
+-
+ /* Target machine storage layout */
+ 
+ #define BITS_BIG_ENDIAN 0
+@@ -669,6 +663,8 @@ do {									\
+   ASM_OUTPUT_ALIGNED_LOCAL (FILE, NAME, SIZE, ALIGN);			\
+ } while (0)
+ 
++/* microblaze_function_prologue emits the .ent, .type and label.  */
++#undef ASM_DECLARE_FUNCTION_NAME
+ #define ASM_DECLARE_FUNCTION_NAME(STREAM,NAME,DECL)                     \
+ {                                                                       \
+ }
+@@ -679,6 +675,7 @@ do {									\
+ #undef TARGET_ASM_DESTRUCTOR
+ #define TARGET_ASM_DESTRUCTOR microblaze_elf_asm_destructor
+ 
++#undef ASM_GENERATE_INTERNAL_LABEL
+ #define ASM_GENERATE_INTERNAL_LABEL(LABEL,PREFIX,NUM)			\
+   sprintf ((LABEL), "*%s%s%ld", (LOCAL_LABEL_PREFIX), (PREFIX), (long)(NUM))
+ 
+@@ -702,15 +699,20 @@ do {									\
+ #define ASM_OUTPUT_ALIGN(STREAM,LOG)					\
+   fprintf (STREAM, "\t.align\t%d\n", (LOG))
+ 
++#undef ASM_OUTPUT_SKIP
+ #define ASM_OUTPUT_SKIP(STREAM,SIZE)					\
+   fprintf (STREAM, "\t.space\t" HOST_WIDE_INT_PRINT_UNSIGNED "\n", (SIZE))
+ 
+-#define ASCII_DATA_ASM_OP		"\t.ascii\t"
++#undef STRING_ASM_OP
+ #define STRING_ASM_OP			"\t.asciz\t"
+ 
+ #undef TARGET_ASM_OUTPUT_IDENT
+ #define TARGET_ASM_OUTPUT_IDENT microblaze_asm_output_ident
+ 
++/* Keep constant-pool entries in .rodata, not in the mergeable
++   .rodata.cstN sections that elfos.h selects.  */
++#undef TARGET_ASM_SELECT_RTX_SECTION
++
+ /* Default to -G 8 */
+ #ifndef MICROBLAZE_DEFAULT_GVALUE
+ #define MICROBLAZE_DEFAULT_GVALUE 8
+@@ -780,53 +782,11 @@ extern int save_volatiles;
+   } while (0)
+ 
+ #define GLOBAL_ASM_OP			"\t.globl\t"
+-#define TYPE_ASM_OP			"\t.type\t"
+-#define SIZE_ASM_OP			"\t.size\t"
+-#define COMMON_ASM_OP			"\t.comm\t"
+ #define LCOMMON_ASM_OP			"\t.lcomm\t"
+ 
++#undef MAX_OFILE_ALIGNMENT
+ #define MAX_OFILE_ALIGNMENT		(32768*8)
+ 
+-#define TYPE_OPERAND_FMT        	"@%s"
+-
+-/* Write the extra assembler code needed to declare an object properly.  */
+-#undef ASM_DECLARE_OBJECT_NAME
+-#define ASM_DECLARE_OBJECT_NAME(FILE, NAME, DECL)			\
+-  do {									\
+-    fprintf (FILE, "%s", TYPE_ASM_OP);			         	\
+-    assemble_name (FILE, NAME);						\
+-    putc (',', FILE);							\
+-    fprintf (FILE, TYPE_OPERAND_FMT, "object");				\
+-    putc ('\n', FILE);							\
+-    size_directive_output = 0;						\
+-    if (!flag_inhibit_size_directive && DECL_SIZE (DECL))		\
+-      {									\
+-	size_directive_output = 1;					\
+-	fprintf (FILE, "%s", SIZE_ASM_OP);				\
+-	assemble_name (FILE, NAME);					\
+-	fprintf (FILE, "," HOST_WIDE_INT_PRINT_DEC "\n",		\
+-	int_size_in_bytes (TREE_TYPE (DECL)));				\
+-      }									\
+-    microblaze_declare_object (FILE, NAME, "", ":\n", 0);			\
+-  } while (0)
+-
+-#undef ASM_FINISH_DECLARE_OBJECT
+-#define ASM_FINISH_DECLARE_OBJECT(FILE, DECL, TOP_LEVEL, AT_END)	 \
+-do {									 \
+-     const char *name = XSTR (XEXP (DECL_RTL (DECL), 0), 0);		 \
+-     if (!flag_inhibit_size_directive && DECL_SIZE (DECL)		 \
+-         && ! AT_END && TOP_LEVEL					 \
+-	 && DECL_INITIAL (DECL) == error_mark_node			 \
+-	 && !size_directive_output)					 \
+-       {								 \
+-	 size_directive_output = 1;					 \
+-	 fprintf (FILE, "%s", SIZE_ASM_OP);			         \
+-	 assemble_name (FILE, name);					 \
+-	 fprintf (FILE, "," HOST_WIDE_INT_PRINT_DEC "\n",		 \
+-		  int_size_in_bytes (TREE_TYPE (DECL)));		 \
+-       }								 \
+-   } while (0)
+-
+ #define ASM_OUTPUT_DEF(FILE,LABEL1,LABEL2)                            \
+  do { fputc ( '\t', FILE);                                            \
+       assemble_name (FILE, LABEL1);                                   \
+@@ -835,19 +795,16 @@ do {									 \
+       fputc ( '\n', FILE);                                            \
+  } while (0)
+ 
++#undef ASM_WEAKEN_LABEL
+ #define ASM_WEAKEN_LABEL(FILE,NAME) 					\
+  do { fputs ("\t.weakext\t", FILE);					\
+       assemble_name (FILE, NAME);					\
+       fputc ('\n', FILE);						\
+     } while (0)
+ 
+-#define MAKE_DECL_ONE_ONLY(DECL)	(DECL_WEAK (DECL) = 1)
+ #undef UNIQUE_SECTION_P
+ #define UNIQUE_SECTION_P(DECL)		(DECL_ONE_ONLY (DECL))
+ 
+-#undef TARGET_ASM_NAMED_SECTION
+-#define TARGET_ASM_NAMED_SECTION        default_elf_asm_named_section
+-
+ /* Define the strings to put out for each section in the object file.
+ 
+    Note: For ctors/dtors, we want to give these sections the SHF_WRITE
+@@ -856,12 +813,15 @@ do {									 \
+    yet, so this is for future use.  */
+ #define TEXT_SECTION_ASM_OP	"\t.text"
+ #define DATA_SECTION_ASM_OP	"\t.data"
++#undef READONLY_DATA_SECTION_ASM_OP
+ #define READONLY_DATA_SECTION_ASM_OP    \
+                                 "\t.rodata"
+ #define BSS_SECTION_ASM_OP      "\t.bss"
+ #define CTORS_SECTION_ASM_OP    "\t.section\t.ctors,\"aw\""
+ #define DTORS_SECTION_ASM_OP    "\t.section\t.dtors,\"aw\""
++#undef INIT_SECTION_ASM_OP
+ #define INIT_SECTION_ASM_OP     "\t.section\t.init,\"ax\""
++#undef FINI_SECTION_ASM_OP
+ #define FINI_SECTION_ASM_OP     "\t.section\t.fini,\"ax\""
+ 
+ #define SDATA_SECTION_ASM_OP	"\t.sdata"	/* Small RW initialized data   */
+@@ -885,10 +845,6 @@ do {									 \
+ %{pg:-start-group -lxilprofile -lgloss -lxil -lc -lm -end-group } \
+ %{!pg:-start-group -lgloss -lxil -lc -lm -end-group }} "
+ 
+-/* microblaze-unknown-elf target has no support of C99 runtime */
+-#undef TARGET_LIBC_HAS_FUNCTION
+-#define TARGET_LIBC_HAS_FUNCTION no_c99_libc_has_function
+-
+ #undef  ENDFILE_SPEC
+ #define ENDFILE_SPEC "crtend.o%s crtn.o%s"
+ 
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/elf-size-flex.c b/gcc/testsuite/gcc.target/microblaze/others/elf-size-flex.c
+new file mode 100644
+index 000000000..9bdf7eda0
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/elf-size-flex.c
+@@ -0,0 +1,11 @@
++/* The .size of an object with an initialized flexible array member
++   includes the initializer, not just the size of its type.  */
++
++/* { dg-do compile } */
++/* { dg-skip-if "no assembly" { *-*-* } { "-fno-fat-lto-objects" } { "" } } */
++/* { dg-options "" } */
++
++struct s { int n; int a[]; };
++struct s x = { 2, { 3, 4 } };
++
++/* { dg-final { scan-assembler "\\.size\tx, 12" } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/elf-symver.c b/gcc/testsuite/gcc.target/microblaze/others/elf-symver.c
+new file mode 100644
+index 000000000..c4661754e
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/elf-symver.c
+@@ -0,0 +1,22 @@
++/* MicroBlaze is an ELF target: __ELF__ is defined, and the symver
++   attribute, which __has_attribute reports, emits .symver.  */
++
++/* { dg-do compile } */
++/* { dg-skip-if "no assembly" { *-*-* } { "-fno-fat-lto-objects" } { "" } } */
++
++#ifndef __ELF__
++#error __ELF__ is not defined
++#endif
++
++#if !__has_attribute (symver)
++#error symver is not supported
++#endif
++
++__attribute__ ((symver ("foo@VERS_1")))
++int
++foo_v1 (void)
++{
++  return 1;
++}
++
++/* { dg-final { scan-assembler "\\.symver\tfoo_v1, foo@VERS_1" } } */
+-- 
+2.39.5 (Apple Git-154)
+

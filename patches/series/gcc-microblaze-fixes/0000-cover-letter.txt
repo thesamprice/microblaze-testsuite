@@ -1,0 +1,28 @@
+microblaze: three ICE and wrong-symbol fixes, and bsefi/bsifi
+
+Four independent MicroBlaze backend patches, against master df809a029.
+They apply in any order; 1-3 are bug fixes and 4 is a feature.
+
+1/4 removes a peephole2 that fuses fix:SI with a conditional branch.
+It emits a jump from a peephole2, which ICEs with "flow control insn
+inside a basic block", and it never sets the fix:SI result.
+
+2/4 stops a break_handler function from also defining
+_interrupt_handler.  A unit with both handlers did not assemble, and
+the interrupt vector resolved to the break handler.
+
+3/4 returns one- and two-byte structs in their own mode, so
+-freg-struct-return no longer ICEs in emit_move_insn.
+
+4/4 adds extzvsi and insvsi using the v10.0 bsefi and bsifi
+instructions, for -mcpu=v10.0 and later with -mxl-barrel-shift.  There
+is no extv: bsefi zero-extends.
+
+Each patch adds a test that fails without it.
+
+Tested on microblaze-elf (big-endian) with QEMU 10.2.4 and newlib:
+gcc.c-torture/execute is unchanged from the unpatched baseline, 24536
+passes and 14 failures (fprintf-2.c, pr117432.c), with the default
+flags, with -mcpu=v10.0 -mxl-barrel-shift and with -mcpu=v9.6
+-mxl-barrel-shift.  In gcc.target/microblaze the new tests fail before
+and pass after, and nothing else changes.

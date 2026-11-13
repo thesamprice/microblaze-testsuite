@@ -1,0 +1,149 @@
+From 0981ecb6d3c4346050a7143e4303f423eec21ffe Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 20:34:09 -0500
+Subject: [PATCH] Makefile: run newlib's testsuite as check-newlib
+
+newlib has a DejaGnu testsuite of its own, newlib/testsuite, which
+nothing here ran.  check-newlib runs it from GCC's build tree through
+check-target-newlib with the same board and RUNTEST as check-gcc, and
+make check now includes it.  NEWLIB_TESTS narrows the run.
+
+strcmp-1.c runs for 50 to 100 seconds under QEMU.  With the default
+MB_TIMEOUT of 90 the same binary passed on one run and timed out on
+the next, so check-newlib uses NEWLIB_TIMEOUT, default 300, instead.
+
+Against newlib ebbbf29a6f7, built on its own and given as GCC_BUILD, it
+gives 32 passes and nothing else.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ Makefile  | 24 +++++++++++++++++++-----
+ README.md | 24 +++++++++++++++++++++---
+ 2 files changed, 40 insertions(+), 8 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index c45f02a..24812e9 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,6 +1,6 @@
+ # Build a MicroBlaze cross toolchain and QEMU from upstream sources and run
+-# the binutils and GCC DejaGnu testsuites against them, with the GCC execute
+-# tests running under QEMU system emulation.
++# the binutils, GCC and newlib DejaGnu testsuites against them, with the GCC
++# and newlib execute tests running under QEMU system emulation.
+ #
+ #   make                  fetch and build everything
+ #   make check            run every testsuite
+@@ -31,6 +31,7 @@ QEMU_URL     ?= https://download.qemu.org/qemu-$(QEMU_VERSION).tar.xz
+ BOARD        ?= microblaze-qemu
+ GCC_TESTS    ?= execute.exp
+ GCC_SMOKE    ?= execute.exp='20010221-1.c loop-2b.c memcpy-1.c 990208-1.c printf-1.c arith-rand-ll.c pr50865.c pr28982b.c'
++NEWLIB_TESTS ?=
+ RUNTESTFLAGS ?=
+ 
+ # Current binutils mis-places __wrap_* symbols when relaxing, which breaks
+@@ -38,6 +39,7 @@ RUNTESTFLAGS ?=
+ # test a linker that carries the fix.
+ MB_NO_RELAX  ?= -Wl,--no-relax
+ MB_TIMEOUT   ?= 90
++NEWLIB_TIMEOUT ?= 300
+ 
+ # Where each testsuite's .sum and .log are copied after a run.
+ RESULTS      ?= $(WORK)/results
+@@ -104,7 +106,8 @@ DEP_QEMU     := $(if $(OWN_QEMU),,$(STAMP)/qemu)
+ 
+ .PHONY: all sources toolchain binutils gcc dejagnu libxil qemu \
+ 	check check-start check-binutils check-gas check-ld check-gcc \
+-	check-gcc-smoke bench-moddi3 bench-moddi3-host coverage-moddi3 \
++	check-gcc-smoke check-newlib bench-moddi3 bench-moddi3-host \
++	coverage-moddi3 \
+ 	summary env clean distclean
+ 
+ all: toolchain dejagnu libxil qemu
+@@ -268,7 +271,7 @@ define collect
+ 	  else echo "no $$n.sum from this run"; fi; done
+ endef
+ 
+-check: check-binutils check-gcc
++check: check-binutils check-gcc check-newlib
+ 
+ check-start:
+ 	@mkdir -p $(STAMP) && touch $(STAMP)/check-start
+@@ -299,6 +302,16 @@ check-gcc: all check-start
+ check-gcc-smoke: GCC_TESTS = $(GCC_SMOKE)
+ check-gcc-smoke: check-gcc
+ 
++# newlib's own testsuite, newlib/testsuite, from the newlib GCC built.
++# NEWLIB_TESTS picks .exp files, e.g. NEWLIB_TESTS=string.exp.
++# strcmp-1.c runs for 50 to 100 seconds under QEMU, so MB_TIMEOUT's 90
++# fails it on some runs and not others; NEWLIB_TIMEOUT replaces it here.
++check-newlib: MB_TIMEOUT = $(NEWLIB_TIMEOUT)
++check-newlib: all check-start
++	-$(MAKE) -C $(GCC_BUILD) -k check-target-newlib RUNTEST=$(RUNTEST) \
++	  RUNTESTFLAGS="--target_board=$(BOARD) $(RUNTESTFLAGS) $(NEWLIB_TESTS)"
++	@$(call collect,$(GCC_BUILD)/$(TARGET)/newlib,newlib)
++
+ # Instruction counts and estimated cycles for the 64-bit divide and
+ # remainder variants; see bench/moddi3/REPORT.md.
+ bench-moddi3: all
+@@ -370,7 +383,8 @@ DOCKER_RUN     = $(DOCKER) run --rm -v $(CURDIR):/repo:ro \
+ 
+ # Variables given on this command line that matter inside the container.
+ DOCKER_VARS = $(foreach v,JOBS BINUTILS_REF GCC_REF NEWLIB_REF DEJAGNU_REF \
+-	QEMU_VERSION BOARD GCC_TESTS RUNTESTFLAGS MB_NO_RELAX MB_TIMEOUT,\
++	QEMU_VERSION BOARD GCC_TESTS NEWLIB_TESTS RUNTESTFLAGS MB_NO_RELAX \
++	MB_TIMEOUT NEWLIB_TIMEOUT,\
+ 	$(if $(filter command line,$(origin $(v))),'$(v)=$($(v))'))
+ 
+ .PHONY: docker-image docker-shell docker-clean
+diff --git a/README.md b/README.md
+index 66a0de3..0701a2c 100644
+--- a/README.md
++++ b/README.md
+@@ -1,15 +1,16 @@
+ # MicroBlaze toolchain testsuite
+ 
+ Builds a `microblaze-elf` cross toolchain and QEMU from upstream sources and
+-runs the binutils and GCC DejaGnu testsuites against them. The GCC execute
+-tests really run, under QEMU system emulation, through the `microblaze-qemu`
+-DejaGnu board in [`patches/dejagnu/`](patches/dejagnu/).
++runs the binutils, GCC and newlib DejaGnu testsuites against them. The GCC
++and newlib execute tests really run, under QEMU system emulation, through
++the `microblaze-qemu` DejaGnu board in [`patches/dejagnu/`](patches/dejagnu/).
+ 
+ ```sh
+ make                     # fetch and build binutils, gcc+newlib+libgloss, DejaGnu, QEMU
+ make check-gcc-smoke     # eight execute tests across all torture levels
+ make check-binutils      # binutils, gas and ld testsuites
+ make check-gcc           # gcc.c-torture/execute, all of it
++make check-newlib        # newlib's own testsuite, a few minutes
+ make summary             # the summaries of the last runs, and the source revisions
+ make bench-moddi3        # instructions and estimated cycles for libgcc's 64-bit division
+ ```
+@@ -176,6 +177,23 @@ From 2026-11-01: binutils `8614f56cb25`, gcc `a9f669055c2`, newlib
+ | gcc, `check-gcc-smoke` | 91 | 15 | 0 | 0 | 8 |
+ | gcc, `check-gcc` (all of `execute.exp`) | 24498 | 38 | 0 | 0 | 176 |
+ 
++`check-newlib` runs `newlib/testsuite` under the same board, big-endian
++only, as `check-gcc` does. From 2026-11-12, newlib `ebbbf29a6f7` built
++on its own from the top of `newlib-cygwin.git` with `-g -O2` and
++`--disable-multilib`, given as `GCC_BUILD`, with gcc `17.0.0 20261107`
++and DejaGnu `04e420155f7` plus the board: 32 passes and nothing else,
++the compilation and execution of 16 programs. It has not yet been run
++in the combined gcc tree that `make` builds. Two of the `.exp` files run
++nothing here: `elix.exp` only runs on `i[3456]86-pc-linux-gnu`, and
++`UTF-8.exp` needs multibyte support, `--enable-newlib-mb`, which is off by
++default. No test calls `strlen` directly. `libgloss/testsuite` is not
++wired into the build and is not run.
++
++`strcmp-1.c` takes 50 to 100 seconds under QEMU here, against the
++board's default `MB_TIMEOUT` of 90: with it, the same binary passed on
++one run and timed out on the next. `check-newlib` therefore runs with
++`NEWLIB_TIMEOUT`, default 300, in place of `MB_TIMEOUT`.
++
+ The earlier `patches/gcc/0001`, the `__moddi3` fix, was dropped on
+ 2026-11-07: it is upstream as gcc `3a721dc02`. With gcc master `df809a029`
+ and the current `patches/gcc`, the full `check-gcc` gave 24536 passes, 14
+-- 
+2.39.5 (Apple Git-154)
+

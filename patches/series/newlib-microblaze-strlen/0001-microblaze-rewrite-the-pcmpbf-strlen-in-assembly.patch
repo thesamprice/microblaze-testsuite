@@ -1,0 +1,241 @@
+From 457d21b8e8be36232f213e623ed41e6caf2b4921 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 20:32:14 -0500
+Subject: [PATCH] microblaze: rewrite the pcmpbf strlen in assembly
+
+With pattern compare, strlen in libc/machine/microblaze/strlen.c is a
+whole function body in one asm statement inside a C function.  It
+reads its argument from r5, returns with its own rtsd, clobbers r3,
+r4, r9 and r10 without declaring them, and defines global labels.  It
+works only because GCC gives the function no frame.  It also throws
+away the result of pcmpbf, the position of the NUL in the word, and
+scans the word again a byte at a time.
+
+Move it to strlen-pcmp.S and take the length from pcmpbf.  pcmpbf
+counts byte positions from the most significant byte, and lw on
+big-endian and lwr on little-endian both load the lowest-addressed
+byte there, so the NUL is at the word's address plus the position
+minus one in both byte orders.  lwr is what the old code used on
+little-endian too.  The head is still a byte loop up to the first word
+boundary, so no load reaches a word that holds no byte of the string.
+
+strlen.c keeps the C version for cores without pattern compare.  Both
+files now test __HAVE_HW_PCMP__, so exactly one defines strlen.  GCC
+defines HAVE_HW_PCMP, which the old code tested, only outside strict
+ISO modes.
+
+Under QEMU, at every alignment 0-7 and length 0-160, both byte orders,
+both versions return the right length.  For alignments 0-3 and lengths
+0-160 the new code executes 65316 instructions to the old code's
+81855, and it is 16 instructions long instead of 23.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ newlib/Makefile.in                           | 21 ++++++-
+ newlib/libc/machine/microblaze/Makefile.inc  |  2 +-
+ newlib/libc/machine/microblaze/strlen-pcmp.S | 62 ++++++++++++++++++++
+ newlib/libc/machine/microblaze/strlen.c      | 44 ++------------
+ 4 files changed, 88 insertions(+), 41 deletions(-)
+ create mode 100644 newlib/libc/machine/microblaze/strlen-pcmp.S
+
+diff --git a/newlib/Makefile.in b/newlib/Makefile.in
+index 13a5d13..4f452ce 100644
+--- a/newlib/Makefile.in
++++ b/newlib/Makefile.in
+@@ -794,7 +794,7 @@ check_PROGRAMS =
+ @HAVE_LIBC_MACHINE_M68K_TRUE@am__append_94 = libc/machine/m68k/setjmp.S libc/machine/m68k/strcpy.c libc/machine/m68k/strlen.c libc/machine/m68k/memcpy.S libc/machine/m68k/memset.S
+ @HAVE_LIBC_MACHINE_M88K_TRUE@am__append_95 = libc/machine/m88k/setjmp.S
+ @HAVE_LIBC_MACHINE_MEP_TRUE@am__append_96 = libc/machine/mep/setjmp.S
+-@HAVE_LIBC_MACHINE_MICROBLAZE_TRUE@am__append_97 = libc/machine/microblaze/strlen.c libc/machine/microblaze/strcmp.c libc/machine/microblaze/strcpy.c libc/machine/microblaze/setjmp.S libc/machine/microblaze/longjmp.S
++@HAVE_LIBC_MACHINE_MICROBLAZE_TRUE@am__append_97 = libc/machine/microblaze/strlen.c libc/machine/microblaze/strlen-pcmp.S libc/machine/microblaze/strcmp.c libc/machine/microblaze/strcpy.c libc/machine/microblaze/setjmp.S libc/machine/microblaze/longjmp.S
+ @HAVE_LIBC_MACHINE_MIPS_TRUE@am__append_98 = libc/machine/mips/setjmp.S libc/machine/mips/strlen.c libc/machine/mips/strcmp.S libc/machine/mips/strncpy.c libc/machine/mips/memset.c libc/machine/mips/memcpy.c
+ @HAVE_LIBC_MACHINE_MN10200_TRUE@am__append_99 = libc/machine/mn10200/setjmp.S
+ @HAVE_LIBC_MACHINE_MN10300_TRUE@am__append_100 = \
+@@ -2119,6 +2119,7 @@ am__objects_51 = libc/ssp/libc_a-chk_fail.$(OBJEXT) \
+ @HAVE_LIBC_MACHINE_M88K_TRUE@am__objects_105 = libc/machine/m88k/libc_a-setjmp.$(OBJEXT)
+ @HAVE_LIBC_MACHINE_MEP_TRUE@am__objects_106 = libc/machine/mep/libc_a-setjmp.$(OBJEXT)
+ @HAVE_LIBC_MACHINE_MICROBLAZE_TRUE@am__objects_107 = libc/machine/microblaze/libc_a-strlen.$(OBJEXT) \
++@HAVE_LIBC_MACHINE_MICROBLAZE_TRUE@	libc/machine/microblaze/libc_a-strlen-pcmp.$(OBJEXT) \
+ @HAVE_LIBC_MACHINE_MICROBLAZE_TRUE@	libc/machine/microblaze/libc_a-strcmp.$(OBJEXT) \
+ @HAVE_LIBC_MACHINE_MICROBLAZE_TRUE@	libc/machine/microblaze/libc_a-strcpy.$(OBJEXT) \
+ @HAVE_LIBC_MACHINE_MICROBLAZE_TRUE@	libc/machine/microblaze/libc_a-setjmp.$(OBJEXT) \
+@@ -8976,6 +8977,9 @@ libc/machine/microblaze/$(DEPDIR)/$(am__dirstamp):
+ libc/machine/microblaze/libc_a-strlen.$(OBJEXT):  \
+ 	libc/machine/microblaze/$(am__dirstamp) \
+ 	libc/machine/microblaze/$(DEPDIR)/$(am__dirstamp)
++libc/machine/microblaze/libc_a-strlen-pcmp.$(OBJEXT):  \
++	libc/machine/microblaze/$(am__dirstamp) \
++	libc/machine/microblaze/$(DEPDIR)/$(am__dirstamp)
+ libc/machine/microblaze/libc_a-strcmp.$(OBJEXT):  \
+ 	libc/machine/microblaze/$(am__dirstamp) \
+ 	libc/machine/microblaze/$(DEPDIR)/$(am__dirstamp)
+@@ -13238,6 +13242,7 @@ distclean-compile:
+ @AMDEP_TRUE@@am__include@ @am__quote@libc/machine/microblaze/$(DEPDIR)/libc_a-setjmp.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@libc/machine/microblaze/$(DEPDIR)/libc_a-strcmp.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@libc/machine/microblaze/$(DEPDIR)/libc_a-strcpy.Po@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@libc/machine/microblaze/$(DEPDIR)/libc_a-strlen-pcmp.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@libc/machine/microblaze/$(DEPDIR)/libc_a-strlen.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@libc/machine/mips/$(DEPDIR)/libc_a-memcpy.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@libc/machine/mips/$(DEPDIR)/libc_a-memset.Po@am__quote@
+@@ -18936,6 +18941,20 @@ libc/machine/mep/libc_a-setjmp.obj: libc/machine/mep/setjmp.S
+ @AMDEP_TRUE@@am__fastdepCCAS_FALSE@	DEPDIR=$(DEPDIR) $(CCASDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+ @am__fastdepCCAS_FALSE@	$(AM_V_CPPAS@am__nodep@)$(CCAS) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libc_a_CPPFLAGS) $(CPPFLAGS) $(libc_a_CCASFLAGS) $(CCASFLAGS) -c -o libc/machine/mep/libc_a-setjmp.obj `if test -f 'libc/machine/mep/setjmp.S'; then $(CYGPATH_W) 'libc/machine/mep/setjmp.S'; else $(CYGPATH_W) '$(srcdir)/libc/machine/mep/setjmp.S'; fi`
+ 
++libc/machine/microblaze/libc_a-strlen-pcmp.o: libc/machine/microblaze/strlen-pcmp.S
++@am__fastdepCCAS_TRUE@	$(AM_V_CPPAS)$(CCAS) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libc_a_CPPFLAGS) $(CPPFLAGS) $(libc_a_CCASFLAGS) $(CCASFLAGS) -MT libc/machine/microblaze/libc_a-strlen-pcmp.o -MD -MP -MF libc/machine/microblaze/$(DEPDIR)/libc_a-strlen-pcmp.Tpo -c -o libc/machine/microblaze/libc_a-strlen-pcmp.o `test -f 'libc/machine/microblaze/strlen-pcmp.S' || echo '$(srcdir)/'`libc/machine/microblaze/strlen-pcmp.S
++@am__fastdepCCAS_TRUE@	$(AM_V_at)$(am__mv) libc/machine/microblaze/$(DEPDIR)/libc_a-strlen-pcmp.Tpo libc/machine/microblaze/$(DEPDIR)/libc_a-strlen-pcmp.Po
++@AMDEP_TRUE@@am__fastdepCCAS_FALSE@	$(AM_V_CPPAS)source='libc/machine/microblaze/strlen-pcmp.S' object='libc/machine/microblaze/libc_a-strlen-pcmp.o' libtool=no @AMDEPBACKSLASH@
++@AMDEP_TRUE@@am__fastdepCCAS_FALSE@	DEPDIR=$(DEPDIR) $(CCASDEPMODE) $(depcomp) @AMDEPBACKSLASH@
++@am__fastdepCCAS_FALSE@	$(AM_V_CPPAS@am__nodep@)$(CCAS) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libc_a_CPPFLAGS) $(CPPFLAGS) $(libc_a_CCASFLAGS) $(CCASFLAGS) -c -o libc/machine/microblaze/libc_a-strlen-pcmp.o `test -f 'libc/machine/microblaze/strlen-pcmp.S' || echo '$(srcdir)/'`libc/machine/microblaze/strlen-pcmp.S
++
++libc/machine/microblaze/libc_a-strlen-pcmp.obj: libc/machine/microblaze/strlen-pcmp.S
++@am__fastdepCCAS_TRUE@	$(AM_V_CPPAS)$(CCAS) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libc_a_CPPFLAGS) $(CPPFLAGS) $(libc_a_CCASFLAGS) $(CCASFLAGS) -MT libc/machine/microblaze/libc_a-strlen-pcmp.obj -MD -MP -MF libc/machine/microblaze/$(DEPDIR)/libc_a-strlen-pcmp.Tpo -c -o libc/machine/microblaze/libc_a-strlen-pcmp.obj `if test -f 'libc/machine/microblaze/strlen-pcmp.S'; then $(CYGPATH_W) 'libc/machine/microblaze/strlen-pcmp.S'; else $(CYGPATH_W) '$(srcdir)/libc/machine/microblaze/strlen-pcmp.S'; fi`
++@am__fastdepCCAS_TRUE@	$(AM_V_at)$(am__mv) libc/machine/microblaze/$(DEPDIR)/libc_a-strlen-pcmp.Tpo libc/machine/microblaze/$(DEPDIR)/libc_a-strlen-pcmp.Po
++@AMDEP_TRUE@@am__fastdepCCAS_FALSE@	$(AM_V_CPPAS)source='libc/machine/microblaze/strlen-pcmp.S' object='libc/machine/microblaze/libc_a-strlen-pcmp.obj' libtool=no @AMDEPBACKSLASH@
++@AMDEP_TRUE@@am__fastdepCCAS_FALSE@	DEPDIR=$(DEPDIR) $(CCASDEPMODE) $(depcomp) @AMDEPBACKSLASH@
++@am__fastdepCCAS_FALSE@	$(AM_V_CPPAS@am__nodep@)$(CCAS) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libc_a_CPPFLAGS) $(CPPFLAGS) $(libc_a_CCASFLAGS) $(CCASFLAGS) -c -o libc/machine/microblaze/libc_a-strlen-pcmp.obj `if test -f 'libc/machine/microblaze/strlen-pcmp.S'; then $(CYGPATH_W) 'libc/machine/microblaze/strlen-pcmp.S'; else $(CYGPATH_W) '$(srcdir)/libc/machine/microblaze/strlen-pcmp.S'; fi`
++
+ libc/machine/microblaze/libc_a-setjmp.o: libc/machine/microblaze/setjmp.S
+ @am__fastdepCCAS_TRUE@	$(AM_V_CPPAS)$(CCAS) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libc_a_CPPFLAGS) $(CPPFLAGS) $(libc_a_CCASFLAGS) $(CCASFLAGS) -MT libc/machine/microblaze/libc_a-setjmp.o -MD -MP -MF libc/machine/microblaze/$(DEPDIR)/libc_a-setjmp.Tpo -c -o libc/machine/microblaze/libc_a-setjmp.o `test -f 'libc/machine/microblaze/setjmp.S' || echo '$(srcdir)/'`libc/machine/microblaze/setjmp.S
+ @am__fastdepCCAS_TRUE@	$(AM_V_at)$(am__mv) libc/machine/microblaze/$(DEPDIR)/libc_a-setjmp.Tpo libc/machine/microblaze/$(DEPDIR)/libc_a-setjmp.Po
+diff --git a/newlib/libc/machine/microblaze/Makefile.inc b/newlib/libc/machine/microblaze/Makefile.inc
+index 3fc3b9a..c9cd10b 100644
+--- a/newlib/libc/machine/microblaze/Makefile.inc
++++ b/newlib/libc/machine/microblaze/Makefile.inc
+@@ -1 +1 @@
+-libc_a_SOURCES += %D%/strlen.c %D%/strcmp.c %D%/strcpy.c %D%/setjmp.S %D%/longjmp.S
++libc_a_SOURCES += %D%/strlen.c %D%/strlen-pcmp.S %D%/strcmp.c %D%/strcpy.c %D%/setjmp.S %D%/longjmp.S
+diff --git a/newlib/libc/machine/microblaze/strlen-pcmp.S b/newlib/libc/machine/microblaze/strlen-pcmp.S
+new file mode 100644
+index 0000000..f737f56
+--- /dev/null
++++ b/newlib/libc/machine/microblaze/strlen-pcmp.S
+@@ -0,0 +1,62 @@
++/* strlen for MicroBlaze with the pattern compare instructions.
++
++   Copyright (C) 2026 Sam Price
++
++   Permission to use, copy, modify, and distribute this software
++   is freely granted, provided that this notice is preserved.
++
++   With -mxl-pattern-compare this replaces the C strlen in strlen.c.
++
++   The head is a byte loop up to the first word boundary, so no load
++   crosses into a word that holds no byte of the string.  The body loads
++   a word at a time and lets pcmpbf find the NUL: it returns the position
++   of the first byte equal to zero, counting from the most significant
++   byte as 1, or 0 if there is none.  Loading with lw on big-endian and
++   lwr on little-endian puts the lowest-addressed byte in the most
++   significant position either way, so position N is address word + N - 1
++   in both, and the length follows without scanning the word again.  */
++
++#ifdef __HAVE_HW_PCMP__
++
++#ifdef __LITTLE_ENDIAN__
++#define LOAD4BYTES lwr
++#else
++#define LOAD4BYTES lw
++#endif
++
++	.text
++	.align	2
++	.globl	strlen
++	.type	strlen, @function
++	.ent	strlen
++strlen:
++	/* r5: the string.  r3: the address being looked at.  */
++	andi	r4, r5, 3
++	beqid	r4, .Lword
++	or	r3, r5, r0
++
++.Lbyte:
++	lbui	r4, r3, 0
++	beqi	r4, .Lend
++	addik	r3, r3, 1
++	andi	r4, r3, 3
++	bnei	r4, .Lbyte
++
++.Lword:
++	LOAD4BYTES	r6, r3, r0
++	pcmpbf	r4, r6, r0
++	beqid	r4, .Lword
++	addik	r3, r3, 4
++
++	/* r3 is 4 past the word with the NUL, and r4 is its position
++	   1 to 4, so the NUL is at r3 + r4 - 5.  */
++	addk	r3, r3, r4
++	addik	r3, r3, -5
++
++.Lend:
++	rtsd	r15, 8
++	rsubk	r3, r5, r3
++	.end	strlen
++	.size	strlen, . - strlen
++
++#endif /* __HAVE_HW_PCMP__ */
+diff --git a/newlib/libc/machine/microblaze/strlen.c b/newlib/libc/machine/microblaze/strlen.c
+index acb4464..e95f8c3 100644
+--- a/newlib/libc/machine/microblaze/strlen.c
++++ b/newlib/libc/machine/microblaze/strlen.c
+@@ -77,12 +77,12 @@ QUICKREF
+ #error long int is not a 32bit or 64bit byte
+ #endif
+ 
++/* With pattern compare, strlen-pcmp.S provides strlen.  */
++#ifndef __HAVE_HW_PCMP__
++
+ size_t
+ strlen (const char *str)
+ {
+-
+-#ifndef HAVE_HW_PCMP
+-
+ #if defined(PREFER_SIZE_OVER_SPEED) || defined(__OPTIMIZE_SIZE__)
+   const char *start = str;
+ 
+@@ -111,40 +111,6 @@ strlen (const char *str)
+     str++;
+   return str - start;
+ #endif /* not PREFER_SIZE_OVER_SPEED */
+-
+-#else
+-
+-#include "mb_endian.h"
+-
+-  asm volatile ("                                               \n\
+-        or      r9, r0, r0              /* Index register */    \n\
+-check_alignment:                                                \n\
+-        andi    r3, r5, 3                                       \n\
+-        bnei    r3, align_arg                                   \n\
+-len_loop:                                                       \n"
+-        LOAD4BYTES("r3", "r5", "r9")
+-"                                                               \n\
+-        pcmpbf  r4, r3, r0                                      \n\
+-        bnei    r4, end_len                                     \n\
+-        brid    len_loop                                        \n\
+-        addik   r9, r9, 4                                       \n\
+-end_len:                                                        \n\
+-        lbu     r3, r5, r9                                      \n\
+-        beqi    r3, done_len                                    \n\
+-        brid    end_len                                         \n\
+-        addik   r9, r9, 1                                       \n\
+-done_len:                                                       \n\
+-        rtsd    r15, 8                                          \n\
+-        or      r3, r0, r9              /* Return len */        \n\
+-align_arg:                                                      \n\
+-        rsubik  r10, r3, 4                                      \n\
+-align_loop:                                                     \n\
+-        lbu     r3, r5, r9                                      \n\
+-        beqid   r3, done_len                                    \n\
+-        addik   r10, r10, -1                                    \n\
+-        bneid   r10, align_loop                                 \n\
+-        addik   r9, r9, 1                                       \n\
+-        bri     len_loop");
+-
+-#endif  /* ! HAVE_HW_PCMP */
+ }
++
++#endif /* !__HAVE_HW_PCMP__ */
+-- 
+2.39.5 (Apple Git-154)
+

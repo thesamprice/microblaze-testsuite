@@ -1,0 +1,44 @@
+From 6bfa6b3b9e84c91bc547447640ebcf5f7a72a589 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 20:52:38 -0500
+Subject: [PATCH net-next 2/2] net: axienet: advertise NETIF_F_HIGHDMA
+
+Without NETIF_F_HIGHDMA, the core copies every skb that has a fragment
+in a highmem page into a linear buffer before handing it to the driver.
+On a 32-bit system with HIGHMEM, such as MicroBlaze with more RAM than
+CONFIG_LOWMEM_SIZE, this hits most TCP sendfile() and splice() traffic,
+since page cache pages are usually in highmem.
+
+Both TX paths can now map highmem pages: the legacy path with
+skb_frag_dma_map() since the previous patch, the dmaengine path with
+skb_to_sgvec() and dma_map_sg().  Set the flag.
+
+This depends on the previous patch.  Without it, the first highmem
+fragment reaches dma_map_single() with a NULL address.  On QEMU
+petalogix-ml605 with 128 MB of 256 MB as highmem, sending an 8 MiB
+tmpfs file with sendfile() over TCP oopses in axienet_start_xmit()
+after "DMA-API: ... device driver maps memory from invalid area
+[addr=00000000] [len=1460]".  With both patches the same transfer
+sends over 7000 highmem fragments and arrives intact.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ drivers/net/ethernet/xilinx/xilinx_axienet_main.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/net/ethernet/xilinx/xilinx_axienet_main.c b/drivers/net/ethernet/xilinx/xilinx_axienet_main.c
+index cc2110eb5af8..a2f4bd2d5630 100644
+--- a/drivers/net/ethernet/xilinx/xilinx_axienet_main.c
++++ b/drivers/net/ethernet/xilinx/xilinx_axienet_main.c
+@@ -2888,7 +2888,7 @@ static int axienet_probe(struct platform_device *pdev)
+ 	platform_set_drvdata(pdev, ndev);
+ 
+ 	SET_NETDEV_DEV(ndev, &pdev->dev);
+-	ndev->features = NETIF_F_SG;
++	ndev->features = NETIF_F_SG | NETIF_F_HIGHDMA;
+ 
+ 	/* MTU range: 64 - 9000 */
+ 	ndev->min_mtu = 64;
+-- 
+2.39.5 (Apple Git-154)
+

@@ -1,0 +1,43 @@
+From d8ebe5ac8e41e970837500dcfaed9c9e19813d57 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:07:54 -0500
+Subject: [PATCH] ld: xfail pr24511 on MicroBlaze except Linux
+
+pr24511.d xfails microblaze*-*-elf*, for the reason its comment gives:
+ld/scripttempl/elfmicroblaze.sc defines neither __init_array_start nor
+__fini_array_start.  Every MicroBlaze triplet except microblaze*-linux*
+uses that script, so on microblaze-rtems the test fails rather than
+xfails.
+
+xfail microblaze*-*-* and add "#noxfail: microblaze*-linux*", the form
+pr23658-1e.d uses for the same split.  microblaze*-linux* uses elf.sc,
+which provides the symbols, so the test passes there; without the
+#noxfail line it would XPASS.
+
+ld/
+	* testsuite/ld-elf/pr24511.d: xfail all MicroBlaze targets except
+	microblaze*-linux*.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ ld/testsuite/ld-elf/pr24511.d | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/ld/testsuite/ld-elf/pr24511.d b/ld/testsuite/ld-elf/pr24511.d
+index f77a43b9e2e..2b18a2e1c6d 100644
+--- a/ld/testsuite/ld-elf/pr24511.d
++++ b/ld/testsuite/ld-elf/pr24511.d
+@@ -4,8 +4,9 @@
+ # Most targets with their own scripts don't support init/fini_array and
+ # thus don't define __init/fini_array_start.
+ #xfail: avr-*-* cr16-*-* crx-*-* d10v-*-* d30v-*-* dlx-*-* ft32-*-* iq2000-*-*
+-#xfail: m68hc1*-*-* mep-*-* microblaze*-*-elf* s12z-*-* v850-*-* visium-*-*
++#xfail: m68hc1*-*-* mep-*-* microblaze*-*-* s12z-*-* v850-*-* visium-*-*
+ #xfail: xgate-*-* xstormy*-*-*
++#noxfail: microblaze*-linux*
+ # Some targets with their own scripts haven't kept up with elf.sc and
+ # PROVIDE __init_array_start rather than using PROVIDE_HIDDEN.  These
+ # result in D symbols.  rx-elf makes .init/fini_array SHF_EXECINSTR so
+-- 
+2.39.5 (Apple Git-154)
+

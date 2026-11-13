@@ -1,0 +1,102 @@
+From cff299d7db93572b4bf9f0a0a8efe03eec591422 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 18:16:42 -0500
+Subject: [PATCH 3/4] microblaze: return small structs in their own mode
+
+microblaze_function_value returns LIBCALL_VALUE (TYPE_MODE (valtype)),
+and LIBCALL_VALUE widens every MODE_INT mode narrower than a word to
+SImode.  That suits scalars, which TARGET_PROMOTE_FUNCTION_MODE
+promotes anyway.  With -freg-struct-return, though, a one- or two-byte
+struct is QImode or HImode, and the return expander cannot move it into
+an SImode register:
+
+	struct s1 { char a; };
+	struct s1 f (void) { struct s1 x = { 1 }; return x; }
+
+ICEs in emit_move_insn at every optimization level.  Four- and
+eight-byte structs compile.
+
+Return an aggregate in its own mode.  Only the one- and two-byte struct
+returns change, and those did not compile before, so no existing code
+changes ABI.  The execution test returns 1-, 2-, 4- and 8-byte structs.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.cc (microblaze_function_value):
+	Return an aggregate in its own mode.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/reg-struct-return.c: New test.
+---
+ gcc/config/microblaze/microblaze.cc           |  7 +++-
+ .../microblaze/others/reg-struct-return.c     | 32 +++++++++++++++++++
+ 2 files changed, 38 insertions(+), 1 deletion(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/reg-struct-return.c
+
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index a2637c515..bee14af31 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -3768,12 +3768,17 @@ microblaze_expand_divide (rtx operands[])
+   emit_insn (gen_blockage ());
+ }
+ 
+-/* Implement TARGET_FUNCTION_VALUE.  */
++/* Implement TARGET_FUNCTION_VALUE.  Scalars narrower than a word are
++   returned promoted to SImode.  An aggregate keeps its own mode: with
++   -freg-struct-return a one- or two-byte struct is QImode or HImode, and
++   the expanders cannot move it into an SImode return register.  */
+ static rtx
+ microblaze_function_value (const_tree valtype,
+ 			   const_tree func ATTRIBUTE_UNUSED,
+ 			   bool outgoing ATTRIBUTE_UNUSED)
+ {
++  if (AGGREGATE_TYPE_P (valtype))
++    return gen_rtx_REG (TYPE_MODE (valtype), GP_RETURN);
+   return LIBCALL_VALUE (TYPE_MODE (valtype));
+ }
+ 
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/reg-struct-return.c b/gcc/testsuite/gcc.target/microblaze/others/reg-struct-return.c
+new file mode 100644
+index 000000000..8c0f7ed9a
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/reg-struct-return.c
+@@ -0,0 +1,32 @@
++/* Structs of one, two, four and eight bytes returned in registers.
++   The one- and two-byte cases used to ICE in emit_move_insn.  */
++
++/* { dg-do run } */
++/* { dg-options "-freg-struct-return" } */
++
++struct s1 { char a; };
++struct s2 { short a; };
++struct s4 { char a, b, c, d; };
++struct s8 { int a, b; };
++
++__attribute__ ((noipa)) struct s1 f1 (char a) { struct s1 x = { a }; return x; }
++__attribute__ ((noipa)) struct s2 f2 (short a) { struct s2 x = { a }; return x; }
++__attribute__ ((noipa)) struct s4 f4 (char a) { struct s4 x = { a, a + 1, a + 2, a + 3 }; return x; }
++__attribute__ ((noipa)) struct s8 f8 (int a) { struct s8 x = { a, a + 1 }; return x; }
++
++int
++main (void)
++{
++  struct s1 r1 = f1 (-5);
++  struct s2 r2 = f2 (-1234);
++  struct s4 r4 = f4 (10);
++  struct s8 r8 = f8 (100000);
++
++  if (r1.a != -5 || r2.a != -1234)
++    __builtin_abort ();
++  if (r4.a != 10 || r4.b != 11 || r4.c != 12 || r4.d != 13)
++    __builtin_abort ();
++  if (r8.a != 100000 || r8.b != 100001)
++    __builtin_abort ();
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

@@ -1,0 +1,132 @@
+From f6541242a4f93277298284ea890ca4940e6dba08 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 18:09:09 -0500
+Subject: [PATCH] microblaze: relax both halves of R_MICROBLAZE_64_NONE
+
+gas emits R_MICROBLAZE_64_NONE for a PC-relative IMM pair it resolved
+itself, so that relaxation can adjust the offset when it deletes code
+between the branch and its target.  microblaze_elf_relax_section
+writes the adjusted offset back with
+
+	microblaze_bfd_write_imm_value_32 (abfd, contents + irel->r_offset
+					   + INST_WORD_SIZE, irel->r_addend);
+
+which patches only the low 16 bits, in the second instruction.  The
+IMM keeps the old high half, so once the offset crosses a 64 KiB
+boundary the branch lands 64 KiB away from its target.
+
+In the new test, deleting two IMMs moves "bri far" from +0x10004 to
++0xfffc.  ld leaves "imm 1" in front of it and the branch goes to
+0x90020008 instead of 0x90010008; the backward branch goes to
+0x8fff0010 instead of 0x90000010.
+
+Write both halves with microblaze_bfd_write_imm_value_64.  The same
+function already does that for a resolved R_MICROBLAZE_64_PCREL IMM
+pair when it scans the other sections.
+
+bfd/
+	* elf32-microblaze.c (microblaze_elf_relax_section): Write both
+	halves of an adjusted R_MICROBLAZE_64_NONE offset.
+
+ld/
+	* testsuite/ld-microblaze/relax-64-none.s: New file.
+	* testsuite/ld-microblaze/relax-64-none.ld: New file.
+	* testsuite/ld-microblaze/relax-64-none.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ bfd/elf32-microblaze.c                      |  5 ++--
+ ld/testsuite/ld-microblaze/relax-64-none.d  | 14 +++++++++++
+ ld/testsuite/ld-microblaze/relax-64-none.ld |  9 +++++++
+ ld/testsuite/ld-microblaze/relax-64-none.s  | 26 +++++++++++++++++++++
+ 4 files changed, 52 insertions(+), 2 deletions(-)
+ create mode 100644 ld/testsuite/ld-microblaze/relax-64-none.d
+ create mode 100644 ld/testsuite/ld-microblaze/relax-64-none.ld
+ create mode 100644 ld/testsuite/ld-microblaze/relax-64-none.s
+
+diff --git a/bfd/elf32-microblaze.c b/bfd/elf32-microblaze.c
+index 14172094c3e..8ec1012af98 100644
+--- a/bfd/elf32-microblaze.c
++++ b/bfd/elf32-microblaze.c
+@@ -2092,8 +2092,9 @@ microblaze_elf_relax_section (bfd *abfd,
+ 		sfix = calc_fixup (irel->r_offset + INST_WORD_SIZE, 0, sec);
+ 		efix = calc_fixup (target_address, 0, sec);
+ 		irel->r_addend -= (efix - sfix);
+-    microblaze_bfd_write_imm_value_32 (abfd, contents + irel->r_offset
+-				       + INST_WORD_SIZE, irel->r_addend);
++		microblaze_bfd_write_imm_value_64 (abfd,
++						   contents + irel->r_offset,
++						   irel->r_addend);
+ 	      }
+ 	      break;
+ 	    }
+diff --git a/ld/testsuite/ld-microblaze/relax-64-none.d b/ld/testsuite/ld-microblaze/relax-64-none.d
+new file mode 100644
+index 00000000000..d1be61a00b3
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-64-none.d
+@@ -0,0 +1,14 @@
++#source: relax-64-none.s
++#ld: -relax -T $srcdir/$subdir/relax-64-none.ld
++#objdump: -d
++#name: MicroBlaze relaxation rewrites both halves of R_MICROBLAZE_64_NONE
++
++#...
++90000008 <_start>:
++90000008:	b0000000 	imm	0
++9000000c:	b800fffc 	bri	-4		// 90010008
++#...
++90010008 <far>:
++90010008:	b000ffff 	imm	-1
++9001000c:	b8000004 	bri	4		// 90000010
++#pass
+diff --git a/ld/testsuite/ld-microblaze/relax-64-none.ld b/ld/testsuite/ld-microblaze/relax-64-none.ld
+new file mode 100644
+index 00000000000..260b0194a86
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-64-none.ld
+@@ -0,0 +1,9 @@
++/* Fixed layout so the addresses in the expected output are deterministic,
++   with the brlid target before the relaxed section.  */
++ENTRY(_start)
++SECTIONS
++{
++  . = 0x90000000;
++  .text : { *(.text.zz) *(.text.aaa) }
++  /DISCARD/ : { *(.comment) *(.note*) }
++}
+diff --git a/ld/testsuite/ld-microblaze/relax-64-none.s b/ld/testsuite/ld-microblaze/relax-64-none.s
+new file mode 100644
+index 00000000000..faab652efc1
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-64-none.s
+@@ -0,0 +1,26 @@
++# A resolved PC-relative IMM pair (R_MICROBLAZE_64_NONE) has to get both
++# halves of its offset rewritten when relaxation deletes code between the
++# branch and its target.  Only the low half was, so once the offset crossed
++# a 64 KiB boundary the stale IMM sent the branch 64 KiB away.
++#
++# The two brlid calls to t1 each lose their IMM.  That moves "bri far" from
++# +0x10004 to +0xfffc (IMM 1 to 0) and "bri back" from -0x10004 to -0xfffc
++# (IMM 0xfffe to 0xffff).
++
++	.section .text.zz,"ax",@progbits
++	.globl	t1
++t1:	rtsd	r15, 8
++	nop
++
++	.section .text.aaa,"ax",@progbits
++	.globl	_start
++_start:
++	bri	far
++back:
++	brlid	r15, t1
++	nop
++	brlid	r15, t1
++	nop
++	.space	0xffe8
++far:
++	bri	back
+-- 
+2.39.5 (Apple Git-154)
+
