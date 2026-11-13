@@ -13,7 +13,7 @@ runs on the target.
 _interrupt_handler.  A unit with both handlers did not assemble, and
 the interrupt vector resolved to the break handler.
 
-3/4 returns one- and two-byte structs in their own mode, so
+3/4 returns one- and two-byte structs and unions in their own mode, so
 -freg-struct-return no longer ICEs in emit_move_insn.
 
 4/4 adds extzvsi and insvsi using the v10.0 bsefi and bsifi
@@ -26,5 +26,7 @@ Tested on microblaze-elf (big-endian) with QEMU 10.2.4 and newlib:
 gcc.c-torture/execute is unchanged from the unpatched baseline, 24536
 passes and 14 failures (fprintf-2.c, pr117432.c), with the default
 flags, with -mcpu=v10.0 -mxl-barrel-shift and with -mcpu=v9.6
--mxl-barrel-shift.  In gcc.target/microblaze the new tests fail before
-and pass after, and nothing else changes.
+-mxl-barrel-shift, and on microblazeel-elf (little-endian) with the
+default flags.  In gcc.target/microblaze the new tests fail before and
+pass after, and nothing else changes; the results are the same on both
+endians.
