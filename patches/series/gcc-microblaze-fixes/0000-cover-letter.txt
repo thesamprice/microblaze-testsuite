@@ -5,7 +5,9 @@ They apply in any order; 1-3 are bug fixes and 4 is a feature.
 
 1/4 removes a peephole2 that fuses fix:SI with a conditional branch.
 It emits a jump from a peephole2, which ICEs with "flow control insn
-inside a basic block", and it never sets the fix:SI result.
+inside a basic block", and it never sets the fix:SI result.  Without
+checking it is wrong code: (int) -0.5f < 0 comes out true.  Its test
+runs on the target.
 
 2/4 stops a break_handler function from also defining
 _interrupt_handler.  A unit with both handlers did not assemble, and

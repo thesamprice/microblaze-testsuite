@@ -1,4 +1,4 @@
-From d0198318419f2eba3e5e36e2fc717b04a3afde78 Mon Sep 17 00:00:00 2001
+From 685cfc6724d22c233e4290c334627ed72dd4a43a Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Thu, 12 Nov 2026 18:18:02 -0500
 Subject: [PATCH 4/4] microblaze: use bsefi and bsifi for bit-fields

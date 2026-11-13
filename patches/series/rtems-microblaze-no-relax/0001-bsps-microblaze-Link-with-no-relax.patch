@@ -1,0 +1,52 @@
+From 269e919bb5e6d1e870ff0653c753e087077d79e4 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Fri, 13 Nov 2026 12:10:58 -0500
+Subject: [PATCH] bsps/microblaze: Link with --no-relax
+
+GCC passes -relax to the linker for microblaze*-*-rtems*.  With
+relaxation, ld deletes the IMM prefix of instructions whose operand fits
+in 16 bits and shifts the following code.  Several things that encode
+code offsets as assembly-time constants are not adjusted for this.  The
+one that breaks applications is the C++ exception call-site table in
+.gcc_except_table: GCC writes the call-site start, length and landing
+pad offsets as .uleb128 differences of code labels, which the assembler
+resolves without a relocation.  When relaxation shrinks a function, the
+unwinder uses the old offsets, lands in the wrong place and hangs or
+calls std::terminate().  With GCC 15.2 and binutils 2.47,
+samples/cdtest hangs after its first caught exception.  The bug is
+older than binutils 2.47: with the binutils 2.36 the RTEMS 7 tools
+still use, it shows up whenever an IMM inside a function with a
+try/catch is deleted.
+
+Pass --no-relax in the ABI flags of the microblaze_fpga family, after
+the -relax from GCC, so that the linker does not relax.  The ABI flags
+are also in the BSP's pkg-config file, so applications get them too.
+This costs about 3.5% of code size (the text of the sptests and samples
+grows by 3.5% in total, samples/hello from 250008 to 258780 bytes).
+
+A fix for binutils is in preparation:
+
+https://github.com/thesamprice/microblaze-testsuite/tree/main/patches/series/binutils-microblaze-eh-relax
+
+Revert this once the RTEMS tools use a binutils with the fix.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ spec/build/bsps/microblaze/microblaze_fpga/abi.yml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/spec/build/bsps/microblaze/microblaze_fpga/abi.yml b/spec/build/bsps/microblaze/microblaze_fpga/abi.yml
+index 7d78c9842d..eb842ecd14 100644
+--- a/spec/build/bsps/microblaze/microblaze_fpga/abi.yml
++++ b/spec/build/bsps/microblaze/microblaze_fpga/abi.yml
+@@ -13,6 +13,7 @@ default:
+   - -mno-xl-soft-div
+   - -mno-xl-soft-mul
+   - -Wl,-EL
++  - -Wl,--no-relax
+ description: |
+   ABI flags
+ enabled-by: true
+-- 
+2.39.5 (Apple Git-154)
+
