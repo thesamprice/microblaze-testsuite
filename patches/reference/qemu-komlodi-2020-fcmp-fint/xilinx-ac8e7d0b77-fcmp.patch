@@ -1,0 +1,38 @@
+From ac8e7d0b77b22c206f41d6a06c1a9ccb9768c27b Mon Sep 17 00:00:00 2001
+From: Joe Komlodi <joe.komlodi@xilinx.com>
+Date: Thu, 21 May 2020 20:43:42 -0700
+Subject: [PATCH] target/microblaze: Fix fcmp_le and fcmp_ge
+
+The arguments for fcmp_le and fcmp_ge were reversed, so they would give the
+opposite result of what was intended.
+
+Signed-off-by: Joe Komlodi <komlodi@xilinx.com>
+Reviewed-by: Edgar E. Iglesias <edgar.iglesias@xilinx.com>
+Message-Id: <1590119023-38722-2-git-send-email-komlodi@xilinx.com>
+Signed-off-by: Edgar E. Iglesias <edgar.iglesias@xilinx.com>
+---
+ target/microblaze/op_helper.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/target/microblaze/op_helper.c b/target/microblaze/op_helper.c
+index dcc0a03b480..1d0fef28d01 100644
+--- a/target/microblaze/op_helper.c
++++ b/target/microblaze/op_helper.c
+@@ -298,7 +298,7 @@ uint32_t helper_fcmp_le(CPUMBState *env, uint32_t a, uint32_t b)
+     fa.l = a;
+     fb.l = b;
+     set_float_exception_flags(0, &env->fp_status);
+-    r = float32_le(fa.f, fb.f, &env->fp_status);
++    r = float32_le(fb.f, fa.f, &env->fp_status);
+     flags = get_float_exception_flags(&env->fp_status);
+     update_fpu_flags(env, flags & float_flag_invalid, GETPC());
+ 
+@@ -343,7 +343,7 @@ uint32_t helper_fcmp_ge(CPUMBState *env, uint32_t a, uint32_t b)
+     fa.l = a;
+     fb.l = b;
+     set_float_exception_flags(0, &env->fp_status);
+-    r = !float32_lt(fa.f, fb.f, &env->fp_status);
++    r = !float32_lt(fb.f, fa.f, &env->fp_status);
+     flags = get_float_exception_flags(&env->fp_status);
+     update_fpu_flags(env, flags & float_flag_invalid, GETPC());
+ 

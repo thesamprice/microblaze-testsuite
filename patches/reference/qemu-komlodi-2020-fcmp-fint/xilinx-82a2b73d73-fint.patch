@@ -1,0 +1,29 @@
+From 82a2b73d73485d66b33be4af0caf9743f990b2a2 Mon Sep 17 00:00:00 2001
+From: Joe Komlodi <joe.komlodi@xilinx.com>
+Date: Thu, 21 May 2020 20:43:43 -0700
+Subject: [PATCH] target/microblaze: Fix fint so it rounds towards zero
+
+Converting from a float to an integer should round towards zero, rather than
+towards the nearest number.
+
+Signed-off-by: Joe Komlodi <komlodi@xilinx.com>
+Reviewed-by: Edgar E. Iglesias <edgar.iglesias@xilinx.com>
+Message-Id: <1590119023-38722-3-git-send-email-komlodi@xilinx.com>
+Signed-off-by: Edgar E. Iglesias <edgar.iglesias@xilinx.com>
+---
+ target/microblaze/op_helper.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/target/microblaze/op_helper.c b/target/microblaze/op_helper.c
+index 1d0fef28d01..0c8da2dc0bf 100644
+--- a/target/microblaze/op_helper.c
++++ b/target/microblaze/op_helper.c
+@@ -367,7 +367,7 @@ uint32_t helper_fint(CPUMBState *env, uint32_t a)
+ 
+     set_float_exception_flags(0, &env->fp_status);
+     fa.l = a;
+-    r = float32_to_int32(fa.f, &env->fp_status);
++    r = float32_to_int32_round_to_zero(fa.f, &env->fp_status);
+     flags = get_float_exception_flags(&env->fp_status);
+     update_fpu_flags(env, flags, GETPC());
+ 
