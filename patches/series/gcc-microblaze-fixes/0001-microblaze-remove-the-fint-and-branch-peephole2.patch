@@ -1,4 +1,4 @@
-From 1c64252f48d66ac2502b4f91cd4ceb7a031e4e47 Mon Sep 17 00:00:00 2001
+From 4d70570924f92cea2b08f72f63e1647ca4618fd3 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Thu, 12 Nov 2026 18:16:41 -0500
 Subject: [PATCH 1/4] microblaze: remove the fint-and-branch peephole2
@@ -20,6 +20,14 @@ returns 1.
 
 There is no equivalent transformation to keep: (int) a < 0 and a < 0
 differ for -1 < a < 0.  Remove the pattern.
+
+The pattern came in with 0bb87e8a83d3 (SVN r222790, 2015) to avoid the
+latency of fint.  If that is worth having, the place for it is match.pd,
+not a peephole2: the conversion truncates toward zero, so for an integer C
+that is exact in the float type, (int) a < C is a <= C - 1 when C <= 0
+and a < C when C > 0.  As a gimple folding it would apply to every
+target, and before register allocation, where the new constant is not
+a problem.
 
 Assisted-by: Claude <noreply@anthropic.com>
 

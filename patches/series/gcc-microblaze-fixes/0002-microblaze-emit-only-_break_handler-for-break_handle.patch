@@ -1,4 +1,4 @@
-From 609f5d40de1755107373bad91e8266a6cc52d011 Mon Sep 17 00:00:00 2001
+From 85e6361344a24ba00de3a2a4add064e368385ba4 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Thu, 12 Nov 2026 18:16:42 -0500
 Subject: [PATCH 2/4] microblaze: emit only _break_handler for break_handler
