@@ -32,34 +32,61 @@ with a divider.
 
 Estimated clock cycles per call, mean over 4701 operand pairs, on QEMU,
 big-endian.  "5-stage" and "3-stage" are MicroBlaze with
-C_AREA_OPTIMIZED=0 and 1:
+C_AREA_OPTIMIZED=0 and 1.  The 5-stage figures are given with no branch
+target cache and with a perfect one; the cache is optional, and the
+3-stage pipeline cannot have it.  The operands of __umoddi3 and
+__udivdi3 have the same sizes as the signed routines' but are never
+negative, plus the same edge cases:
 
                  no options       barrel shifter,   every option,
                                   hw multiply       with the divider
                  before   after   before   after    before   after
-  5-stage
+  5-stage, no branch target cache
   __moddi3        700.2   530.4    700.2   310.0     700.2   171.8
-  __umoddi3      1219.2   392.6    847.8   220.7     104.2   104.2
+  __umoddi3      1735.6   513.3   1189.4   290.9     145.5   145.5
   __divdi3       1717.2  1397.7   1222.9   377.2     168.0   168.0
-  __udivdi3      1176.3  1012.9    848.3   271.0      93.5    93.5
+  __udivdi3      1671.1  1374.1   1191.1   360.8     134.4   134.4
+  5-stage, perfect branch target cache
+  __moddi3        520.5   455.0    520.5   273.3     520.5   160.7
+  __umoddi3      1307.6   439.9    873.2   256.9     136.4   136.4
+  __divdi3       1301.3  1310.7    901.7   336.4     157.3   157.3
+  __udivdi3      1263.2  1289.9    875.5   323.5     126.4   126.4
   3-stage
   __moddi3        708.2   547.1    708.2   347.4     708.2   204.2
-  __umoddi3      1263.1   403.5    899.6   246.8     126.0   126.0
+  __umoddi3      1791.9   525.2   1258.7   323.5     175.2   175.2
   __divdi3       1779.8  1425.6   1295.0   436.4     197.9   197.9
-  __udivdi3      1220.8  1036.9    899.9   317.1     109.5   109.5
+  __udivdi3      1730.3  1398.8   1261.1   416.0     158.3   158.3
 
-"Before" for __moddi3 is moddi3.S in every column.  Nothing is slower
-on average.  The worst case is slower: with no options, 5-stage, the
-slowest __divdi3 call rises from 4047 to 5527 cycles and the slowest
-__udivdi3 from 4021 to 5601.  Shift and subtract costs more than long
-division when the quotient is long, and less when it is short.  A
-separate MicroBlaze back-end series ("microblaze: use the carry for
-shifts and overflow checks") brings those two to 1480 and 1484.
+"Before" for __moddi3 is moddi3.S in every column.  With no branch
+target cache, and on the 3-stage pipeline, nothing is slower on
+average.  With a perfect branch target cache, division with no options
+is slightly slower: __divdi3 by 0.7% and __udivdi3 by 2.1%.  Upstream's
+long division calls the software __udivsi3, whose loop takes many
+taken branches without a delay slot: 3 cycles each without the cache,
+1 with a correct prediction.  A real cache mispredicts some branches,
+so the truth lies between the two 5-stage tables.  With no options or
+with the barrel shifter and multiplier, the perfect-cache figures are
+also the mean instruction counts, since every instruction then takes
+one cycle.
+
+The worst case is slower: with no options, 5-stage, the slowest
+__divdi3 call rises from 4047 to 5527 cycles (3070 to 5300 with a
+perfect branch target cache) and the slowest __udivdi3 from 4021 to
+5601 (3062 to 5374).  Shift and subtract costs more than long division
+when the quotient is long, and less when it is short.  A separate
+MicroBlaze back-end series ("microblaze: use the carry for shifts and
+overflow checks") brings those two to 1480 and 1484 (1130 and 1132).
 
 The cycle counts are estimates.  A QEMU plugin counts the instructions
 each call executes and costs them with UG984's per-instruction
-latencies, assuming single-cycle local memory, no branch target cache
-and no data hazard stalls.  I have not measured cycles on hardware.
+latencies, assuming single-cycle local memory and either no branch
+target cache or a perfect one.  The tables leave out UG984's data
+hazards: on the 5-stage pipeline an instruction that needs the result
+of a load, multiply, divide or barrel shift from the instruction
+before stalls 1 or 2 cycles.  Counted, they add 3.8% to 5.5% in the
+"every option" columns and under 1% elsewhere, and change no
+comparison; the 3-stage pipeline has none.  I have not measured cycles
+on hardware.
 
 On Cortex-M0 (armv6-m), which defines TARGET_HAS_NO_HW_DIVIDE but not
 the new macro, mean instructions per call (not cycles) on QEMU's
@@ -76,7 +103,9 @@ microbit machine, with the routines built by arm-none-eabi-gcc 14.2 at
 
 On ARM EABI, C's 64-bit / and % call __aeabi_ldivmod and
 __aeabi_uldivmod.  Nothing gets slower, and the routines left at the
-same count compile to the same code.  2/3 is opt-in because an earlier
+same count compile to the same code.  These runs gave the unsigned
+routines the signed operands' bit patterns, so about half of their
+operands are 2^63 or more and the quotients are short.  2/3 is opt-in because an earlier
 version applied it to every target without a divider, and on Cortex-M0
 it made __moddi3 and __umoddi3 27% and 46% slower: ARM shifts a double
 word left in two instructions and compares with flags, so
