@@ -1,0 +1,188 @@
+From 5943ff34f0c9ea5517fe68f45f4fabca5b893351 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 14 Nov 2026 12:49:37 -0500
+Subject: [PATCH 2/5] testsuite: integer comparisons at the sign and carry
+ boundaries
+
+Test every signed and unsigned comparison of int and of long long,
+between two variables and against 0, 1, -1 and the extreme values, as a
+branch and as a value, on operands around zero and the extremes.  The
+expected results come from each value's position in signed and in
+unsigned order, so they do not depend on the comparisons under test.
+
+Written while auditing the MicroBlaze compare-and-branch expanders,
+which turned out to include one that branched the wrong way for EQ and
+one that tested unsigned comparisons against zero as signed.  Neither
+was reachable from C, but nothing in the testsuite covered these
+boundaries systematically.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.c-torture/execute/compare-boundary-1.c: New test.
+	* gcc.c-torture/execute/compare-boundary-2.c: New test.
+---
+ .../execute/compare-boundary-1.c              | 132 ++++++++++++++++++
+ .../execute/compare-boundary-2.c              |  10 ++
+ 2 files changed, 142 insertions(+)
+ create mode 100644 gcc/testsuite/gcc.c-torture/execute/compare-boundary-1.c
+ create mode 100644 gcc/testsuite/gcc.c-torture/execute/compare-boundary-2.c
+
+diff --git a/gcc/testsuite/gcc.c-torture/execute/compare-boundary-1.c b/gcc/testsuite/gcc.c-torture/execute/compare-boundary-1.c
+new file mode 100644
+index 000000000..b09a707be
+--- /dev/null
++++ b/gcc/testsuite/gcc.c-torture/execute/compare-boundary-1.c
+@@ -0,0 +1,132 @@
++/* Every signed and unsigned comparison, between two variables and against
++   constants, as a branch and as a value, on operands at the sign and carry
++   boundaries.  The expected results come from each value's position in
++   signed and in unsigned order, so they do not use the comparisons under
++   test.  Written after two MicroBlaze compare-and-branch bugs: an
++   expander that branched the wrong way for EQ, and one that tested
++   unsigned comparisons against zero as signed.  */
++
++#include <limits.h>
++
++#ifndef STYPE
++#define STYPE int
++#define UTYPE unsigned int
++#define SMIN INT_MIN
++#define SMAX INT_MAX
++#endif
++
++extern void abort (void);
++
++static volatile int hits;
++
++__attribute__ ((noipa)) static void
++hit (void)
++{
++  hits++;
++}
++
++#define NVALS 11
++
++/* The values, and their rank in signed and in unsigned order.  */
++static const STYPE vals[NVALS]
++  = { SMIN, SMIN + 1, -100, -2, -1, 0, 1, 2, 100, SMAX - 1, SMAX };
++static const int srank[NVALS] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
++static const int urank[NVALS] = { 6, 7, 8, 9, 10, 0, 1, 2, 3, 4, 5 };
++
++/* Indices in VALS of the constants tested.  */
++#define I_MIN 0
++#define I_M1 4
++#define I_0 5
++#define I_1 6
++#define I_MAX 10
++
++#define BR(NAME, TYPE, OP)					\
++  __attribute__ ((noipa)) int					\
++  NAME (TYPE a, TYPE b)						\
++  {								\
++    hits = 0;							\
++    if (a OP b)							\
++      hit ();							\
++    return hits;						\
++  }
++
++#define VAL(NAME, TYPE, OP)					\
++  __attribute__ ((noipa)) int					\
++  NAME (TYPE a, TYPE b)						\
++  {								\
++    return a OP b;						\
++  }
++
++#define BRK(NAME, TYPE, OP, K)					\
++  __attribute__ ((noipa)) int					\
++  NAME (TYPE a)							\
++  {								\
++    hits = 0;							\
++    if (a OP (TYPE) (K))					\
++      hit ();							\
++    return hits;						\
++  }
++
++#define OPS(P, TYPE, N, OP)					\
++  BR (P##br_##N, TYPE, OP)					\
++  VAL (P##val_##N, TYPE, OP)					\
++  BRK (P##kmin_##N, TYPE, OP, SMIN)				\
++  BRK (P##km1_##N, TYPE, OP, -1)				\
++  BRK (P##k0_##N, TYPE, OP, 0)					\
++  BRK (P##k1_##N, TYPE, OP, 1)					\
++  BRK (P##kmax_##N, TYPE, OP, SMAX)
++
++#define ALL(P, TYPE)						\
++  OPS (P, TYPE, eq, ==) OPS (P, TYPE, ne, !=)			\
++  OPS (P, TYPE, lt, <) OPS (P, TYPE, le, <=)			\
++  OPS (P, TYPE, gt, >) OPS (P, TYPE, ge, >=)
++
++ALL (s, STYPE)
++ALL (u, UTYPE)
++
++/* R is the rank array, and RA, RB ranks, so RA OP RB only compares small
++   non-negative ints.  */
++#define CHECK1(P, TYPE, N, OP, R)					\
++  do									\
++    {									\
++      TYPE a = (TYPE) vals[i], b = (TYPE) vals[j];			\
++      int e = R[i] OP R[j];						\
++      if (P##br_##N (a, b) != e || P##val_##N (a, b) != e)		\
++	abort ();							\
++      if (j == 0)							\
++	{								\
++	  if (P##kmin_##N (a) != (R[i] OP R[I_MIN]))			\
++	    abort ();							\
++	  if (P##km1_##N (a) != (R[i] OP R[I_M1]))			\
++	    abort ();							\
++	  if (P##k0_##N (a) != (R[i] OP R[I_0]))			\
++	    abort ();							\
++	  if (P##k1_##N (a) != (R[i] OP R[I_1]))			\
++	    abort ();							\
++	  if (P##kmax_##N (a) != (R[i] OP R[I_MAX]))			\
++	    abort ();							\
++	}								\
++    }									\
++  while (0)
++
++#define CHECK(P, TYPE, R)						\
++  do									\
++    {									\
++      CHECK1 (P, TYPE, eq, ==, R); CHECK1 (P, TYPE, ne, !=, R);	\
++      CHECK1 (P, TYPE, lt, <, R); CHECK1 (P, TYPE, le, <=, R);		\
++      CHECK1 (P, TYPE, gt, >, R); CHECK1 (P, TYPE, ge, >=, R);		\
++    }									\
++  while (0)
++
++int
++main (void)
++{
++  int i, j;
++  for (i = 0; i < NVALS; i++)
++    for (j = 0; j < NVALS; j++)
++      {
++	CHECK (s, STYPE, srank);
++	CHECK (u, UTYPE, urank);
++      }
++  return 0;
++}
+diff --git a/gcc/testsuite/gcc.c-torture/execute/compare-boundary-2.c b/gcc/testsuite/gcc.c-torture/execute/compare-boundary-2.c
+new file mode 100644
+index 000000000..e09645789
+--- /dev/null
++++ b/gcc/testsuite/gcc.c-torture/execute/compare-boundary-2.c
+@@ -0,0 +1,10 @@
++/* compare-boundary-1.c for long long.  */
++
++#include <limits.h>
++
++#define STYPE long long
++#define UTYPE unsigned long long
++#define SMIN LLONG_MIN
++#define SMAX LLONG_MAX
++
++#include "compare-boundary-1.c"
+-- 
+2.39.5 (Apple Git-154)
+

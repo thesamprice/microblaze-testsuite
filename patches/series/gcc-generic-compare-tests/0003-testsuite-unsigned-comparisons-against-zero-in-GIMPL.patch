@@ -1,0 +1,104 @@
+From 6fe7bc211bfa609b1580aee7247cff90db8f96dd Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 14 Nov 2026 12:49:37 -0500
+Subject: [PATCH 3/5] testsuite: unsigned comparisons against zero in GIMPLE
+
+simplify_relational_operation turns (gtu x 0) into (ne x 0) and
+(leu x 0) into (eq x 0), so a C test never gets these to a target's
+cbranch expander.  MicroBlaze's expander tested them as signed, so
+x >u 0 would have been x > 0, wrong for values with the sign bit set.
+Written in GIMPLE at -O0, the comparisons reach expand unchanged.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.dg/gimplefe-62.c: New test.
+---
+ gcc/testsuite/gcc.dg/gimplefe-62.c | 74 ++++++++++++++++++++++++++++++
+ 1 file changed, 74 insertions(+)
+ create mode 100644 gcc/testsuite/gcc.dg/gimplefe-62.c
+
+diff --git a/gcc/testsuite/gcc.dg/gimplefe-62.c b/gcc/testsuite/gcc.dg/gimplefe-62.c
+new file mode 100644
+index 000000000..cf727325d
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/gimplefe-62.c
+@@ -0,0 +1,74 @@
++/* { dg-do run } */
++/* { dg-options "-fgimple" } */
++
++/* Unsigned comparisons against zero, written in GIMPLE so that at -O0
++   they reach expand as such.  The middle end normally turns x >u 0 into
++   x != 0 and x <=u 0 into x == 0 first, which hid a MicroBlaze expander
++   that tested them as signed: x >u 0 became x > 0, wrong for values with
++   the sign bit set.  */
++
++#include <limits.h>
++
++int __GIMPLE () __attribute__ ((noipa))
++gtu0 (unsigned int x)
++{
++  if (x > 0u) goto L1; else goto L2;
++L1:
++  return 1;
++L2:
++  return 2;
++}
++
++int __GIMPLE () __attribute__ ((noipa))
++leu0 (unsigned int x)
++{
++  if (x <= 0u) goto L1; else goto L2;
++L1:
++  return 1;
++L2:
++  return 2;
++}
++
++int __GIMPLE () __attribute__ ((noipa))
++geu0 (unsigned int x)
++{
++  if (x >= 0u) goto L1; else goto L2;
++L1:
++  return 1;
++L2:
++  return 2;
++}
++
++int __GIMPLE () __attribute__ ((noipa))
++ltu0 (unsigned int x)
++{
++  if (x < 0u) goto L1; else goto L2;
++L1:
++  return 1;
++L2:
++  return 2;
++}
++
++extern void abort (void);
++
++static const unsigned int vals[] = { 0u, 1u, UINT_MAX / 2, UINT_MAX / 2 + 1,
++				     UINT_MAX / 2 + 2, UINT_MAX };
++
++int
++main (void)
++{
++  unsigned int i;
++  for (i = 0; i < sizeof vals / sizeof vals[0]; i++)
++    {
++      unsigned int x = vals[i];
++      if (gtu0 (x) != (x != 0u ? 1 : 2))
++	abort ();
++      if (leu0 (x) != (x == 0u ? 1 : 2))
++	abort ();
++      if (geu0 (x) != 1)
++	abort ();
++      if (ltu0 (x) != 2)
++	abort ();
++    }
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

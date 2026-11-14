@@ -1,0 +1,176 @@
+From c8114e9bef708eab6b57653e4d059d44549a9e38 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 14 Nov 2026 12:49:38 -0500
+Subject: [PATCH 4/5] testsuite: float comparisons with signed zeros,
+ infinities and NaN
+
+Test every float and double comparison, and the unordered comparison
+built-ins, between two variables and against constants, as a branch and
+as a value, on signed zeros, infinities and a NaN.  The expected results
+come from each value's rank.
+
+Written after QEMU's MicroBlaze fcmp.le and fcmp.ge turned out to
+compare their operands the wrong way round; no GCC test noticed with
+-mhard-float.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.dg/torture/float-compare-1.c: New test.
+---
+ .../gcc.dg/torture/float-compare-1.c          | 142 ++++++++++++++++++
+ 1 file changed, 142 insertions(+)
+ create mode 100644 gcc/testsuite/gcc.dg/torture/float-compare-1.c
+
+diff --git a/gcc/testsuite/gcc.dg/torture/float-compare-1.c b/gcc/testsuite/gcc.dg/torture/float-compare-1.c
+new file mode 100644
+index 000000000..83e94c04f
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/torture/float-compare-1.c
+@@ -0,0 +1,142 @@
++/* Every float and double comparison, including the unordered built-ins,
++   between two variables and against constants, as a branch and as a
++   value, on signed zeros, infinities and a NaN.  The expected results
++   come from each value's rank, so they do not use the comparisons under
++   test.  Written after QEMU's MicroBlaze fcmp.le and fcmp.ge were found
++   to swap their operands, which no GCC test noticed.  */
++
++/* { dg-do run } */
++/* { dg-require-effective-target inf } */
++/* { dg-add-options ieee } */
++
++extern void abort (void);
++
++static volatile int hits;
++
++__attribute__ ((noipa)) static void
++hit (void)
++{
++  hits++;
++}
++
++#define BR(NAME, TYPE, EXPR)					\
++  __attribute__ ((noipa)) int					\
++  NAME (TYPE a, TYPE b)						\
++  {								\
++    hits = 0;							\
++    if (EXPR)							\
++      hit ();							\
++    return hits;						\
++  }
++
++#define VAL(NAME, TYPE, EXPR)					\
++  __attribute__ ((noipa)) int					\
++  NAME (TYPE a, TYPE b)						\
++  {								\
++    return EXPR;						\
++  }
++
++#define BRK(NAME, TYPE, EXPR, K)				\
++  __attribute__ ((noipa)) int					\
++  NAME (TYPE a)							\
++  {								\
++    TYPE b = (K);						\
++    hits = 0;							\
++    if (EXPR)							\
++      hit ();							\
++    return hits;						\
++  }
++
++#define OPS(P, TYPE, N, EXPR)					\
++  BR (P##br_##N, TYPE, EXPR)					\
++  VAL (P##val_##N, TYPE, EXPR)					\
++  BRK (P##k0_##N, TYPE, EXPR, 0)				\
++  BRK (P##k1_##N, TYPE, EXPR, 1)				\
++  BRK (P##km2_##N, TYPE, EXPR, -2.5)
++
++#define ALL(P, TYPE)						\
++  OPS (P, TYPE, eq, a == b) OPS (P, TYPE, ne, a != b)		\
++  OPS (P, TYPE, lt, a < b) OPS (P, TYPE, le, a <= b)		\
++  OPS (P, TYPE, gt, a > b) OPS (P, TYPE, ge, a >= b)		\
++  OPS (P, TYPE, isl, __builtin_isless (a, b))			\
++  OPS (P, TYPE, isle, __builtin_islessequal (a, b))		\
++  OPS (P, TYPE, isg, __builtin_isgreater (a, b))		\
++  OPS (P, TYPE, isge, __builtin_isgreaterequal (a, b))		\
++  OPS (P, TYPE, islg, __builtin_islessgreater (a, b))		\
++  OPS (P, TYPE, isun, __builtin_isunordered (a, b))
++
++ALL (f, float)
++ALL (d, double)
++
++#define NVALS 10
++#define NAN_RANK -1
++
++/* Ranks: equal values share one; the NaN has none.  */
++static const int rank[NVALS] = { 0, 1, 2, 3, 4, 4, 5, 6, 7, NAN_RANK };
++
++/* Indices in the value arrays of the constants tested.  */
++#define I_0 4
++#define I_1 6
++#define I_M2 1
++
++/* The expected result of comparison N for ranks X and Y.  */
++static int
++expect (int n, int x, int y)
++{
++  int un = x == NAN_RANK || y == NAN_RANK;
++  switch (n)
++    {
++    case 0: return !un && x == y;		/* == */
++    case 1: return un || x != y;		/* != */
++    case 2: case 6: return !un && x < y;	/* <, isless */
++    case 3: case 7: return !un && x <= y;	/* <=, islessequal */
++    case 4: case 8: return !un && x > y;	/* >, isgreater */
++    case 5: case 9: return !un && x >= y;	/* >=, isgreaterequal */
++    case 10: return !un && x != y;		/* islessgreater */
++    case 11: return un;				/* isunordered */
++    }
++  abort ();
++}
++
++#define CHECK1(P, TYPE, N, NUM, V)					\
++  do									\
++    {									\
++      int e = expect (NUM, rank[i], rank[j]);				\
++      if (P##br_##N (V[i], V[j]) != e || P##val_##N (V[i], V[j]) != e)	\
++	abort ();							\
++      if (j == 0							\
++	  && (P##k0_##N (V[i]) != expect (NUM, rank[i], rank[I_0])	\
++	      || P##k1_##N (V[i]) != expect (NUM, rank[i], rank[I_1])	\
++	      || P##km2_##N (V[i]) != expect (NUM, rank[i], rank[I_M2])))	\
++	abort ();							\
++    }									\
++  while (0)
++
++#define CHECK(P, TYPE, V)						\
++  do									\
++    {									\
++      CHECK1 (P, TYPE, eq, 0, V); CHECK1 (P, TYPE, ne, 1, V);		\
++      CHECK1 (P, TYPE, lt, 2, V); CHECK1 (P, TYPE, le, 3, V);		\
++      CHECK1 (P, TYPE, gt, 4, V); CHECK1 (P, TYPE, ge, 5, V);		\
++      CHECK1 (P, TYPE, isl, 6, V); CHECK1 (P, TYPE, isle, 7, V);	\
++      CHECK1 (P, TYPE, isg, 8, V); CHECK1 (P, TYPE, isge, 9, V);	\
++      CHECK1 (P, TYPE, islg, 10, V); CHECK1 (P, TYPE, isun, 11, V);	\
++    }									\
++  while (0)
++
++int
++main (void)
++{
++  float fv[NVALS] = { -__builtin_inff (), -2.5f, -1.0f, -0.5f, -0.0f, 0.0f,
++		      1.0f, 2.5f, __builtin_inff (), __builtin_nanf ("") };
++  double dv[NVALS] = { -__builtin_inf (), -2.5, -1.0, -0.5, -0.0, 0.0,
++		       1.0, 2.5, __builtin_inf (), __builtin_nan ("") };
++  int i, j;
++  for (i = 0; i < NVALS; i++)
++    for (j = 0; j < NVALS; j++)
++      {
++	CHECK (f, float, fv);
++	CHECK (d, double, dv);
++      }
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

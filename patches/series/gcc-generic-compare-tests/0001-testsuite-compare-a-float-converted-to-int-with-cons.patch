@@ -1,0 +1,91 @@
+From dcfe9e56fc79926abba08aea9db78763cce2af0d Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 14 Nov 2026 12:49:35 -0500
+Subject: [PATCH 1/5] testsuite: compare a float converted to int with
+ constants
+
+A MicroBlaze peephole2 fused a float-to-int conversion with the
+comparison of its result, dropping the conversion: (int) -0.5f < 0 came
+out true.  No test noticed, because nothing compared a converted value
+between -1 and 0 with a constant.  Compare (int) F, for float and double
+F around zero and one, with 0, 1 and -1 under every relation.  The
+expected results come from a table of the truncated values, not from a
+conversion.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.c-torture/execute/float-int-compare-1.c: New test.
+---
+ .../execute/float-int-compare-1.c             | 58 +++++++++++++++++++
+ 1 file changed, 58 insertions(+)
+ create mode 100644 gcc/testsuite/gcc.c-torture/execute/float-int-compare-1.c
+
+diff --git a/gcc/testsuite/gcc.c-torture/execute/float-int-compare-1.c b/gcc/testsuite/gcc.c-torture/execute/float-int-compare-1.c
+new file mode 100644
+index 000000000..24557941e
+--- /dev/null
++++ b/gcc/testsuite/gcc.c-torture/execute/float-int-compare-1.c
+@@ -0,0 +1,58 @@
++/* A comparison of (int) F with a constant must test the truncated value:
++   for -1 < F < 0, (int) F is 0.  A MicroBlaze peephole2 once dropped the
++   conversion and compared F itself, so (int) -0.5f < 0 came out true.  */
++
++extern void abort (void);
++
++#define TEST(NAME, TYPE, OP, C)				\
++  __attribute__ ((noipa)) int				\
++  NAME (TYPE f)						\
++  {							\
++    int k = (int) f;					\
++    if (k OP C)						\
++      return 1;						\
++    return 2;						\
++  }
++
++#define TESTS(T, TYPE)					\
++  TEST (T##lt0, TYPE, <, 0) TEST (T##le0, TYPE, <=, 0)	\
++  TEST (T##gt0, TYPE, >, 0) TEST (T##ge0, TYPE, >=, 0)	\
++  TEST (T##eq0, TYPE, ==, 0) TEST (T##ne0, TYPE, !=, 0)	\
++  TEST (T##lt1, TYPE, <, 1) TEST (T##ge1, TYPE, >=, 1)	\
++  TEST (T##ltm1, TYPE, <, -1) TEST (T##gtm1, TYPE, >, -1)
++
++TESTS (f, float)
++TESTS (d, double)
++
++/* Each value and its truncation toward zero.  */
++static const float vals[] = { -2.5f, -1.5f, -1.0f, -0.75f, -0.5f, -0.0f,
++			      0.0f, 0.5f, 0.75f, 1.0f, 1.5f, 2.5f };
++static const int trunc_vals[] = { -2, -1, -1, 0, 0, 0, 0, 0, 0, 1, 1, 2 };
++
++#define CHECK(T, F, K)						\
++  do								\
++    {								\
++      if (T##lt0 (F) != ((K) < 0 ? 1 : 2)) abort ();		\
++      if (T##le0 (F) != ((K) <= 0 ? 1 : 2)) abort ();		\
++      if (T##gt0 (F) != ((K) > 0 ? 1 : 2)) abort ();		\
++      if (T##ge0 (F) != ((K) >= 0 ? 1 : 2)) abort ();		\
++      if (T##eq0 (F) != ((K) == 0 ? 1 : 2)) abort ();		\
++      if (T##ne0 (F) != ((K) != 0 ? 1 : 2)) abort ();		\
++      if (T##lt1 (F) != ((K) < 1 ? 1 : 2)) abort ();		\
++      if (T##ge1 (F) != ((K) >= 1 ? 1 : 2)) abort ();		\
++      if (T##ltm1 (F) != ((K) < -1 ? 1 : 2)) abort ();		\
++      if (T##gtm1 (F) != ((K) > -1 ? 1 : 2)) abort ();		\
++    }								\
++  while (0)
++
++int
++main (void)
++{
++  unsigned int i;
++  for (i = 0; i < sizeof vals / sizeof vals[0]; i++)
++    {
++      CHECK (f, vals[i], trunc_vals[i]);
++      CHECK (d, (double) vals[i], trunc_vals[i]);
++    }
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

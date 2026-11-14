@@ -1,0 +1,58 @@
+testsuite: compare, conversion and small-struct-return tests
+
+Five new tests, all generic, each written after a MicroBlaze bug that
+the testsuite did not catch.  None needs target options.
+
+1/5 float-int-compare-1.c compares (int) F with constants for F around
+zero and one.  A MicroBlaze peephole2 dropped the conversion, so
+(int) -0.5f < 0 was true.
+
+2/5 compare-boundary-1.c and -2.c test every signed and unsigned
+comparison of int and long long, between variables and against
+constants, as a branch and as a value, at the sign and carry
+boundaries.  Written while auditing MicroBlaze's compare-and-branch
+expanders, which had two bugs that C could not reach.
+
+3/5 gimplefe-62.c writes unsigned comparisons against zero in GIMPLE,
+so that at -O0 they reach the cbranch expander as (gtu x 0) and
+(leu x 0).  MicroBlaze's expander tested them as signed.
+
+4/5 float-compare-1.c tests float and double comparisons and the
+unordered built-ins on signed zeros, infinities and a NaN.  QEMU's
+MicroBlaze fcmp.le and fcmp.ge compare their operands the wrong way
+round, and no GCC test noticed.
+
+5/5 reg-struct-return-1.c returns small structs and unions with
+-freg-struct-return, which ICEd on MicroBlaze for one- and two-byte
+aggregates.
+
+The expected results in 1/5, 2/5 and 4/5 come from tables of ranks and
+truncated values, so they do not use the operations under test.
+
+Tested on microblaze-elf and microblazeel-elf under QEMU, on
+arm-none-eabi (Cortex-M0, Cortex-M3, Cortex-M4 with FPU) under QEMU,
+and natively on aarch64-linux-gnu with GCC 14.  Details below.
+
+microblaze-elf and microblazeel-elf, QEMU 10.2.4, with the MicroBlaze
+fixes for these bugs: every test passes at every torture level (78
+results per endian).  With -mcpu=v10.0 -mhard-float -mxl-float-convert,
+1/5 and 4/5 also pass, on a QEMU with fcmp and fint fixed.
+
+Against unpatched gcc master df809a029:
+
+  5/5 fails: 14 FAIL and 7 UNRESOLVED, the ICE, at every level.
+  1/5 with -mcpu=v10.0 -mhard-float -mxl-float-convert: ICE at -O2 and
+      -O3; with -fno-checking it compiles and aborts there.
+  4/5 with -mhard-float on stock QEMU 10.2.4: aborts at every level, as
+      does 1/5, because of QEMU's fcmp and fint bugs.
+  2/5 and 3/5 pass: the bugs they were written for cannot be reached
+      from C, and the middle end canonicalizes 3/5's comparisons
+      before expand.  A MicroBlaze test with the same four functions
+      aborted at -O0 on a scratch build with the gtu/leu
+      canonicalization disabled.
+
+arm-none-eabi-gcc 16.2.0 on QEMU (mps2-an385 and mps2-an386), Cortex-M0,
+Cortex-M3 and Cortex-M4 with -mfloat-abi=hard -mfpu=fpv4-sp-d16, at -O0
+to -Os and -O2 -flto: all 84 runs pass.
+
+aarch64-linux-gnu, GCC 14.2.0, at -O0 to -Os: all pass.

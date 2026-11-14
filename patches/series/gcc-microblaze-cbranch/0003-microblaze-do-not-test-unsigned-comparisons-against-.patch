@@ -1,0 +1,141 @@
+From b79293c5efac0d2e5da49a7b66955281f1336361 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 14 Nov 2026 12:25:58 -0500
+Subject: [PATCH 3/3] microblaze: do not test unsigned comparisons against zero
+ as signed
+
+When the second operand is zero, microblaze_expand_conditional_branch
+branches on the register itself, with signed_condition (code).  For an
+unsigned inequality that is wrong: x >u 0 becomes x > 0, x <=u 0 becomes
+x <= 0, and likewise GEU and LTU, all wrong for x >= 0x80000000.
+
+The middle end canonicalizes (gtu x 0) to (ne x 0) and (leu x 0) to
+(eq x 0) in simplify_relational_operation, so this is latent.  With
+that canonicalization disabled in a scratch build, the new test
+branches with bgti and aborts at -O0, and passes with this patch, which
+emits cmpu and blti.
+
+Take the shortcut only when signed_condition leaves the code alone: EQ,
+NE and the signed inequalities.  The unsigned inequalities go through
+cmpu like any other unsigned comparison.  gcc.c-torture/execute gives
+the same -O2 assembly with and without the patch.
+
+The new test writes the comparisons in GIMPLE so that they reach
+expand as unsigned comparisons against zero.  It passes without the
+patch too, because of the canonicalization.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.cc
+	(microblaze_expand_conditional_branch): Do not branch on the
+	register for an unsigned inequality against zero.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/cbranch-unsigned-zero.c: New test.
+---
+ gcc/config/microblaze/microblaze.cc           |  6 +-
+ .../microblaze/others/cbranch-unsigned-zero.c | 72 +++++++++++++++++++
+ 2 files changed, 76 insertions(+), 2 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/cbranch-unsigned-zero.c
+
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index 4da517b5d..a448b5f7e 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -3629,8 +3629,10 @@ microblaze_expand_conditional_branch (machine_mode mode, rtx operands[])
+ 
+   gcc_assert ((GET_CODE (cmp_op0) == REG) || (GET_CODE (cmp_op0) == SUBREG));
+ 
+-  /* If comparing against zero, just test source reg.  */
+-  if (cmp_op1 == const0_rtx)
++  /* If comparing against zero, just test source reg.  The branches on a
++     register test it as signed, so an unsigned inequality goes through
++     cmpu below.  */
++  if (cmp_op1 == const0_rtx && signed_condition (code) == code)
+     {
+       comp_reg = cmp_op0;
+       condition = gen_rtx_fmt_ee (signed_condition (code), SImode, comp_reg, const0_rtx);
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/cbranch-unsigned-zero.c b/gcc/testsuite/gcc.target/microblaze/others/cbranch-unsigned-zero.c
+new file mode 100644
+index 000000000..5a8bdc9ee
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/cbranch-unsigned-zero.c
+@@ -0,0 +1,72 @@
++/* { dg-do run } */
++/* { dg-options "-fgimple" } */
++
++/* Unsigned comparisons against zero.  microblaze_expand_conditional_branch
++   used to branch on the register as signed for these, so x >u 0 tested
++   x > 0 and failed for x >= 0x80000000.  The middle end normally turns
++   x >u 0 into x != 0 and x <=u 0 into x == 0 before the expander sees
++   them; written in GIMPLE, they reach expand as unsigned comparisons.  */
++
++int __GIMPLE () __attribute__ ((noipa))
++gtu0 (unsigned int x)
++{
++  if (x > 0u) goto L1; else goto L2;
++L1:
++  return 1;
++L2:
++  return 2;
++}
++
++int __GIMPLE () __attribute__ ((noipa))
++leu0 (unsigned int x)
++{
++  if (x <= 0u) goto L1; else goto L2;
++L1:
++  return 1;
++L2:
++  return 2;
++}
++
++int __GIMPLE () __attribute__ ((noipa))
++geu0 (unsigned int x)
++{
++  if (x >= 0u) goto L1; else goto L2;
++L1:
++  return 1;
++L2:
++  return 2;
++}
++
++int __GIMPLE () __attribute__ ((noipa))
++ltu0 (unsigned int x)
++{
++  if (x < 0u) goto L1; else goto L2;
++L1:
++  return 1;
++L2:
++  return 2;
++}
++
++extern void abort (void);
++
++static const unsigned int vals[] = { 0u, 1u, 0x7fffffffu, 0x80000000u,
++				     0x80000001u, 0xffffffffu };
++
++int
++main (void)
++{
++  unsigned int i;
++  for (i = 0; i < sizeof vals / sizeof vals[0]; i++)
++    {
++      unsigned int x = vals[i];
++      if (gtu0 (x) != (x > 0u ? 1 : 2))
++	abort ();
++      if (leu0 (x) != (x <= 0u ? 1 : 2))
++	abort ();
++      if (geu0 (x) != 1)
++	abort ();
++      if (ltu0 (x) != 2)
++	abort ();
++    }
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

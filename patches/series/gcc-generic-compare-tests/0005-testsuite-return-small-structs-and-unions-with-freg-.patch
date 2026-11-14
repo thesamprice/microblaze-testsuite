@@ -1,0 +1,118 @@
+From 755fa14000b1ec5d41fc52cc26a0b8d3e152fe1f Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 14 Nov 2026 12:49:38 -0500
+Subject: [PATCH 5/5] testsuite: return small structs and unions with
+ -freg-struct-return
+
+On MicroBlaze, returning a one- or two-byte struct or union with
+-freg-struct-return ICEd in emit_move_insn.  The only tests of the
+option are for SPARC.  Return structs of one to eight bytes and one-
+and two-byte unions.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.dg/torture/reg-struct-return-1.c: New test.
+---
+ .../gcc.dg/torture/reg-struct-return-1.c      | 88 +++++++++++++++++++
+ 1 file changed, 88 insertions(+)
+ create mode 100644 gcc/testsuite/gcc.dg/torture/reg-struct-return-1.c
+
+diff --git a/gcc/testsuite/gcc.dg/torture/reg-struct-return-1.c b/gcc/testsuite/gcc.dg/torture/reg-struct-return-1.c
+new file mode 100644
+index 000000000..f94d29680
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/torture/reg-struct-return-1.c
+@@ -0,0 +1,88 @@
++/* Small structs and unions returned with -freg-struct-return.  On
++   MicroBlaze the one- and two-byte cases ICEd in emit_move_insn.  */
++
++/* { dg-do run } */
++/* { dg-additional-options "-freg-struct-return" } */
++
++struct s1 { signed char a; };
++struct s2 { short a; };
++struct s3 { signed char a, b, c; };
++struct s4 { signed char a, b, c, d; };
++struct s8 { short a, b, c, d; };
++union u1 { signed char a; unsigned char b; };
++union u2 { short a; signed char b; };
++
++__attribute__ ((noipa)) struct s1
++f1 (signed char a)
++{
++  struct s1 x = { a };
++  return x;
++}
++
++__attribute__ ((noipa)) struct s2
++f2 (short a)
++{
++  struct s2 x = { a };
++  return x;
++}
++
++__attribute__ ((noipa)) struct s3
++f3 (signed char a)
++{
++  struct s3 x = { a, a + 1, a + 2 };
++  return x;
++}
++
++__attribute__ ((noipa)) struct s4
++f4 (signed char a)
++{
++  struct s4 x = { a, a + 1, a + 2, a + 3 };
++  return x;
++}
++
++__attribute__ ((noipa)) struct s8
++f8 (short a)
++{
++  struct s8 x = { a, a + 1, a + 2, a + 3 };
++  return x;
++}
++
++__attribute__ ((noipa)) union u1
++fu1 (signed char a)
++{
++  union u1 x;
++  x.a = a;
++  return x;
++}
++
++__attribute__ ((noipa)) union u2
++fu2 (short a)
++{
++  union u2 x;
++  x.a = a;
++  return x;
++}
++
++int
++main (void)
++{
++  struct s1 r1 = f1 (-5);
++  struct s2 r2 = f2 (-1234);
++  struct s3 r3 = f3 (20);
++  struct s4 r4 = f4 (10);
++  struct s8 r8 = f8 (1000);
++  union u1 ru1 = fu1 (7);
++  union u2 ru2 = fu2 (-4321);
++
++  if (r1.a != -5 || r2.a != -1234)
++    __builtin_abort ();
++  if (r3.a != 20 || r3.b != 21 || r3.c != 22)
++    __builtin_abort ();
++  if (r4.a != 10 || r4.b != 11 || r4.c != 12 || r4.d != 13)
++    __builtin_abort ();
++  if (r8.a != 1000 || r8.b != 1001 || r8.c != 1002 || r8.d != 1003)
++    __builtin_abort ();
++  if (ru1.a != 7 || ru2.a != -4321)
++    __builtin_abort ();
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

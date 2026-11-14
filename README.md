@@ -55,6 +55,7 @@ given with `*_SRC` (below).
 | `dejagnu/0001` | the `microblaze-qemu` board and the `libxil` UART driver. The copy here leaves out the patch's ChangeLog entry, which conflicted as soon as upstream added one of its own; the full patch is `outbox/dejagnu/` in `rtems-microblaze-linker-relaxation-bug` |
 | `gcc/0001`–`0003` | the libgcc series in [`patches/series/gcc-microblaze-generic-moddi3`](patches/series/gcc-microblaze-generic-moddi3/), not yet sent: libgcc2.c's shift-and-subtract `__udivmoddi4` masks out the quotient bits, and `__umoddi3`/`__moddi3` can keep only the remainder; then MicroBlaze uses that code unless `-mno-xl-soft-div`, and drops `moddi3.S` |
 | `gcc/0004`–`0007` | [`patches/series/gcc-microblaze-zero-fails`](patches/series/gcc-microblaze-zero-fails/), not yet sent: `va_arg` with no named parameter, the `-fPIE -mpic-data-is-text-relative` ICE, and the `gcc.target/microblaze` and `fileio` testsuite fixes |
+| `gcc/0008`–`0010` | [`patches/series/gcc-microblaze-cbranch`](patches/series/gcc-microblaze-cbranch/), not yet sent: removes the dead, wrong `cbranchsi4_reg`, adds run tests for integer compare and branch, and fixes unsigned comparisons against zero being tested as signed |
 | `binutils/0001` | [`patches/series/binutils-microblaze-srec-64`](patches/series/binutils-microblaze-srec-64/): `IMM`-pair relocations for `--oformat srec` and other non-ELF output |
 | `dejagnu/0002` | [`patches/series/dejagnu-spawn-split`](patches/series/dejagnu-spawn-split/), without its ChangeLog entry: DejaGnu master's `local_exec` passes the command line to `spawn` as one word, so nothing runs |
 | `qemu/0001` | a test device on `petalogix-s3adsp1800` at `0xff000000`: a write exits QEMU with that status, and reads give the exact instruction count under `-icount`. Used by `bench-moddi3`; the DejaGnu board does not need it |
@@ -179,9 +180,11 @@ default `MB_NO_RELAX`.
 | gas | 331 | 0 | 0 | 0 | 10 |
 | ld | 548 | 0 | 15 | 9 | 232 |
 | gcc `execute.exp` | 24536 | 0 | 0 | 0 | 183 |
-| gcc `microblaze.exp` | 644 | 0 | 0 | 0 | 0 |
+| gcc `microblaze.exp` | 756 | 0 | 0 | 0 | 0 |
 
-There is no FAIL, UNRESOLVED or XPASS anywhere. `execute.exp` and
+There is no FAIL, UNRESOLVED or XPASS anywhere. The gcc rows are from a
+later `check-gcc` with `patches/gcc/0008`-`0010` added; before them,
+`microblaze.exp` gave 644 passes, also with no failures. `execute.exp` and
 `microblaze.exp` also had no failures on `microblazeel-elf`, built by hand
 with these gcc patches and the `gcc-microblaze-fixes` series.
 
