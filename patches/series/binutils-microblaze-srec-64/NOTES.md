@@ -75,3 +75,15 @@ there (checked by hand with the same input, not as a DejaGnu run).
   TEXTREL_64 could be handled the same way (S + A - text vma); I left it
   out because nothing in the testsuite produces it for a static non-ELF
   link.
+
+## On top of the relax-safe CFI series
+
+`on-relax-cfi/0013-...patch` is the same patch rebased onto binutils
+`19c3a4c` with the twelve relax/CFI patches applied, for a tree that
+carries both. They conflict in one place, where both add a reloc
+function just before `microblaze_elf_howto_raw`; the rebase keeps both.
+Built that way, ld gives 558 PASS, 0 FAIL, 15 XFAIL, binutils 272 PASS
+and gas 332 PASS.
+
+The original patch still applies to binutils master `2e7f60647f1`
+(2026-11-14) and is in `patches/binutils/`, so `make check` uses it.

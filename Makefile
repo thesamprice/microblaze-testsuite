@@ -29,7 +29,7 @@ QEMU_URL     ?= https://download.qemu.org/qemu-$(QEMU_VERSION).tar.xz
 # The DejaGnu board, and what the GCC run covers.  RUNTESTFLAGS is passed
 # through to every testsuite, e.g. RUNTESTFLAGS=-v.
 BOARD        ?= microblaze-qemu
-GCC_TESTS    ?= execute.exp
+GCC_TESTS    ?= execute.exp microblaze.exp
 GCC_SMOKE    ?= execute.exp='20010221-1.c loop-2b.c memcpy-1.c 990208-1.c printf-1.c arith-rand-ll.c pr50865.c pr28982b.c'
 RUNTESTFLAGS ?=
 

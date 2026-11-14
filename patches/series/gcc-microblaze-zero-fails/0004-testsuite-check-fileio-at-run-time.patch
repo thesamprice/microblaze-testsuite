@@ -1,0 +1,48 @@
+From b2751351a46a980580582c9254af6815f0a2e2c1 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Fri, 13 Nov 2026 17:24:05 -0500
+Subject: [PATCH 4/4] testsuite: check fileio at run time
+
+check_effective_target_fileio only links a program that calls fopen.
+On a bare-metal target that always succeeds, against C library stubs
+that fail at run time, so a test that needs files runs and fails: on
+microblaze-elf with newlib and libgloss under QEMU, fprintf-2.c fails at
+every optimization level when fopen returns NULL.
+
+Run the check instead, and fail it when fopen fails.  The old check
+also called fclose on the null pointer in that case.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/testsuite/ChangeLog:
+
+	* lib/target-supports.exp (check_effective_target_fileio): Use
+	check_runtime.  Return 1 when fopen fails.
+---
+ gcc/testsuite/lib/target-supports.exp | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/gcc/testsuite/lib/target-supports.exp b/gcc/testsuite/lib/target-supports.exp
+index 9e69020e7..78609badc 100644
+--- a/gcc/testsuite/lib/target-supports.exp
++++ b/gcc/testsuite/lib/target-supports.exp
+@@ -955,11 +955,15 @@ proc check_effective_target_hostedlib { } {
+ 
+ # Check to see that file I/O functions are available.
+ proc check_effective_target_fileio { } {
+-    return [check_no_compiler_messages fileio_available executable {
++    # Linking is not enough: a bare-metal C library links fopen against
++    # stubs that fail at run time.
++    return [check_runtime fileio_available {
+ #include <stdio.h>
+ int main() {
+     char *n = tmpnam (NULL);
+     FILE *f = fopen (n, "w");
++    if (!f)
++      return 1;
+     fclose (f);
+     remove (n);
+     return 0;
+-- 
+2.39.5 (Apple Git-154)
+

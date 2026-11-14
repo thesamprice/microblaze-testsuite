@@ -1,0 +1,41 @@
+microblaze: two wrong-code/ICE fixes and the testsuite, to zero failures
+
+With these four patches, gcc.c-torture/execute and gcc.target/microblaze
+have no FAIL or UNRESOLVED on microblaze-elf and microblazeel-elf, run
+under QEMU with newlib.  They apply to master df809a029.  The
+results below are with them on top of the gcc-microblaze-fixes series.
+
+1/4 saves r5-r10 in a C23 variadic function with no named parameters,
+"void f (...)".  Its type has no TYPE_ARG_TYPES, so the prologue did not
+treat it as varargs and va_arg read garbage; pr117432.c failed.
+
+2/4 fixes an ICE at every -O level with -fPIE
+-mpic-data-is-text-relative: microblaze_expand_move reached
+gcc_unreachable on the (plus pic_reg (const (unspec))) it had just
+forced into a register.  The option's only test, picdtr.c, has never
+compiled because the commit that corrected its option name added a
+second copy of the file; 2/4 removes the first copy.
+
+3/4 fixes the rest of gcc.target/microblaze, all testsuite problems: six
+isa tests call print undeclared, fcmp4.c expects fcmp.eq where fcmp.ne
+is equally correct, and microblaze.exp's own TORTURE_OPTIONS stop
+gcc-dg.exp from forcing -ffat-lto-objects, so every scan-assembler test
+fails in the -fno-fat-lto-objects run.
+
+4/4 makes check_effective_target_fileio run its program instead of only
+linking it.  On bare metal, fopen links against stubs and fails at run
+time, so fprintf-2.c ran and failed; it is now UNSUPPORTED.  This one
+changes a generic check.
+
+Tested on microblaze-elf and microblazeel-elf, QEMU 10.2.4, newlib:
+
+  execute.exp     before: 24536 PASS, 14 FAIL (pr117432.c, fprintf-2.c)
+                  after:  24536 PASS, 0 FAIL, 183 UNSUPPORTED
+  microblaze.exp  before: 554 PASS, 142 FAIL, 31 UNRESOLVED
+                  after:  721 PASS (with the gcc-microblaze-fixes
+                          series' tests), 0 FAIL, 1 UNSUPPORTED
+
+The pass count in execute.exp stays the same because pr117432.c's seven
+execution tests now pass and fprintf-2.c's seven compile tests became
+UNSUPPORTED.  At -O2, all 1577 compilable execute tests give identical
+assembly before and after except pr117432.c.

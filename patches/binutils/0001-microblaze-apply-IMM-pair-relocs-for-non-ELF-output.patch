@@ -1,0 +1,228 @@
+From 3f1b86e1d5dbd7560867dd5f233ce2ea2504efbf Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Thu, 12 Nov 2026 21:29:19 -0500
+Subject: [PATCH] microblaze: apply IMM pair relocs for non-ELF output
+
+With an output format other than ELF, as with --oformat srec or
+binary, ld applies relocations through bfd_perform_relocation rather
+than microblaze_elf_relocate_section.  R_MICROBLAZE_64 and
+R_MICROBLAZE_64_PCREL use bfd_elf_generic_reloc, and their howtos
+describe only the low 16 bits of a 4-byte field, so the low half of the
+value goes into the IMM and the instruction after it is left alone:
+
+	imm	0x5678
+	lwi	r3, r0, 0	# loads from 0x56780000, not 0x12345678
+
+For R_MICROBLAZE_64_PCREL the generic code also measures from the IMM
+rather than from the instruction after it.  This is why "S-records" in
+ld-srec fails on microblaze-elf: the srec linked directly differs from
+the one objcopy makes from the ELF link.
+
+Give both howtos a special function that does what
+microblaze_elf_relocate_section does: the high half into the IMM, the
+low half into the next instruction, and for the PC-relative form the
+PC of the instruction after the IMM.  It follows the shape of
+riscv_elf_add_sub_reloc in elfxx-riscv.c, and defers to
+bfd_elf_generic_reloc for relocatable output.  The other IMM pair
+relocations (the GOT, PLT, TLS and TEXTREL forms) are not changed.
+
+The new test links one of each with --oformat srec and disassembles
+the result; without the change both pairs are wrong.  With it, the
+ld-srec test passes on microblaze-elf.
+
+bfd/
+	* elf32-microblaze.c (microblaze_elf_imm64_reloc): New function.
+	(microblaze_elf_howto_raw): Use it for R_MICROBLAZE_64_PCREL and
+	R_MICROBLAZE_64.
+
+ld/
+	* testsuite/ld-microblaze/oformat-srec.s: New file.
+	* testsuite/ld-microblaze/oformat-srec.ld: New file.
+	* testsuite/ld-microblaze/oformat-srec.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ bfd/elf32-microblaze.c                     | 63 ++++++++++++++++++++--
+ ld/testsuite/ld-microblaze/oformat-srec.d  | 19 +++++++
+ ld/testsuite/ld-microblaze/oformat-srec.ld |  8 +++
+ ld/testsuite/ld-microblaze/oformat-srec.s  | 25 +++++++++
+ 4 files changed, 111 insertions(+), 4 deletions(-)
+ create mode 100644 ld/testsuite/ld-microblaze/oformat-srec.d
+ create mode 100644 ld/testsuite/ld-microblaze/oformat-srec.ld
+ create mode 100644 ld/testsuite/ld-microblaze/oformat-srec.s
+
+diff --git a/bfd/elf32-microblaze.c b/bfd/elf32-microblaze.c
+index 14172094c3e..1f822eccf7c 100644
+--- a/bfd/elf32-microblaze.c
++++ b/bfd/elf32-microblaze.c
+@@ -37,6 +37,61 @@ static int rw_small_data_pointer = 0;
+ 
+ static reloc_howto_type * microblaze_elf_howto_table [(int) R_MICROBLAZE_max];
+ 
++static void microblaze_bfd_write_imm_value_64 (bfd *, bfd_byte *, bfd_vma);
++
++/* Special function for R_MICROBLAZE_64 and R_MICROBLAZE_64_PCREL, whose
++   value is split across an IMM and the instruction after it.  The howto
++   can only describe the low 16 bits of the first word.
++   microblaze_elf_relocate_section does not use this; it is for the
++   generic linker, which applies relocations with bfd_perform_relocation
++   when the output is not ELF, as with --oformat srec.  */
++
++static bfd_reloc_status_type
++microblaze_elf_imm64_reloc (bfd *abfd,
++			    arelent *reloc_entry,
++			    asymbol *symbol,
++			    void *data,
++			    asection *input_section,
++			    bfd *output_bfd,
++			    char **error_message)
++{
++  reloc_howto_type *howto = reloc_entry->howto;
++  bfd_size_type octets;
++  bfd_vma relocation;
++
++  if (output_bfd != NULL)
++    return bfd_elf_generic_reloc (abfd, reloc_entry, symbol, data,
++				  input_section, output_bfd, error_message);
++
++  octets = reloc_entry->address * bfd_octets_per_byte (abfd, input_section);
++  if (!bfd_reloc_offset_in_range (howto, abfd, input_section,
++				  octets + INST_WORD_SIZE))
++    return bfd_reloc_outofrange;
++
++  if (bfd_is_und_section (symbol->section)
++      && (symbol->flags & BSF_WEAK) == 0)
++    return bfd_reloc_undefined;
++
++  if (bfd_is_com_section (symbol->section))
++    relocation = 0;
++  else
++    relocation = symbol->value;
++  relocation += (symbol->section->output_section->vma
++		 + symbol->section->output_offset
++		 + reloc_entry->addend);
++
++  /* As in microblaze_elf_relocate_section, the PC is the address of the
++     instruction after the IMM.  */
++  if (howto->pc_relative)
++    relocation -= (input_section->output_section->vma
++		   + input_section->output_offset
++		   + reloc_entry->address + INST_WORD_SIZE);
++
++  microblaze_bfd_write_imm_value_64 (abfd, (bfd_byte *) data + octets,
++				     relocation);
++  return bfd_reloc_ok;
++}
++
+ static reloc_howto_type microblaze_elf_howto_raw[] =
+ {
+    /* This reloc does nothing.  */
+@@ -84,7 +139,7 @@ static reloc_howto_type microblaze_elf_howto_raw[] =
+ 	  0xffffffff,		/* Dest Mask.  */
+ 	  true),		/* PC relative offset?  */
+ 
+-   /* A 64 bit PCREL relocation.  Table-entry not really used.  */
++   /* A 64 bit PCREL relocation: an IMM and the instruction after it.  */
+    HOWTO (R_MICROBLAZE_64_PCREL,/* Type.  */
+ 	  0,			/* Rightshift.  */
+ 	  4,			/* Size.  */
+@@ -92,7 +147,7 @@ static reloc_howto_type microblaze_elf_howto_raw[] =
+ 	  true,			/* PC_relative.  */
+ 	  0,			/* Bitpos.  */
+ 	  complain_overflow_dont, /* Complain on overflow.  */
+-	  bfd_elf_generic_reloc,/* Special Function.  */
++	  microblaze_elf_imm64_reloc, /* Special Function.  */
+ 	  "R_MICROBLAZE_64_PCREL",	/* Name.  */
+ 	  false,		/* Partial Inplace.  */
+ 	  0,			/* Source Mask.  */
+@@ -114,7 +169,7 @@ static reloc_howto_type microblaze_elf_howto_raw[] =
+ 	  0x0000ffff,		/* Dest Mask.  */
+ 	  true),		/* PC relative offset?  */
+ 
+-   /* A 64 bit relocation.  Table entry not really used.  */
++   /* A 64 bit relocation: an IMM and the instruction after it.  */
+    HOWTO (R_MICROBLAZE_64,	/* Type.  */
+ 	  0,			/* Rightshift.  */
+ 	  4,			/* Size.  */
+@@ -122,7 +177,7 @@ static reloc_howto_type microblaze_elf_howto_raw[] =
+ 	  false,		/* PC_relative.  */
+ 	  0,			/* Bitpos.  */
+ 	  complain_overflow_dont, /* Complain on overflow.  */
+-	  bfd_elf_generic_reloc,/* Special Function.  */
++	  microblaze_elf_imm64_reloc, /* Special Function.  */
+ 	  "R_MICROBLAZE_64",	/* Name.  */
+ 	  false,		/* Partial Inplace.  */
+ 	  0,			/* Source Mask.  */
+diff --git a/ld/testsuite/ld-microblaze/oformat-srec.d b/ld/testsuite/ld-microblaze/oformat-srec.d
+new file mode 100644
+index 00000000000..a640304b02d
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/oformat-srec.d
+@@ -0,0 +1,19 @@
++#source: oformat-srec.s
++#as: -EB
++#ld: --oformat srec -T $srcdir/$subdir/oformat-srec.ld
++#objdump: -D -EB -m microblaze
++#name: MicroBlaze IMM relocations with --oformat srec
++
++# var is at 0x12345678, so the lwi pair is imm 0x1234 / lwi 0x5678.
++# func is at 0x23456780 and the brlid at 0x100c, so the brlid pair is
++# imm 0x2345 / brlid 0x5774.  ld used to put the low half of each value
++# in the imm and leave the second instruction alone.
++
++.*: +file format srec
++#...
++00001000 <\.sec1>:
++[ 	]+1000:[ 	]+b0001234[ 	]+imm[ 	]+4660
++[ 	]+1004:[ 	]+e8605678[ 	]+lwi[ 	]+r3, r0, 22136
++[ 	]+1008:[ 	]+b0002345[ 	]+imm[ 	]+9029
++[ 	]+100c:[ 	]+b9f45774[ 	]+brlid[ 	]+r15, 22388
++#pass
+diff --git a/ld/testsuite/ld-microblaze/oformat-srec.ld b/ld/testsuite/ld-microblaze/oformat-srec.ld
+new file mode 100644
+index 00000000000..2075c3be009
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/oformat-srec.ld
+@@ -0,0 +1,8 @@
++ENTRY(_start)
++SECTIONS
++{
++  .text 0x1000 : { *(.text) }
++  .data 0x12345678 : { *(.data) }
++  .text.far 0x23456780 : { *(.text.far) }
++  /DISCARD/ : { *(.comment) *(.note*) }
++}
+diff --git a/ld/testsuite/ld-microblaze/oformat-srec.s b/ld/testsuite/ld-microblaze/oformat-srec.s
+new file mode 100644
+index 00000000000..93988e17b2b
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/oformat-srec.s
+@@ -0,0 +1,25 @@
++# With an output format other than ELF, ld applies relocations through
++# bfd_perform_relocation and the howto's special function rather than
++# microblaze_elf_relocate_section.  Both relocations here are split
++# across an IMM and the next instruction, and neither can be relaxed:
++# var and func are out of range of a 16-bit immediate.
++
++	.text
++	.globl	_start
++_start:
++	lwi	r3, r0, var		# R_MICROBLAZE_64
++	brlid	r15, func		# R_MICROBLAZE_64_PCREL
++	nop
++	rtsd	r15, 8
++	nop
++
++	.section .text.far,"ax",@progbits
++	.globl	func
++func:
++	rtsd	r15, 8
++	nop
++
++	.data
++	.globl	var
++var:
++	.4byte	42
+-- 
+2.39.5 (Apple Git-154)
+

@@ -1,0 +1,41 @@
+From 32bccc748cca5e4a8ee7771a1f63a30b0f46e661 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Fri, 13 Nov 2026 17:23:31 -0500
+Subject: [PATCH 1/4] microblaze: save the argument registers when no parameter
+ is named
+
+C23 allows a variadic function with no named parameters, "void f (...)".
+Its type has no TYPE_ARG_TYPES, so the prologue's test for a varargs
+function fails and r5-r10 are never stored to their stack slots.  va_arg
+then reads whatever was there: gcc.c-torture/execute/pr117432.c fails at
+every optimization level.
+
+Also test TYPE_NO_NAMED_ARGS_STDARG_P.  The loop already starts at r5
+when there is no named parameter.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.cc (microblaze_expand_prologue):
+	Save the argument registers for a function with no named
+	parameters.
+---
+ gcc/config/microblaze/microblaze.cc | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index 398c8ffa7..9cbf3fded 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -3009,6 +3009,7 @@ microblaze_expand_prologue (void)
+   if (((TYPE_ARG_TYPES (fntype) != 0
+ 	&& (TREE_VALUE (tree_last (TYPE_ARG_TYPES (fntype)))
+ 	    != void_type_node))
++       || TYPE_NO_NAMED_ARGS_STDARG_P (fntype)
+        || (arg_name != 0
+ 	   && ((arg_name[0] == '_'
+ 		&& strcmp (arg_name, "__builtin_va_alist") == 0)
+-- 
+2.39.5 (Apple Git-154)
+

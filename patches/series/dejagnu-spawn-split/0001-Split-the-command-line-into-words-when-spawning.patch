@@ -1,0 +1,66 @@
+From d000acf14f739d67bfa81f4c5c178214ed1d1485 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 14 Nov 2026 11:20:37 -0500
+Subject: [PATCH] Split the command line into words when spawning
+
+Since daaf156 ("Fix quoting on Tcl catch(n) usage"), local_exec and
+remote_spawn pass the whole command line to spawn as one word:
+
+	set result [catch {spawn -ignore SIGHUP $commandline} pid]
+
+spawn then looks for a program whose name is the entire command line,
+so every local command with arguments fails with "spawn failed".  In a
+GCC testsuite run nothing compiles: target-supports.exp cannot even run
+"xgcc -print-file-name=...".  The binutils testsuite fails every test
+that runs the assembler or ar.
+
+The old scripts were strings, so catch split the command line as it
+parsed them.  Do it explicitly with eval, as the same change already
+does for "spawn adb".
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ ChangeLog      | 7 +++++++
+ lib/remote.exp | 4 ++--
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/ChangeLog b/ChangeLog
+index 00af32c..53b449a 100644
+--- a/ChangeLog
++++ b/ChangeLog
+@@ -1,3 +1,10 @@
++2026-11-14  Samuel Price  <thesamprice@gmail.com>
++
++	* lib/remote.exp (local_exec, remote_spawn): Split the command line
++	into words again when spawning.  Since the change to braced catch
++	scripts, spawn took the whole command line as the program name, so
++	every command with arguments failed with "spawn failed".
++
+ 2026-11-06  Jacob Bachmeyer  <jcb@gnu.org>
+ 
+ 	* testsuite/lib/bohman_ssd.exp
+diff --git a/lib/remote.exp b/lib/remote.exp
+index 9d744f4..6ba0e12 100644
+--- a/lib/remote.exp
++++ b/lib/remote.exp
+@@ -164,7 +164,7 @@ proc local_exec { commandline inp outp timeout } {
+     global errorInfo
+     if { $inp eq "" && $outp eq "" } {
+ 	set id -1
+-	set result [catch {spawn -ignore SIGHUP $commandline} pid]
++	set result [catch {eval [list spawn -ignore SIGHUP] $commandline} pid]
+ 	if { $result == 0 } {
+ 	    set result2 0
+ 	} else {
+@@ -911,7 +911,7 @@ proc remote_spawn { dest commandline args } {
+ 		return -1
+ 	    }
+ 	} else {
+-	    set result [catch {spawn $commandline} pid]
++	    set result [catch {eval [list spawn] $commandline} pid]
+ 	    if { $result == 0 } {
+ 		verbose "setting board_info($dest,fileid) to $spawn_id" 3
+ 		set board_info($dest,fileid) $spawn_id
+-- 
+2.39.5 (Apple Git-154)
+

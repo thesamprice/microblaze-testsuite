@@ -1,0 +1,140 @@
+From de756776d931c05fc6ff4cf3aa70ca54027b1c36 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Fri, 13 Nov 2026 17:24:05 -0500
+Subject: [PATCH 3/4] testsuite: microblaze: fix the isa tests and the LTO
+ scans
+
+Every gcc.target/microblaze test that fails on microblaze-elf fails for
+a reason in the testsuite, not the compiler:
+
+- isa/fcmp1.c to fcmp4.c, nofcmp.c and vanilla.c call print without
+  declaring it, an error since GCC 14.  Declare it.
+- isa/fcmp4.c expects "f1 == f2" as fcmp.eq.  GCC now branches around
+  the call on fcmp.ne, which is just as correct; fcmp3.c already
+  accepts either.
+- microblaze.exp sets TORTURE_OPTIONS itself, so gcc-dg.exp does not set
+  gcc_set_required_options to -ffat-lto-objects, and every scan-assembler
+  test in others/ fails under -flto -fuse-linker-plugin
+  -fno-fat-lto-objects, which leaves no assembly to scan.  Set it after
+  loading gcc-dg.exp.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/microblaze.exp: Set
+	gcc_set_required_options to -ffat-lto-objects.
+	* gcc.target/microblaze/isa/fcmp1.c: Declare print.
+	* gcc.target/microblaze/isa/fcmp2.c: Likewise.
+	* gcc.target/microblaze/isa/fcmp3.c: Likewise.
+	* gcc.target/microblaze/isa/nofcmp.c: Likewise.
+	* gcc.target/microblaze/isa/vanilla.c: Likewise.
+	* gcc.target/microblaze/isa/fcmp4.c: Likewise.  Accept fcmp.ne
+	as well as fcmp.eq.
+---
+ gcc/testsuite/gcc.target/microblaze/isa/fcmp1.c    | 2 ++
+ gcc/testsuite/gcc.target/microblaze/isa/fcmp2.c    | 2 ++
+ gcc/testsuite/gcc.target/microblaze/isa/fcmp3.c    | 2 ++
+ gcc/testsuite/gcc.target/microblaze/isa/fcmp4.c    | 4 +++-
+ gcc/testsuite/gcc.target/microblaze/isa/nofcmp.c   | 2 ++
+ gcc/testsuite/gcc.target/microblaze/isa/vanilla.c  | 2 ++
+ gcc/testsuite/gcc.target/microblaze/microblaze.exp | 7 +++++++
+ 7 files changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/fcmp1.c b/gcc/testsuite/gcc.target/microblaze/isa/fcmp1.c
+index b6202e168..4c4af3f1d 100644
+--- a/gcc/testsuite/gcc.target/microblaze/isa/fcmp1.c
++++ b/gcc/testsuite/gcc.target/microblaze/isa/fcmp1.c
+@@ -1,5 +1,7 @@
+ /* { dg-options "-O3 -mcpu=v10.0 -mhard-float" } */
+ 
++extern void print (const char *);
++
+ volatile float f1, f2, f3;
+ 
+ void float_func () 
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/fcmp2.c b/gcc/testsuite/gcc.target/microblaze/isa/fcmp2.c
+index 4386c6e6c..dc477d653 100644
+--- a/gcc/testsuite/gcc.target/microblaze/isa/fcmp2.c
++++ b/gcc/testsuite/gcc.target/microblaze/isa/fcmp2.c
+@@ -1,5 +1,7 @@
+ /* { dg-options "-O3 -mcpu=v10.0 -mhard-float" } */
+ 
++extern void print (const char *);
++
+ volatile float f1, f2, f3;
+ 
+ void float_func () 
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/fcmp3.c b/gcc/testsuite/gcc.target/microblaze/isa/fcmp3.c
+index b414e48fe..629587224 100644
+--- a/gcc/testsuite/gcc.target/microblaze/isa/fcmp3.c
++++ b/gcc/testsuite/gcc.target/microblaze/isa/fcmp3.c
+@@ -1,5 +1,7 @@
+ /* { dg-options "-O3 -mcpu=v10.0 -mhard-float" } */
+ 
++extern void print (const char *);
++
+ volatile float f1, f2, f3;
+ 
+ void float_func () 
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/fcmp4.c b/gcc/testsuite/gcc.target/microblaze/isa/fcmp4.c
+index ff137012d..33f97dee0 100644
+--- a/gcc/testsuite/gcc.target/microblaze/isa/fcmp4.c
++++ b/gcc/testsuite/gcc.target/microblaze/isa/fcmp4.c
+@@ -1,8 +1,10 @@
+ /* { dg-options "-O3 -mcpu=v10.0 -mhard-float" } */
+ 
++extern void print (const char *);
++
+ void float_func(float f1, float f2, float f3)
+ {
+-  /* { dg-final { scan-assembler "fcmp\.eq\tr(\[0-9]\|\[1-2]\[0-9]\|3\[0-1]),r(\[0-9]\|\[1-2]\[0-9]\|3\[0-1]),r(\[0-9]\|\[1-2]\[0-9]\|3\[0-1])\[^0-9]" } } */
++  /* { dg-final { scan-assembler "fcmp\.(eq|ne)\tr(\[0-9]\|\[1-2]\[0-9]\|3\[0-1]),r(\[0-9]\|\[1-2]\[0-9]\|3\[0-1]),r(\[0-9]\|\[1-2]\[0-9]\|3\[0-1])\[^0-9]" } } */
+   /* { dg-final { scan-assembler "fcmp\.le\tr(\[0-9]\|\[1-2]\[0-9]\|3\[0-1]),r(\[0-9]\|\[1-2]\[0-9]\|3\[0-1]),r(\[0-9]\|\[1-2]\[0-9]\|3\[0-1])\[^0-9]" } } */
+     if(f1==f2 && f1<=f3)
+         print ("f1 eq f2 && f1 le f3");
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/nofcmp.c b/gcc/testsuite/gcc.target/microblaze/isa/nofcmp.c
+index 86910fc34..058250f8d 100644
+--- a/gcc/testsuite/gcc.target/microblaze/isa/nofcmp.c
++++ b/gcc/testsuite/gcc.target/microblaze/isa/nofcmp.c
+@@ -1,5 +1,7 @@
+ /* { dg-options "-O3 -mcpu=v10.0" } */
+ 
++extern void print (const char *);
++
+ volatile float f1, f2, f3;
+ 
+ void float_func () 
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/vanilla.c b/gcc/testsuite/gcc.target/microblaze/isa/vanilla.c
+index 35824b6d0..d40cb30cc 100644
+--- a/gcc/testsuite/gcc.target/microblaze/isa/vanilla.c
++++ b/gcc/testsuite/gcc.target/microblaze/isa/vanilla.c
+@@ -1,5 +1,7 @@
+ /* { dg-options "-O3 -mcpu=v10.0" } */
+ 
++extern void print (const char *);
++
+ volatile int m1, m2, m3;
+ volatile long l1, l2;
+ volatile long long llp;
+diff --git a/gcc/testsuite/gcc.target/microblaze/microblaze.exp b/gcc/testsuite/gcc.target/microblaze/microblaze.exp
+index 56b8c7d49..896998688 100644
+--- a/gcc/testsuite/gcc.target/microblaze/microblaze.exp
++++ b/gcc/testsuite/gcc.target/microblaze/microblaze.exp
+@@ -39,6 +39,13 @@ if ![info exists DEFAULT_CFLAGS] then {
+ # Load support procs.
+ load_lib gcc-dg.exp
+ 
++# gcc-dg.exp only forces -ffat-lto-objects for scan-assembler tests when it
++# picks the torture options itself.  Ours are set above, so without this the
++# -fno-fat-lto-objects run leaves no assembly to scan.
++if [check_effective_target_lto] {
++    set gcc_set_required_options "-ffat-lto-objects"
++}
++
+ # Initialize `dg'.
+ dg-init
+ 
+-- 
+2.39.5 (Apple Git-154)
+

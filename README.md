@@ -9,7 +9,7 @@ DejaGnu board in [`patches/dejagnu/`](patches/dejagnu/).
 make                     # fetch and build binutils, gcc+newlib+libgloss, DejaGnu, QEMU
 make check-gcc-smoke     # eight execute tests across all torture levels
 make check-binutils      # binutils, gas and ld testsuites
-make check-gcc           # gcc.c-torture/execute, all of it
+make check-gcc           # gcc.c-torture/execute and gcc.target/microblaze
 make summary             # the summaries of the last runs, and the source revisions
 make bench-moddi3        # instructions and estimated cycles for libgcc's 64-bit division
 ```
@@ -54,6 +54,9 @@ given with `*_SRC` (below).
 |---|---|
 | `dejagnu/0001` | the `microblaze-qemu` board and the `libxil` UART driver. The copy here leaves out the patch's ChangeLog entry, which conflicted as soon as upstream added one of its own; the full patch is `outbox/dejagnu/` in `rtems-microblaze-linker-relaxation-bug` |
 | `gcc/0001`–`0003` | the libgcc series in [`patches/series/gcc-microblaze-generic-moddi3`](patches/series/gcc-microblaze-generic-moddi3/), not yet sent: libgcc2.c's shift-and-subtract `__udivmoddi4` masks out the quotient bits, and `__umoddi3`/`__moddi3` can keep only the remainder; then MicroBlaze uses that code unless `-mno-xl-soft-div`, and drops `moddi3.S` |
+| `gcc/0004`–`0007` | [`patches/series/gcc-microblaze-zero-fails`](patches/series/gcc-microblaze-zero-fails/), not yet sent: `va_arg` with no named parameter, the `-fPIE -mpic-data-is-text-relative` ICE, and the `gcc.target/microblaze` and `fileio` testsuite fixes |
+| `binutils/0001` | [`patches/series/binutils-microblaze-srec-64`](patches/series/binutils-microblaze-srec-64/): `IMM`-pair relocations for `--oformat srec` and other non-ELF output |
+| `dejagnu/0002` | [`patches/series/dejagnu-spawn-split`](patches/series/dejagnu-spawn-split/), without its ChangeLog entry: DejaGnu master's `local_exec` passes the command line to `spawn` as one word, so nothing runs |
 | `qemu/0001` | a test device on `petalogix-s3adsp1800` at `0xff000000`: a write exits QEMU with that status, and reads give the exact instruction count under `-icount`. Used by `bench-moddi3`; the DejaGnu board does not need it |
 
 `patches/series/` holds patch series as they will be mailed upstream; see
@@ -165,43 +168,53 @@ Variables such as `GCC_REF`, `GCC_TESTS`, `RUNTESTFLAGS`, `MB_NO_RELAX` and
 
 ## Results
 
-From 2026-11-01: binutils `8614f56cb25`, gcc `a9f669055c2`, newlib
-`b097f95233d`, DejaGnu `04e420155f7` plus the board, stock QEMU 10.2.4.
+From 2026-11-14, `make check` from a fresh `work/`: binutils `2e7f60647f1`,
+gcc `df809a029`, newlib `041b6410bfa`, DejaGnu `6ea0ff70328`, each plus
+the patches here, and QEMU 10.2.4 plus `patches/qemu`. Big-endian, the
+default `MB_NO_RELAX`.
 
 | | pass | fail | xfail | untested | unsupported |
 |---|---|---|---|---|---|
 | binutils | 272 | 0 | 2 | 0 | 14 |
-| gas | 329 | 0 | 0 | 0 | 10 |
-| ld | 546 | 1 | 15 | 9 | 232 |
-| gcc, `check-gcc-smoke` | 91 | 15 | 0 | 0 | 8 |
-| gcc, `check-gcc` (all of `execute.exp`) | 24498 | 38 | 0 | 0 | 176 |
+| gas | 331 | 0 | 0 | 0 | 10 |
+| ld | 548 | 0 | 15 | 9 | 232 |
+| gcc `execute.exp` | 24536 | 0 | 0 | 0 | 183 |
+| gcc `microblaze.exp` | 644 | 0 | 0 | 0 | 0 |
 
-The earlier `patches/gcc/0001`, the `__moddi3` fix, was dropped on
-2026-11-07: it is upstream as gcc `3a721dc02`. With gcc master `df809a029`
-and the current `patches/gcc`, the full `check-gcc` gave 24536 passes, 14
-failures (`fprintf-2.c` and `pr117432.c`, below) and 176 unsupported, both
-big- and little-endian.
+There is no FAIL, UNRESOLVED or XPASS anywhere. `execute.exp` and
+`microblaze.exp` also had no failures on `microblazeel-elf`, built by hand
+with these gcc patches and the `gcc-microblaze-fixes` series.
 
-The failures:
+gcc is pinned to `df809a029` for this run (`GCC_REF=df809a029f52...`):
+gcc master `fceddda85` of 2026-11-14 does not build on macOS, because
+`lto1` fails to link with an undefined analyzer symbol. The patches here
+also apply to that revision.
 
-- **ld `S-records`.** `ld --oformat srec` applies `R_MICROBLAZE_64` through the
-  generic howto, which writes the low 16 bits of the address into the `imm`
-  instruction and leaves the following one unpatched. Linking to ELF and
-  converting with `objcopy` is correct.
-- **gcc: 30 of the 38 are `__moddi3`.** libgcc's 64-bit signed remainder is
-  wrong on MicroBlaze: `arith-rand-ll.c` (8), `vector-div-neg-pow2.c` (8),
-  `pr50865.c` (7) and `pr33669.c` (1, `-O0` only). `pr50865.c` hangs until the
-  timeout; the others abort. All four pass at `-O0` with a fixed `__moddi3`
-  linked ahead of libgcc, which leaves the other two tests failing. These
-  numbers predate the fix, now upstream as gcc `3a721dc02`.
-- **gcc `pr117432.c` (7): C23 variadic functions with no named parameter.**
-  `void qux (...)` reads garbage from `va_arg` at `-O0` and `-O2`, while
-  `void baz (int, ...)` is right. A compiler bug, and not the IPA problem the
-  PR is about.
-- **gcc `fprintf-2.c` (7): no filesystem.** GCC's `fileio` effective target
-  only checks that `fopen` links, which it does against libgloss's stubs; on
-  bare metal it fails at run time and the test exits 1. A limitation of the
-  environment, not of the compiler.
+What it took to get to zero:
+
+- **ld `S-records`**: `patches/binutils/0001`. `ld --oformat srec` applied
+  `R_MICROBLAZE_64` through the generic howto, which wrote the low 16 bits
+  of the address into the `imm` instruction and left the following one
+  unpatched.
+- **gcc `pr117432.c`** (7): `patches/gcc/0004`. `void f (...)`, a C23
+  variadic function with no named parameter, read garbage from `va_arg`.
+- **gcc `picdtr.c`** (112): `patches/gcc/0005`. `-fPIE
+  -mpic-data-is-text-relative` ICEd on any data access, and the test had
+  never compiled because it held two copies of itself.
+- **The rest of `microblaze.exp`**: `patches/gcc/0006`, testsuite only. Six `isa/` tests called `print` undeclared, `fcmp4.c` wanted
+  `fcmp.eq` where gcc now emits `fcmp.ne`, and every `scan-assembler` test
+  failed in the `-fno-fat-lto-objects` run.
+- **gcc `fprintf-2.c`** (7): `patches/gcc/0007`. The `fileio` effective
+  target only checked that `fopen` links, which it does against libgloss's
+  stubs; it now runs the program, so the test is UNSUPPORTED on bare metal.
+- **DejaGnu master** ran nothing: `patches/dejagnu/0002`. Since 2026-11-06
+  it passes the whole command line to `spawn` as one word.
+
+Before these patches, with gcc `df809a029`, `execute.exp` gave 24536 PASS
+and 14 FAIL (`fprintf-2.c` and `pr117432.c`), and `microblaze.exp` 554
+PASS, 142 FAIL and 31 UNRESOLVED. The first run, on 2026-11-01, also had 30 `__moddi3` failures,
+fixed upstream as gcc `3a721dc02`.
+
 - `pr28982b.c` is UNSUPPORTED. It says `dg-require-stack-size "0x80100"`,
   and the board declares `gcc,stack_size 16384`, though the stack it links
   is 4 MB. The board understates it; raising the declared size would let the
