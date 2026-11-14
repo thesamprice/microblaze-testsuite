@@ -1,0 +1,100 @@
+From 0e836cbdaa36b5f47b99e8af2f2bfc267f0b6aec Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 14 Nov 2026 14:28:11 -0500
+Subject: [PATCH 2/2] libgcc: microblaze: exit with status 1 on a stack
+ overflow
+
+With -mxl-stack-check, a function whose frame goes below _stack_end
+branches from its prologue to _stack_overflow_exit, which branched to
+exit without setting r5.  The exit status was whatever the overflowing
+function had in its first argument register, so a program could report
+success after overflowing its stack.  exit then ran atexit handlers and
+stdio cleanup on the overflowed stack.
+
+Set r5 to 1 and branch to _exit instead.
+
+Without the fix, the new test exits with status 0 at every
+optimization level under QEMU and fails all 7 execution tests.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+libgcc/ChangeLog:
+
+	* config/microblaze/stack_overflow_exit.S (_stack_overflow_exit):
+	Exit with status 1 through _exit.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/stack-check-exit.c: New test.
+---
+ .../microblaze/others/stack-check-exit.c      | 27 +++++++++++++++++++
+ .../config/microblaze/stack_overflow_exit.S   | 10 ++++---
+ 2 files changed, 34 insertions(+), 3 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/stack-check-exit.c
+
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/stack-check-exit.c b/gcc/testsuite/gcc.target/microblaze/others/stack-check-exit.c
+new file mode 100644
+index 000000000..522c83a20
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/stack-check-exit.c
+@@ -0,0 +1,27 @@
++/* { dg-do run } */
++/* { dg-options "-mxl-stack-check" } */
++/* { dg-prune-output "is deprecated" } */
++/* { dg-shouldfail "stack overflow" } */
++
++/* With -mxl-stack-check, a function whose frame goes below _stack_end
++   branches to _stack_overflow_exit, which must end the program with a
++   failure status.  It used to branch to exit without setting r5, so the
++   status was the overflowing function's first argument, here 0, and
++   exit's cleanup ran on the overflowed stack.  */
++
++__attribute__ ((noipa)) int
++recurse (int zero, int depth)
++{
++  volatile char buf[0x100000];
++  buf[0] = depth;
++  if (depth == 64)
++    return buf[0] + zero;
++  return recurse (zero, depth + 1) + buf[0];
++}
++
++int
++main (void)
++{
++  recurse (0, 0);
++  return 0;
++}
+diff --git a/libgcc/config/microblaze/stack_overflow_exit.S b/libgcc/config/microblaze/stack_overflow_exit.S
+index d0f0f0f18..600f8b270 100644
+--- a/libgcc/config/microblaze/stack_overflow_exit.S
++++ b/libgcc/config/microblaze/stack_overflow_exit.S
+@@ -29,7 +29,9 @@
+ #  Checks for stack overflows and sets the global variable 
+ #  stack_overflow_error with the value of current stack pointer
+ #
+-#  This routine exits from the program
++#  This routine exits from the program with status 1.  It calls _exit,
++#  not exit: the stack has already overflowed, so atexit handlers and
++#  stdio cleanup must not run on it.
+ # 
+ #######################################
+ 
+@@ -57,10 +59,12 @@ _stack_overflow_exit:
+ 	mfs	r20,rpc
+ 	addik	r20,r20,_GLOBAL_OFFSET_TABLE_+8
+ 	swi	r1,r20,_stack_overflow_error@GOTOFF
+-	bri	exit@PLT
++	addik	r5,r0,1
++	bri	_exit@PLT
+ #else
+ 	swi	r1,r0,_stack_overflow_error
+-	bri	exit
++	addik	r5,r0,1
++	bri	_exit
+ #endif
+ 
+ 	.end 	_stack_overflow_exit
+-- 
+2.39.5 (Apple Git-154)
+
