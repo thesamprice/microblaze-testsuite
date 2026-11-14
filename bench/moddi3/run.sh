@@ -2,7 +2,8 @@
 # Build the 64-bit divide and remainder variants for both byte orders, run
 # each under QEMU with -icount, and collect the instruction counts, the
 # instruction classes, mbcount.c's cycle estimates, the static sizes and
-# the disassembly.  summary.py turns results.txt into per-call figures.
+# the disassembly.  summary.py turns results.txt into per-call figures,
+# and checks that the plugin and the instruction counter agree.
 # "make bench-moddi3" runs this with:
 #
 #   TOOLBIN    the directory holding microblaze-elf-gcc
@@ -92,8 +93,12 @@ case $(uname) in Darwin) SHARED="-bundle -undefined dynamic_lookup" ;;
 cc -O2 $SHARED -I"$QINC" $(pkg-config --cflags glib-2.0) \
   -o "$PLUGIN" "$HERE/mbcount.c"
 
+# The vectors: the signed routines' in $OUT, the unsigned routines' in
+# $OUT/unsigned, which bench.c's #include "vectors.h" finds first.
 cc -O2 -o "$OUT/gen" "$HERE/gen.c"
 "$OUT/gen" > "$OUT/vectors.h"
+mkdir -p "$OUT/unsigned"
+"$OUT/gen" unsigned > "$OUT/unsigned/vectors.h"
 RESULTS=$OUT/results.txt
 : > "$RESULTS"
 
@@ -105,7 +110,8 @@ for e in be le; do
   $CC $E $OPT -c "$HERE/start.S" -o $o/start.o
   for op in moddi3 umoddi3 divdi3 udivdi3; do
     case $op in moddi3) n=0 ;; umoddi3) n=1 ;; divdi3) n=2 ;; udivdi3) n=3 ;; esac
-    $CC $E $OPT $FULL -I"$OUT" -DOP=$n -c "$HERE/bench.c" -o $o/bench-$op.o
+    case $op in u*) UV=-I"$OUT/unsigned" ;; *) UV= ;; esac
+    $CC $E $OPT $FULL $UV -I"$OUT" -DOP=$n -c "$HERE/bench.c" -o $o/bench-$op.o
   done
 
   for f in def mlib nodiv full; do

@@ -13,8 +13,10 @@
 #   DIR/carry    the same gcc + patches/series/gcc-microblaze-carry (the
 #                back-end series), reusing series1's QEMU
 #
-# runs bench/moddi3/run.sh with each, and writes DIR/tables.md: mean and
-# slowest-call estimated cycles for both pipelines, big-endian.
+# runs bench/moddi3/run.sh with each, and writes DIR/tables.md: mean
+# instructions, and mean and slowest-call estimated cycles for both
+# pipelines (the five-stage one with and without a branch target cache),
+# big-endian.  bench/moddi3/results/ holds the published copy.
 # DIR/tables-le.md is the same for little-endian.  About 9 GB of disk, and
 # 22 minutes on an 8-core Mac, most of it building gcc twice.
 # Rerunning skips the builds that are done.
@@ -78,8 +80,10 @@ bench carry
   cat "$DIR/series1/src/"*.rev
   echo '```'
   echo
-  echo "Each cell is the mean over 4701 operand pairs, then the slowest"
-  echo "single call in brackets.  \"Upstream C\" is libgcc2.c as gcc has it."
+  echo "Each cell is the mean over 4701 operand pairs, then for the cycle"
+  echo "tables the slowest single call in brackets.  The unsigned routines'"
+  echo "operands are never negative; see gen.c."
+  echo "\"Upstream C\" is libgcc2.c as gcc has it."
   echo "For __moddi3 it is what deleting moddi3.S would give; for the other"
   echo "three it is what libgcc builds today.  \"No-divider code\" is the"
   echo "same with TARGET_HAS_NO_HW_DIVIDE, its shift-and-subtract division."

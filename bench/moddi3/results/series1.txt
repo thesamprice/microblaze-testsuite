@@ -1,0 +1,870 @@
+moddi3 stock def be status=137 size=60 helpers=[] no result
+moddi3 asm def be status=0 size=44 helpers=[] edge n=701 bad=0 insns=291791 min=18 max=728
+moddi3 asm def be status=0 size=44 helpers=[] small n=1000 bad=0 insns=373616 min=286 max=480
+moddi3 asm def be status=0 size=44 helpers=[] wide/narrow n=1000 bad=0 insns=647670 min=618 max=680
+moddi3 asm def be status=0 size=44 helpers=[] wide/wide n=1000 bad=0 insns=599880 min=596 max=604
+moddi3 asm def be status=0 size=44 helpers=[] mixed n=1000 bad=0 insns=543175 min=446 max=674
+moddi3 asm def be status=0 size=44 helpers=[] all n=4701 bad=0 insns=2456132 min=18 max=728
+moddi3 asm def be classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=18804 store=18804 branch=540858 other=1868264 taken=468741 total=2446730 cyc5=3291418 cyc3=3329026 max5=862 max3=870 tk_d=92794 tk_nd=375947 ntk=72117 amb=0 cyc5btc=2446730 max5btc=726 haz5lo=0 haz5hi=0
+moddi3 asm-new def be status=0 size=48 helpers=[] edge n=701 bad=0 insns=130539 min=15 max=809
+moddi3 asm-new def be status=0 size=48 helpers=[] small n=1000 bad=0 insns=106271 min=15 max=494
+moddi3 asm-new def be status=0 size=48 helpers=[] wide/narrow n=1000 bad=0 insns=525501 min=299 max=762
+moddi3 asm-new def be status=0 size=48 helpers=[] wide/wide n=1000 bad=0 insns=25106 min=15 max=36
+moddi3 asm-new def be status=0 size=48 helpers=[] mixed n=1000 bad=0 insns=246763 min=15 max=732
+moddi3 asm-new def be status=0 size=48 helpers=[] all n=4701 bad=0 insns=1034180 min=15 max=809
+moddi3 asm-new def be classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=0 store=0 branch=276204 other=748574 taken=174936 total=1024778 cyc5=1210309 cyc3=1210309 max5=903 max3=903 tk_d=164341 tk_nd=10595 ntk=101268 amb=0 cyc5btc=1024778 max5btc=807 haz5lo=0 haz5hi=0
+moddi3 generic def be status=0 size=1047 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] edge n=701 bad=0 insns=680504 min=50 max=3129
+moddi3 generic def be status=0 size=1047 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] small n=1000 bad=0 insns=859842 min=432 max=1753
+moddi3 generic def be status=0 size=1047 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2645997 min=1644 max=3025
+moddi3 generic def be status=0 size=1047 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=729888 min=50 max=1487
+moddi3 generic def be status=0 size=1047 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=1429226 min=50 max=2973
+moddi3 generic def be status=0 size=1047 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] all n=4701 bad=0 insns=6345457 min=50 max=3129
+moddi3 generic def be classes idiv=0 mul=0 barrel=0 clz=0 imm=22050 load=144954 store=141232 branch=1960832 other=4066987 taken=1318206 total=6336055 cyc5=8389523 cyc3=8675709 max5=4133 max3=4222 tk_d=582944 tk_nd=735262 ntk=642626 amb=0 cyc5btc=6336055 max5btc=3127 haz5lo=4511 haz5hi=5300
+moddi3 generic-nohw def be status=0 size=263 helpers=[__clzdi2] edge n=701 bad=0 insns=746508 min=41 max=5294
+moddi3 generic-nohw def be status=0 size=263 helpers=[__clzdi2] small n=1000 bad=0 insns=712405 min=45 max=3005
+moddi3 generic-nohw def be status=0 size=263 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=3168806 min=1975 max=4489
+moddi3 generic-nohw def be status=0 size=263 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=196941 min=41 max=369
+moddi3 generic-nohw def be status=0 size=263 helpers=[__clzdi2] mixed n=1000 bad=0 insns=1430542 min=41 max=4173
+moddi3 generic-nohw def be status=0 size=263 helpers=[__clzdi2] all n=4701 bad=0 insns=6255202 min=41 max=5294
+moddi3 generic-nohw def be classes idiv=0 mul=0 barrel=0 clz=0 imm=18953 load=53218 store=47010 branch=575947 other=5550672 taken=429665 total=6245800 cyc5=6719467 cyc3=6819695 max5=5577 max3=5599 tk_d=385663 tk_nd=44002 ntk=146282 amb=0 cyc5btc=6245800 max5btc=5292 haz5lo=6208 haz5hi=12416
+moddi3 patched def be status=0 size=151 helpers=[__clzdi2] edge n=701 bad=0 insns=249635 min=41 max=1219
+moddi3 patched def be status=0 size=151 helpers=[__clzdi2] small n=1000 bad=0 insns=272556 min=43 max=823
+moddi3 patched def be status=0 size=151 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=935066 min=701 max=1174
+moddi3 patched def be status=0 size=151 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=197933 min=41 max=368
+moddi3 patched def be status=0 size=151 helpers=[__clzdi2] mixed n=1000 bad=0 insns=493048 min=41 max=1141
+moddi3 patched def be status=0 size=151 helpers=[__clzdi2] all n=4701 bad=0 insns=2148238 min=41 max=1219
+moddi3 patched def be classes idiv=0 mul=0 barrel=0 clz=0 imm=99310 load=39115 store=39115 branch=436103 other=1525193 taken=351652 total=2138836 cyc5=2493479 cyc3=2571709 max5=1348 max3=1366 tk_d=348661 tk_nd=2991 ntk=84451 amb=0 cyc5btc=2138836 max5btc=1217 haz5lo=6208 haz5hi=12416
+moddi3 rem def be status=0 size=155 helpers=[__clzdi2] edge n=701 bad=0 insns=270913 min=29 max=1469
+moddi3 rem def be status=0 size=155 helpers=[__clzdi2] small n=1000 bad=0 insns=288305 min=31 max=951
+moddi3 rem def be status=0 size=155 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=1045212 min=734 max=1372
+moddi3 rem def be status=0 size=155 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=191188 min=29 max=368
+moddi3 rem def be status=0 size=155 helpers=[__clzdi2] mixed n=1000 bad=0 insns=535281 min=29 max=1314
+moddi3 rem def be status=0 size=155 helpers=[__clzdi2] all n=4701 bad=0 insns=2330899 min=29 max=1469
+moddi3 rem def be classes idiv=0 mul=0 barrel=0 clz=0 imm=99310 load=34324 store=28116 branch=531053 other=1628694 taken=372133 total=2321497 cyc5=2737657 cyc3=2800097 max5=1657 max3=1673 tk_d=328106 tk_nd=44027 ntk=158920 amb=0 cyc5btc=2321497 max5btc=1467 haz5lo=6208 haz5hi=12416
+moddi3 rem-fused def be status=0 size=150 helpers=[__clzdi2] edge n=701 bad=0 insns=243691 min=29 max=1214
+moddi3 rem-fused def be status=0 size=150 helpers=[__clzdi2] small n=1000 bad=0 insns=264082 min=31 max=820
+moddi3 rem-fused def be status=0 size=150 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=928301 min=694 max=1167
+moddi3 rem-fused def be status=0 size=150 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=189751 min=29 max=365
+moddi3 rem-fused def be status=0 size=150 helpers=[__clzdi2] mixed n=1000 bad=0 insns=486124 min=29 max=1132
+moddi3 rem-fused def be status=0 size=150 helpers=[__clzdi2] all n=4701 bad=0 insns=2111949 min=29 max=1214
+moddi3 rem-fused def be classes idiv=0 mul=0 barrel=0 clz=0 imm=99310 load=34324 store=28116 branch=433140 other=1507657 taken=348654 total=2102547 cyc5=2452963 cyc3=2515403 max5=1342 max3=1358 tk_d=346892 tk_nd=1762 ntk=84486 amb=0 cyc5btc=2102547 max5btc=1212 haz5lo=6208 haz5hi=12416
+moddi3 rem-left def be status=0 size=298 helpers=[__clzdi2] edge n=701 bad=0 insns=1177465 min=41 max=7441
+moddi3 rem-left def be status=0 size=298 helpers=[__clzdi2] small n=1000 bad=0 insns=889967 min=43 max=3786
+moddi3 rem-left def be status=0 size=298 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=5677436 min=4059 max=7287
+moddi3 rem-left def be status=0 size=298 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=298282 min=41 max=577
+moddi3 rem-left def be status=0 size=298 helpers=[__clzdi2] mixed n=1000 bad=0 insns=2369128 min=41 max=7152
+moddi3 rem-left def be status=0 size=298 helpers=[__clzdi2] all n=4701 bad=0 insns=10412278 min=41 max=7441
+moddi3 rem-left def be classes idiv=0 mul=0 barrel=0 clz=0 imm=19517 load=48517 store=48517 branch=550081 other=9736244 taken=452408 total=10402876 cyc5=10857294 cyc3=10954328 max5=7670 max3=7692 tk_d=450398 tk_nd=2010 ntk=97673 amb=0 cyc5btc=10402876 max5btc=7439 haz5lo=6208 haz5hi=12416
+umoddi3 generic def be status=0 size=957 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] edge n=701 bad=0 insns=567416 min=32 max=3119
+umoddi3 generic def be status=0 size=957 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] small n=1000 bad=0 insns=841529 min=418 max=1730
+umoddi3 generic def be status=0 size=957 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2626942 min=1630 max=3011
+umoddi3 generic def be status=0 size=957 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=710378 min=32 max=1469
+umoddi3 generic def be status=0 size=957 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=1410252 min=32 max=2959
+umoddi3 generic def be status=0 size=957 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] all n=4701 bad=0 insns=6156517 min=32 max=3119
+umoddi3 generic def be classes idiv=0 mul=0 barrel=0 clz=0 imm=21739 load=134280 store=130625 branch=1914428 other=3946043 taken=1284244 total=6147115 cyc5=8158897 cyc3=8423802 max5=4106 max3=4191 tk_d=556706 tk_nd=727538 ntk=630184 amb=0 cyc5btc=6147115 max5btc=3117 haz5lo=6142 haz5hi=7854
+umoddi3 generic-nohw def be status=0 size=227 helpers=[__clzdi2] edge n=701 bad=0 insns=680516 min=29 max=5363
+umoddi3 generic-nohw def be status=0 size=227 helpers=[__clzdi2] small n=1000 bad=0 insns=701486 min=34 max=2992
+umoddi3 generic-nohw def be status=0 size=227 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=3156269 min=1961 max=4480
+umoddi3 generic-nohw def be status=0 size=227 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=185154 min=29 max=355
+umoddi3 generic-nohw def be status=0 size=227 helpers=[__clzdi2] mixed n=1000 bad=0 insns=1418068 min=29 max=4164
+umoddi3 generic-nohw def be status=0 size=227 helpers=[__clzdi2] all n=4701 bad=0 insns=6141493 min=29 max=5363
+umoddi3 generic-nohw def be classes idiv=0 mul=0 barrel=0 clz=0 imm=19061 load=48495 store=48495 branch=555733 other=5460307 taken=417561 total=6132091 cyc5=6591534 cyc3=6688524 max5=5648 max3=5670 tk_d=375679 tk_nd=41882 ntk=138172 amb=0 cyc5btc=6132091 max5btc=5361 haz5lo=6186 haz5hi=12372
+umoddi3 patched def be status=0 size=100 helpers=[__clzdi2] edge n=701 bad=0 insns=238908 min=27 max=1221
+umoddi3 patched def be status=0 size=100 helpers=[__clzdi2] small n=1000 bad=0 insns=257399 min=29 max=808
+umoddi3 patched def be status=0 size=100 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=920312 min=688 max=1161
+umoddi3 patched def be status=0 size=100 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=182675 min=27 max=352
+umoddi3 patched def be status=0 size=100 helpers=[__clzdi2] mixed n=1000 bad=0 insns=478091 min=27 max=1127
+umoddi3 patched def be status=0 size=100 helpers=[__clzdi2] all n=4701 bad=0 insns=2077385 min=27 max=1221
+umoddi3 patched def be classes idiv=0 mul=0 barrel=0 clz=0 imm=99001 load=31176 store=24990 branch=421664 other=1491152 taken=344268 total=2067983 cyc5=2412824 cyc3=2468990 max5=1349 max3=1363 tk_d=343695 tk_nd=573 ntk=77396 amb=0 cyc5btc=2067983 max5btc=1219 haz5lo=9279 haz5hi=15465
+divdi3 generic def be status=0 size=1091 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] edge n=701 bad=0 insns=648027 min=44 max=3072
+divdi3 generic def be status=0 size=1091 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] small n=1000 bad=0 insns=822404 min=446 max=1671
+divdi3 generic def be status=0 size=1091 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2619834 min=1626 max=2970
+divdi3 generic def be status=0 size=1091 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=669986 min=44 max=1368
+divdi3 generic def be status=0 size=1091 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=1366791 min=44 max=2933
+divdi3 generic def be status=0 size=1091 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] all n=4701 bad=0 insns=6127042 min=44 max=3072
+divdi3 generic def be classes idiv=0 mul=0 barrel=0 clz=0 imm=21262 load=148719 store=145754 branch=1866098 other=3935807 taken=1234830 total=6117640 cyc5=8072484 cyc3=8366957 max5=4047 max3=4146 tk_d=514816 tk_nd=720014 ntk=631268 amb=0 cyc5btc=6117640 max5btc=3070 haz5lo=11031 haz5hi=18417
+divdi3 generic-nohw def be status=0 size=326 helpers=[__clzdi2] edge n=701 bad=0 insns=800793 min=42 max=5493
+divdi3 generic-nohw def be status=0 size=326 helpers=[__clzdi2] small n=1000 bad=0 insns=803602 min=46 max=3316
+divdi3 generic-nohw def be status=0 size=326 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=3257523 min=1996 max=4688
+divdi3 generic-nohw def be status=0 size=326 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=203416 min=42 max=379
+divdi3 generic-nohw def be status=0 size=326 helpers=[__clzdi2] mixed n=1000 bad=0 insns=1541812 min=42 max=4316
+divdi3 generic-nohw def be status=0 size=326 helpers=[__clzdi2] all n=4701 bad=0 insns=6607146 min=42 max=5493
+divdi3 generic-nohw def be classes idiv=0 mul=0 barrel=0 clz=0 imm=18953 load=72222 store=62620 branch=681562 other=5762387 taken=522139 total=6597744 cyc5=7134312 cyc3=7269154 max5=5776 max3=5808 tk_d=507710 tk_nd=14429 ntk=159423 amb=0 cyc5btc=6597744 max5btc=5491 haz5lo=11291 haz5hi=22582
+divdi3 patched def be status=0 size=264 helpers=[__clzdi2] edge n=701 bad=0 insns=732635 min=42 max=5302
+divdi3 patched def be status=0 size=264 helpers=[__clzdi2] small n=1000 bad=0 insns=669235 min=46 max=2919
+divdi3 patched def be status=0 size=264 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=3178003 min=1985 max=4497
+divdi3 patched def be status=0 size=264 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=203895 min=42 max=380
+divdi3 patched def be status=0 size=264 helpers=[__clzdi2] mixed n=1000 bad=0 insns=1387124 min=42 max=4181
+divdi3 patched def be status=0 size=264 helpers=[__clzdi2] all n=4701 bad=0 insns=6170892 min=42 max=5302
+divdi3 patched def be classes idiv=0 mul=0 barrel=0 clz=0 imm=18953 load=65724 store=65724 branch=534518 other=5476571 taken=394217 total=6161490 cyc5=6570376 cyc3=6701824 max5=5527 max3=5557 tk_d=379548 tk_nd=14669 ntk=140301 amb=0 cyc5btc=6161490 max5btc=5300 haz5lo=9312 haz5hi=18624
+udivdi3 generic def be status=0 size=1064 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] edge n=701 bad=0 insns=543665 min=30 max=3064
+udivdi3 generic def be status=0 size=1064 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] small n=1000 bad=0 insns=804043 min=432 max=1650
+udivdi3 generic def be status=0 size=1064 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2600792 min=1612 max=2956
+udivdi3 generic def be status=0 size=1064 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=651208 min=30 max=1348
+udivdi3 generic def be status=0 size=1064 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=1348127 min=30 max=2919
+udivdi3 generic def be status=0 size=1064 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] all n=4701 bad=0 insns=5947835 min=30 max=3064
+udivdi3 generic def be classes idiv=0 mul=0 barrel=0 clz=0 imm=20918 load=140626 store=137746 branch=1824399 other=3814744 taken=1205172 total=5938433 cyc5=7855624 cyc3=8133996 max5=4021 max3=4118 tk_d=493153 tk_nd=712019 ntk=619227 amb=0 cyc5btc=5938433 max5btc=3062 haz5lo=9009 haz5hi=15345
+udivdi3 generic-nohw def be status=0 size=287 helpers=[__clzdi2] edge n=701 bad=0 insns=719614 min=29 max=5566
+udivdi3 generic-nohw def be status=0 size=287 helpers=[__clzdi2] small n=1000 bad=0 insns=785802 min=36 max=3286
+udivdi3 generic-nohw def be status=0 size=287 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=3241789 min=1978 max=4677
+udivdi3 generic-nohw def be status=0 size=287 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=188028 min=29 max=361
+udivdi3 generic-nohw def be status=0 size=287 helpers=[__clzdi2] mixed n=1000 bad=0 insns=1524929 min=29 max=4305
+udivdi3 generic-nohw def be status=0 size=287 helpers=[__clzdi2] all n=4701 bad=0 insns=6460162 min=29 max=5566
+udivdi3 generic-nohw def be classes idiv=0 mul=0 barrel=0 clz=0 imm=19061 load=48495 store=48495 branch=657103 other=5677606 taken=507081 total=6450760 cyc5=7000805 cyc3=7097795 max5=5914 max3=5936 tk_d=464117 tk_nd=42964 ntk=150022 amb=0 cyc5btc=6450760 max5btc=5564 haz5lo=6186 haz5hi=12372
+udivdi3 patched def be status=0 size=226 helpers=[__clzdi2] edge n=701 bad=0 insns=674861 min=33 max=5376
+udivdi3 patched def be status=0 size=226 helpers=[__clzdi2] small n=1000 bad=0 insns=659611 min=40 max=2909
+udivdi3 patched def be status=0 size=226 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=3168816 min=1974 max=4493
+udivdi3 patched def be status=0 size=226 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=192986 min=33 max=367
+udivdi3 patched def be status=0 size=226 helpers=[__clzdi2] mixed n=1000 bad=0 insns=1376987 min=33 max=4176
+udivdi3 patched def be status=0 size=226 helpers=[__clzdi2] all n=4701 bad=0 insns=6073261 min=33 max=5376
+udivdi3 patched def be classes idiv=0 mul=0 barrel=0 clz=0 imm=19061 load=57897 store=57897 branch=520246 other=5408758 taken=389269 total=6063859 cyc5=6459808 cyc3=6575602 max5=5601 max3=5627 tk_d=382589 tk_nd=6680 ntk=130977 amb=0 cyc5btc=6063859 max5btc=5374 haz5lo=6186 haz5hi=12372
+moddi3 asm mlib be status=0 size=44 helpers=[] edge n=701 bad=0 insns=291791 min=18 max=728
+moddi3 asm mlib be status=0 size=44 helpers=[] small n=1000 bad=0 insns=373616 min=286 max=480
+moddi3 asm mlib be status=0 size=44 helpers=[] wide/narrow n=1000 bad=0 insns=647670 min=618 max=680
+moddi3 asm mlib be status=0 size=44 helpers=[] wide/wide n=1000 bad=0 insns=599880 min=596 max=604
+moddi3 asm mlib be status=0 size=44 helpers=[] mixed n=1000 bad=0 insns=543175 min=446 max=674
+moddi3 asm mlib be status=0 size=44 helpers=[] all n=4701 bad=0 insns=2456132 min=18 max=728
+moddi3 asm mlib be classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=18804 store=18804 branch=540858 other=1868264 taken=468741 total=2446730 cyc5=3291418 cyc3=3329026 max5=862 max3=870 tk_d=92794 tk_nd=375947 ntk=72117 amb=0 cyc5btc=2446730 max5btc=726 haz5lo=0 haz5hi=0
+moddi3 asm-new mlib be status=0 size=48 helpers=[] edge n=701 bad=0 insns=130539 min=15 max=809
+moddi3 asm-new mlib be status=0 size=48 helpers=[] small n=1000 bad=0 insns=106271 min=15 max=494
+moddi3 asm-new mlib be status=0 size=48 helpers=[] wide/narrow n=1000 bad=0 insns=525501 min=299 max=762
+moddi3 asm-new mlib be status=0 size=48 helpers=[] wide/wide n=1000 bad=0 insns=25106 min=15 max=36
+moddi3 asm-new mlib be status=0 size=48 helpers=[] mixed n=1000 bad=0 insns=246763 min=15 max=732
+moddi3 asm-new mlib be status=0 size=48 helpers=[] all n=4701 bad=0 insns=1034180 min=15 max=809
+moddi3 asm-new mlib be classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=0 store=0 branch=276204 other=748574 taken=174936 total=1024778 cyc5=1210309 cyc3=1210309 max5=903 max3=903 tk_d=164341 tk_nd=10595 ntk=101268 amb=0 cyc5btc=1024778 max5btc=807 haz5lo=0 haz5hi=0
+moddi3 generic mlib be status=0 size=476 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=440434 min=45 max=2576
+moddi3 generic mlib be status=0 size=476 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=471438 min=152 max=1271
+moddi3 generic mlib be status=0 size=476 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2073704 min=1198 max=2473
+moddi3 generic mlib be status=0 size=476 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=306343 min=45 max=591
+moddi3 generic mlib be status=0 size=476 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=949413 min=45 max=2451
+moddi3 generic mlib be status=0 size=476 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4241332 min=45 max=2576
+moddi3 generic mlib be classes idiv=0 mul=13704 barrel=52999 clz=0 imm=20474 load=130063 store=126341 branch=1385356 other=2502993 taken=836104 total=4231930 cyc5=5746342 cyc3=6083153 max5=3448 max3=3554 tk_d=157796 tk_nd=678308 ntk=549252 amb=0 cyc5btc=4231930 max5btc=2574 haz5lo=16341 haz5hi=17572
+moddi3 generic-nohw mlib be status=0 size=150 helpers=[__clzdi2] edge n=701 bad=0 insns=190710 min=41 max=1178
+moddi3 generic-nohw mlib be status=0 size=150 helpers=[__clzdi2] small n=1000 bad=0 insns=190082 min=45 max=677
+moddi3 generic-nohw mlib be status=0 size=150 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=755108 min=508 max=1025
+moddi3 generic-nohw mlib be status=0 size=150 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=75039 min=41 max=114
+moddi3 generic-nohw mlib be status=0 size=150 helpers=[__clzdi2] mixed n=1000 bad=0 insns=351566 min=41 max=956
+moddi3 generic-nohw mlib be status=0 size=150 helpers=[__clzdi2] all n=4701 bad=0 insns=1562505 min=41 max=1178
+moddi3 generic-nohw mlib be classes idiv=0 mul=0 barrel=148227 clz=0 imm=16413 load=53218 store=47010 branch=295350 other=992885 taken=179146 total=1553103 cyc5=1741600 cyc3=1990055 max5=1316 max3=1468 tk_d=169795 tk_nd=9351 ntk=116204 amb=0 cyc5btc=1553103 max5btc=1176 haz5lo=6208 haz5hi=7105
+moddi3 patched mlib be status=0 size=124 helpers=[__clzdi2] edge n=701 bad=0 insns=155017 min=41 max=856
+moddi3 patched mlib be status=0 size=124 helpers=[__clzdi2] small n=1000 bad=0 insns=143810 min=43 max=457
+moddi3 patched mlib be status=0 size=124 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=627335 min=447 max=811
+moddi3 patched mlib be status=0 size=124 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=74830 min=41 max=111
+moddi3 patched mlib be status=0 size=124 helpers=[__clzdi2] mixed n=1000 bad=0 insns=293400 min=41 max=784
+moddi3 patched mlib be status=0 size=124 helpers=[__clzdi2] all n=4701 bad=0 insns=1294392 min=41 max=856
+moddi3 patched mlib be classes idiv=0 mul=0 barrel=97906 clz=0 imm=16413 load=39115 store=39115 branch=233194 other=859247 taken=169229 total=1284990 cyc5=1457210 cyc3=1633346 max5=931 max3=1016 tk_d=166238 tk_nd=2991 ntk=63965 amb=0 cyc5btc=1284990 max5btc=854 haz5lo=6208 haz5hi=7105
+umoddi3 generic mlib be status=0 size=462 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=383690 min=30 max=2568
+umoddi3 generic mlib be status=0 size=462 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=455085 min=140 max=1250
+umoddi3 generic mlib be status=0 size=462 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2056349 min=1186 max=2460
+umoddi3 generic mlib be status=0 size=462 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=287439 min=30 max=568
+umoddi3 generic mlib be status=0 size=462 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=931666 min=30 max=2438
+umoddi3 generic mlib be status=0 size=462 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4114229 min=30 max=2568
+umoddi3 generic mlib be classes idiv=0 mul=13425 barrel=51587 clz=0 imm=20121 load=125534 store=121879 branch=1353635 other=2418646 taken=816430 total=4104827 cyc5=5591301 cyc3=5917151 max5=3422 max3=3528 tk_d=146386 tk_nd=670044 ntk=537205 amb=0 cyc5btc=4104827 max5btc=2566 haz5lo=14564 haz5hi=15946
+umoddi3 generic-nohw mlib be status=0 size=115 helpers=[__clzdi2] edge n=701 bad=0 insns=168491 min=29 max=1180
+umoddi3 generic-nohw mlib be status=0 size=115 helpers=[__clzdi2] small n=1000 bad=0 insns=179419 min=34 max=665
+umoddi3 generic-nohw mlib be status=0 size=115 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=743072 min=497 max=1016
+umoddi3 generic-nohw mlib be status=0 size=115 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=63488 min=29 max=101
+umoddi3 generic-nohw mlib be status=0 size=115 helpers=[__clzdi2] mixed n=1000 bad=0 insns=339446 min=29 max=947
+umoddi3 generic-nohw mlib be status=0 size=115 helpers=[__clzdi2] all n=4701 bad=0 insns=1493916 min=29 max=1180
+umoddi3 generic-nohw mlib be classes idiv=0 mul=0 barrel=146303 clz=0 imm=16578 load=48495 store=48495 branch=275873 other=948770 taken=167411 total=1484514 cyc5=1656892 cyc3=1900185 max5=1317 max3=1471 tk_d=162444 tk_nd=4967 ntk=108462 amb=0 cyc5btc=1484514 max5btc=1178 haz5lo=6186 haz5hi=7083
+umoddi3 patched mlib be status=0 size=73 helpers=[__clzdi2] edge n=701 bad=0 insns=137895 min=27 max=852
+umoddi3 patched mlib be status=0 size=73 helpers=[__clzdi2] small n=1000 bad=0 insns=128653 min=29 max=442
+umoddi3 patched mlib be status=0 size=73 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=612581 min=434 max=798
+umoddi3 patched mlib be status=0 size=73 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=59572 min=27 max=95
+umoddi3 patched mlib be status=0 size=73 helpers=[__clzdi2] mixed n=1000 bad=0 insns=278443 min=27 max=770
+umoddi3 patched mlib be status=0 size=73 helpers=[__clzdi2] all n=4701 bad=0 insns=1217144 min=27 max=852
+umoddi3 patched mlib be classes idiv=0 mul=0 barrel=97108 clz=0 imm=16578 load=31176 store=24990 branch=215856 other=822034 taken=158988 total=1207742 cyc5=1367303 cyc3=1520577 max5=925 max3=1007 tk_d=158415 tk_nd=573 ntk=56868 amb=0 cyc5btc=1207742 max5btc=850 haz5lo=9279 haz5hi=10176
+divdi3 generic mlib be status=0 size=466 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=441639 min=43 max=2585
+divdi3 generic mlib be status=0 size=466 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=475486 min=156 max=1273
+divdi3 generic mlib be status=0 size=466 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2081971 min=1202 max=2484
+divdi3 generic mlib be status=0 size=466 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=299994 min=43 max=578
+divdi3 generic mlib be status=0 size=466 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=949087 min=43 max=2462
+divdi3 generic mlib be status=0 size=466 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4248177 min=43 max=2585
+divdi3 generic mlib be classes idiv=0 mul=13262 barrel=51970 clz=0 imm=20474 load=131544 store=128579 branch=1384896 other=2508050 taken=835675 total=4238775 cyc5=5748983 cyc3=6087600 max5=3456 max3=3569 tk_d=161142 tk_nd=674533 ntk=549221 amb=0 cyc5btc=4238775 max5btc=2583 haz5lo=22319 haz5hi=26072
+divdi3 generic-nohw mlib be status=0 size=177 helpers=[__clzdi2] edge n=701 bad=0 insns=215129 min=42 max=1438
+divdi3 generic-nohw mlib be status=0 size=177 helpers=[__clzdi2] small n=1000 bad=0 insns=214147 min=47 max=782
+divdi3 generic-nohw mlib be status=0 size=177 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=861744 min=561 max=1200
+divdi3 generic-nohw mlib be status=0 size=177 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=78749 min=42 max=119
+divdi3 generic-nohw mlib be status=0 size=177 helpers=[__clzdi2] mixed n=1000 bad=0 insns=397868 min=42 max=1121
+divdi3 generic-nohw mlib be status=0 size=177 helpers=[__clzdi2] all n=4701 bad=0 insns=1767637 min=42 max=1438
+divdi3 generic-nohw mlib be classes idiv=0 mul=0 barrel=153361 clz=0 imm=16413 load=142482 store=144900 branch=299373 other=1001706 taken=182376 total=1758235 cyc5=1952550 cyc3=2393293 max5=1580 max3=1986 tk_d=170437 tk_nd=11939 ntk=116997 amb=0 cyc5btc=1758235 max5btc=1436 haz5lo=9927 haz5hi=10824
+divdi3 patched mlib be status=0 size=163 helpers=[__clzdi2] edge n=701 bad=0 insns=194057 min=42 max=1188
+divdi3 patched mlib be status=0 size=163 helpers=[__clzdi2] small n=1000 bad=0 insns=193441 min=46 max=679
+divdi3 patched mlib be status=0 size=163 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=765806 min=517 max=1034
+divdi3 patched mlib be status=0 size=163 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=80792 min=42 max=123
+divdi3 patched mlib be status=0 size=163 helpers=[__clzdi2] mixed n=1000 bad=0 insns=356737 min=42 max=968
+divdi3 patched mlib be status=0 size=163 helpers=[__clzdi2] all n=4701 bad=0 insns=1590833 min=42 max=1188
+divdi3 patched mlib be classes idiv=0 mul=0 barrel=146997 clz=0 imm=16413 load=65724 store=65724 branch=292264 other=994309 taken=177405 total=1581431 cyc5=1773054 cyc3=2051499 max5=1330 max3=1490 tk_d=163187 tk_nd=14218 ntk=114859 amb=0 cyc5btc=1581431 max5btc=1186 haz5lo=9312 haz5hi=13313
+udivdi3 generic mlib be status=0 size=447 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=384369 min=29 max=2580
+udivdi3 generic mlib be status=0 size=447 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=459085 min=144 max=1254
+udivdi3 generic mlib be status=0 size=447 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2065430 min=1190 max=2472
+udivdi3 generic mlib be status=0 size=447 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=283659 min=29 max=562
+udivdi3 generic mlib be status=0 size=447 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=932794 min=29 max=2450
+udivdi3 generic mlib be status=0 size=447 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4125337 min=29 max=2580
+udivdi3 generic mlib be classes idiv=0 mul=12980 barrel=50465 clz=0 imm=20115 load=127646 store=124766 branch=1354744 other=2425219 taken=817599 total=4115935 cyc5=5599564 cyc3=5928401 max5=3433 max3=3546 tk_d=151569 tk_nd=666030 ntk=537145 amb=0 cyc5btc=4115935 max5btc=2578 haz5lo=20112 haz5hi=23801
+udivdi3 generic-nohw mlib be status=0 size=136 helpers=[__clzdi2] edge n=701 bad=0 insns=171239 min=29 max=1191
+udivdi3 generic-nohw mlib be status=0 size=136 helpers=[__clzdi2] small n=1000 bad=0 insns=184188 min=36 max=673
+udivdi3 generic-nohw mlib be status=0 size=136 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=752713 min=507 max=1027
+udivdi3 generic-nohw mlib be status=0 size=136 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=64925 min=29 max=104
+udivdi3 generic-nohw mlib be status=0 size=136 helpers=[__clzdi2] mixed n=1000 bad=0 insns=346796 min=29 max=958
+udivdi3 generic-nohw mlib be status=0 size=136 helpers=[__clzdi2] all n=4701 bad=0 insns=1519861 min=29 max=1191
+udivdi3 generic-nohw mlib be classes idiv=0 mul=0 barrel=153280 clz=0 imm=16578 load=48495 store=48495 branch=279920 other=963691 taken=171510 total=1510459 cyc5=1688018 cyc3=1938288 max5=1331 max3=1488 tk_d=165461 tk_nd=6049 ntk=108410 amb=0 cyc5btc=1510459 max5btc=1189 haz5lo=11485 haz5hi=12382
+udivdi3 patched mlib be status=0 size=125 helpers=[__clzdi2] edge n=701 bad=0 insns=173187 min=33 max=1194
+udivdi3 patched mlib be status=0 size=125 helpers=[__clzdi2] small n=1000 bad=0 insns=183714 min=40 max=668
+udivdi3 patched mlib be status=0 size=125 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=756619 min=511 max=1030
+udivdi3 patched mlib be status=0 size=125 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=69883 min=33 max=110
+udivdi3 patched mlib be status=0 size=125 helpers=[__clzdi2] mixed n=1000 bad=0 insns=346597 min=33 max=961
+udivdi3 patched mlib be status=0 size=125 helpers=[__clzdi2] all n=4701 bad=0 insns=1530000 min=33 max=1194
+udivdi3 patched mlib be classes idiv=0 mul=0 barrel=143604 clz=0 imm=16578 load=57897 store=57897 branch=276175 other=968447 taken=170566 total=1520598 cyc5=1696131 cyc3=1955529 max5=1334 max3=1492 tk_d=165599 tk_nd=4967 ntk=105609 amb=0 cyc5btc=1520598 max5btc=1192 haz5lo=6186 haz5hi=7083
+moddi3 asm nodiv be status=0 size=44 helpers=[] edge n=701 bad=0 insns=291791 min=18 max=728
+moddi3 asm nodiv be status=0 size=44 helpers=[] small n=1000 bad=0 insns=373616 min=286 max=480
+moddi3 asm nodiv be status=0 size=44 helpers=[] wide/narrow n=1000 bad=0 insns=647670 min=618 max=680
+moddi3 asm nodiv be status=0 size=44 helpers=[] wide/wide n=1000 bad=0 insns=599880 min=596 max=604
+moddi3 asm nodiv be status=0 size=44 helpers=[] mixed n=1000 bad=0 insns=543175 min=446 max=674
+moddi3 asm nodiv be status=0 size=44 helpers=[] all n=4701 bad=0 insns=2456132 min=18 max=728
+moddi3 asm nodiv be classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=18804 store=18804 branch=540858 other=1868264 taken=468741 total=2446730 cyc5=3291418 cyc3=3329026 max5=862 max3=870 tk_d=92794 tk_nd=375947 ntk=72117 amb=0 cyc5btc=2446730 max5btc=726 haz5lo=0 haz5hi=0
+moddi3 asm-new nodiv be status=0 size=48 helpers=[] edge n=701 bad=0 insns=130539 min=15 max=809
+moddi3 asm-new nodiv be status=0 size=48 helpers=[] small n=1000 bad=0 insns=106271 min=15 max=494
+moddi3 asm-new nodiv be status=0 size=48 helpers=[] wide/narrow n=1000 bad=0 insns=525501 min=299 max=762
+moddi3 asm-new nodiv be status=0 size=48 helpers=[] wide/wide n=1000 bad=0 insns=25106 min=15 max=36
+moddi3 asm-new nodiv be status=0 size=48 helpers=[] mixed n=1000 bad=0 insns=246763 min=15 max=732
+moddi3 asm-new nodiv be status=0 size=48 helpers=[] all n=4701 bad=0 insns=1034180 min=15 max=809
+moddi3 asm-new nodiv be classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=0 store=0 branch=276204 other=748574 taken=174936 total=1024778 cyc5=1210309 cyc3=1210309 max5=903 max3=903 tk_d=164341 tk_nd=10595 ntk=101268 amb=0 cyc5btc=1024778 max5btc=807 haz5lo=0 haz5hi=0
+moddi3 generic nodiv be status=0 size=474 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=440314 min=45 max=2576
+moddi3 generic nodiv be status=0 size=474 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=471438 min=152 max=1271
+moddi3 generic nodiv be status=0 size=474 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2073704 min=1198 max=2473
+moddi3 generic nodiv be status=0 size=474 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=305385 min=45 max=589
+moddi3 generic nodiv be status=0 size=474 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=948915 min=45 max=2451
+moddi3 generic nodiv be status=0 size=474 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4239756 min=45 max=2576
+moddi3 generic nodiv be classes idiv=0 mul=13704 barrel=52999 clz=0 imm=20474 load=130063 store=126341 branch=1385356 other=2501417 taken=836104 total=4230354 cyc5=5744766 cyc3=6081577 max5=3448 max3=3554 tk_d=157796 tk_nd=678308 ntk=549252 amb=0 cyc5btc=4230354 max5btc=2574 haz5lo=16341 haz5hi=17572
+moddi3 generic-nohw nodiv be status=0 size=147 helpers=[] edge n=701 bad=0 insns=171743 min=37 max=1131
+moddi3 generic-nohw nodiv be status=0 size=147 helpers=[] small n=1000 bad=0 insns=163474 min=42 max=629
+moddi3 generic-nohw nodiv be status=0 size=147 helpers=[] wide/narrow n=1000 bad=0 insns=708320 min=462 max=977
+moddi3 generic-nohw nodiv be status=0 size=147 helpers=[] wide/wide n=1000 bad=0 insns=51080 min=37 max=70
+moddi3 generic-nohw nodiv be status=0 size=147 helpers=[] mixed n=1000 bad=0 insns=314249 min=37 max=908
+moddi3 generic-nohw nodiv be status=0 size=147 helpers=[] all n=4701 bad=0 insns=1408866 min=37 max=1131
+moddi3 generic-nohw nodiv be classes idiv=0 mul=0 barrel=139808 clz=9183 imm=0 load=37608 store=37608 branch=270087 other=905170 taken=157830 total=1399464 cyc5=1566602 cyc3=1781626 max5=1265 max3=1408 tk_d=148522 tk_nd=9308 ntk=112257 amb=0 cyc5btc=1399464 max5btc=1129 haz5lo=0 haz5hi=0
+moddi3 patched nodiv be status=0 size=119 helpers=[] edge n=701 bad=0 insns=133477 min=33 max=803
+moddi3 patched nodiv be status=0 size=119 helpers=[] small n=1000 bad=0 insns=113704 min=35 max=406
+moddi3 patched nodiv be status=0 size=119 helpers=[] wide/narrow n=1000 bad=0 insns=575796 min=397 max=759
+moddi3 patched nodiv be status=0 size=119 helpers=[] wide/wide n=1000 bad=0 insns=47179 min=33 max=62
+moddi3 patched nodiv be status=0 size=119 helpers=[] mixed n=1000 bad=0 insns=253121 min=33 max=731
+moddi3 patched nodiv be status=0 size=119 helpers=[] all n=4701 bad=0 insns=1123277 min=33 max=803
+moddi3 patched nodiv be classes idiv=0 mul=0 barrel=91230 clz=9183 imm=0 load=14103 store=14103 branch=205440 other=779816 taken=145469 total=1113875 cyc5=1262505 cyc3=1381941 max5=870 max3=940 tk_d=142308 tk_nd=3161 ntk=59971 amb=0 cyc5btc=1113875 max5btc=801 haz5lo=0 haz5hi=0
+umoddi3 generic nodiv be status=0 size=460 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=383540 min=30 max=2568
+umoddi3 generic nodiv be status=0 size=460 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=455085 min=140 max=1250
+umoddi3 generic nodiv be status=0 size=460 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2056349 min=1186 max=2460
+umoddi3 generic nodiv be status=0 size=460 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=286481 min=30 max=566
+umoddi3 generic nodiv be status=0 size=460 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=931168 min=30 max=2438
+umoddi3 generic nodiv be status=0 size=460 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4112623 min=30 max=2568
+umoddi3 generic nodiv be classes idiv=0 mul=13425 barrel=51587 clz=0 imm=20121 load=125534 store=121879 branch=1353635 other=2417040 taken=816430 total=4103221 cyc5=5589695 cyc3=5915545 max5=3422 max3=3528 tk_d=146386 tk_nd=670044 ntk=537205 amb=0 cyc5btc=4103221 max5btc=2566 haz5lo=14564 haz5hi=15946
+umoddi3 generic-nohw nodiv be status=0 size=116 helpers=[] edge n=701 bad=0 insns=143734 min=10 max=1129
+umoddi3 generic-nohw nodiv be status=0 size=116 helpers=[] small n=1000 bad=0 insns=142680 min=14 max=612
+umoddi3 generic-nohw nodiv be status=0 size=116 helpers=[] wide/narrow n=1000 bad=0 insns=693285 min=448 max=965
+umoddi3 generic-nohw nodiv be status=0 size=116 helpers=[] wide/wide n=1000 bad=0 insns=29160 min=10 max=50
+umoddi3 generic-nohw nodiv be status=0 size=116 helpers=[] mixed n=1000 bad=0 insns=296754 min=10 max=896
+umoddi3 generic-nohw nodiv be status=0 size=116 helpers=[] all n=4701 bad=0 insns=1305613 min=10 max=1129
+umoddi3 generic-nohw nodiv be classes idiv=0 mul=0 barrel=137527 clz=8930 imm=0 load=18558 store=18558 branch=249949 other=862689 taken=145664 total=1296211 cyc5=1448616 cyc3=1623259 max5=1259 max3=1400 tk_d=138923 tk_nd=6741 ntk=104285 amb=0 cyc5btc=1296211 max5btc=1127 haz5lo=0 haz5hi=0
+umoddi3 patched nodiv be status=0 size=72 helpers=[] edge n=701 bad=0 insns=118874 min=23 max=801
+umoddi3 patched nodiv be status=0 size=72 helpers=[] small n=1000 bad=0 insns=100758 min=25 max=391
+umoddi3 patched nodiv be status=0 size=72 helpers=[] wide/narrow n=1000 bad=0 insns=562794 min=385 max=747
+umoddi3 patched nodiv be status=0 size=72 helpers=[] wide/wide n=1000 bad=0 insns=34017 min=23 max=46
+umoddi3 patched nodiv be status=0 size=72 helpers=[] mixed n=1000 bad=0 insns=239524 min=23 max=719
+umoddi3 patched nodiv be status=0 size=72 helpers=[] all n=4701 bad=0 insns=1055967 min=23 max=801
+umoddi3 patched nodiv be classes idiv=0 mul=0 barrel=88942 clz=8930 imm=0 load=9402 store=9402 branch=190538 other=739351 taken=137803 total=1046565 cyc5=1186108 cyc3=1293854 max5=867 max3=936 tk_d=136063 tk_nd=1740 ntk=52735 amb=0 cyc5btc=1046565 max5btc=799 haz5lo=0 haz5hi=0
+divdi3 generic nodiv be status=0 size=464 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=441625 min=43 max=2585
+divdi3 generic nodiv be status=0 size=464 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=475486 min=156 max=1273
+divdi3 generic nodiv be status=0 size=464 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2081971 min=1202 max=2484
+divdi3 generic nodiv be status=0 size=464 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=299468 min=43 max=576
+divdi3 generic nodiv be status=0 size=464 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=948869 min=43 max=2462
+divdi3 generic nodiv be status=0 size=464 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4247419 min=43 max=2585
+divdi3 generic nodiv be classes idiv=0 mul=13262 barrel=51970 clz=0 imm=20474 load=131544 store=128579 branch=1384896 other=2507292 taken=835675 total=4238017 cyc5=5748225 cyc3=6086842 max5=3456 max3=3569 tk_d=161142 tk_nd=674533 ntk=549221 amb=0 cyc5btc=4238017 max5btc=2583 haz5lo=22319 haz5hi=26072
+divdi3 generic-nohw nodiv be status=0 size=171 helpers=[] edge n=701 bad=0 insns=179194 min=41 max=1145
+divdi3 generic-nohw nodiv be status=0 size=171 helpers=[] small n=1000 bad=0 insns=175550 min=47 max=642
+divdi3 generic-nohw nodiv be status=0 size=171 helpers=[] wide/narrow n=1000 bad=0 insns=723096 min=475 max=992
+divdi3 generic-nohw nodiv be status=0 size=171 helpers=[] wide/wide n=1000 bad=0 insns=58129 min=41 max=77
+divdi3 generic-nohw nodiv be status=0 size=171 helpers=[] mixed n=1000 bad=0 insns=328382 min=41 max=925
+divdi3 generic-nohw nodiv be status=0 size=171 helpers=[] all n=4701 bad=0 insns=1464351 min=41 max=1145
+divdi3 generic-nohw nodiv be classes idiv=0 mul=0 barrel=146685 clz=9183 imm=0 load=51711 store=51711 branch=272322 other=923337 taken=159319 total=1454949 cyc5=1623533 cyc3=1873640 max5=1278 max3=1429 tk_d=150054 tk_nd=9265 ntk=113003 amb=0 cyc5btc=1454949 max5btc=1143 haz5lo=0 haz5hi=0
+divdi3 patched nodiv be status=0 size=162 helpers=[] edge n=701 bad=0 insns=176035 min=37 max=1142
+divdi3 patched nodiv be status=0 size=162 helpers=[] small n=1000 bad=0 insns=169266 min=43 max=633
+divdi3 patched nodiv be status=0 size=162 helpers=[] wide/narrow n=1000 bad=0 insns=722421 min=477 max=990
+divdi3 patched nodiv be status=0 size=162 helpers=[] wide/wide n=1000 bad=0 insns=55311 min=37 max=75
+divdi3 patched nodiv be status=0 size=162 helpers=[] mixed n=1000 bad=0 insns=322348 min=37 max=923
+divdi3 patched nodiv be status=0 size=162 helpers=[] all n=4701 bad=0 insns=1445381 min=37 max=1142
+divdi3 patched nodiv be classes idiv=0 mul=0 barrel=138578 clz=9183 imm=0 load=42309 store=42309 branch=264616 other=938984 taken=153751 total=1435979 cyc5=1597659 cyc3=1820855 max5=1275 max3=1420 tk_d=145822 tk_nd=7929 ntk=110865 amb=0 cyc5btc=1435979 max5btc=1140 haz5lo=0 haz5hi=0
+udivdi3 generic nodiv be status=0 size=445 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=384309 min=29 max=2580
+udivdi3 generic nodiv be status=0 size=445 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=459085 min=144 max=1254
+udivdi3 generic nodiv be status=0 size=445 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2065430 min=1190 max=2472
+udivdi3 generic nodiv be status=0 size=445 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=283133 min=29 max=560
+udivdi3 generic nodiv be status=0 size=445 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=932576 min=29 max=2450
+udivdi3 generic nodiv be status=0 size=445 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4124533 min=29 max=2580
+udivdi3 generic nodiv be classes idiv=0 mul=12980 barrel=50465 clz=0 imm=20115 load=127646 store=124766 branch=1354744 other=2424415 taken=817599 total=4115131 cyc5=5598760 cyc3=5927597 max5=3433 max3=3546 tk_d=151569 tk_nd=666030 ntk=537145 amb=0 cyc5btc=4115131 max5btc=2578 haz5lo=20112 haz5hi=23801
+udivdi3 generic-nohw nodiv be status=0 size=144 helpers=[] edge n=701 bad=0 insns=156990 min=31 max=1148
+udivdi3 generic-nohw nodiv be status=0 size=144 helpers=[] small n=1000 bad=0 insns=163806 min=38 max=631
+udivdi3 generic-nohw nodiv be status=0 size=144 helpers=[] wide/narrow n=1000 bad=0 insns=710926 min=466 max=984
+udivdi3 generic-nohw nodiv be status=0 size=144 helpers=[] wide/wide n=1000 bad=0 insns=45370 min=31 max=61
+udivdi3 generic-nohw nodiv be status=0 size=144 helpers=[] mixed n=1000 bad=0 insns=315358 min=31 max=915
+udivdi3 generic-nohw nodiv be status=0 size=144 helpers=[] all n=4701 bad=0 insns=1392450 min=31 max=1148
+udivdi3 generic-nohw nodiv be classes idiv=0 mul=0 barrel=143124 clz=8930 imm=0 load=47010 store=47010 branch=254602 other=882372 taken=150325 total=1383048 cyc5=1540028 cyc3=1777172 max5=1281 max3=1432 tk_d=143670 tk_nd=6655 ntk=104277 amb=0 cyc5btc=1383048 max5btc=1146 haz5lo=3093 haz5hi=3093
+udivdi3 patched nodiv be status=0 size=125 helpers=[] edge n=701 bad=0 insns=153870 min=28 max=1143
+udivdi3 patched nodiv be status=0 size=125 helpers=[] small n=1000 bad=0 insns=155640 min=35 max=618
+udivdi3 patched nodiv be status=0 size=125 helpers=[] wide/narrow n=1000 bad=0 insns=706832 min=462 max=979
+udivdi3 patched nodiv be status=0 size=125 helpers=[] wide/wide n=1000 bad=0 insns=43807 min=28 max=61
+udivdi3 patched nodiv be status=0 size=125 helpers=[] mixed n=1000 bad=0 insns=307410 min=28 max=910
+udivdi3 patched nodiv be status=0 size=125 helpers=[] all n=4701 bad=0 insns=1367559 min=28 max=1143
+udivdi3 patched nodiv be classes idiv=0 mul=0 barrel=136208 clz=8930 imm=0 load=37608 store=37608 branch=250857 other=886946 taken=149381 total=1358157 cyc5=1512928 cyc3=1724352 max5=1276 max3=1422 tk_d=143991 tk_nd=5390 ntk=101476 amb=0 cyc5btc=1358157 max5btc=1141 haz5lo=4196 haz5hi=4196
+moddi3 asm full be status=0 size=44 helpers=[] edge n=701 bad=0 insns=291791 min=18 max=728
+moddi3 asm full be status=0 size=44 helpers=[] small n=1000 bad=0 insns=373616 min=286 max=480
+moddi3 asm full be status=0 size=44 helpers=[] wide/narrow n=1000 bad=0 insns=647670 min=618 max=680
+moddi3 asm full be status=0 size=44 helpers=[] wide/wide n=1000 bad=0 insns=599880 min=596 max=604
+moddi3 asm full be status=0 size=44 helpers=[] mixed n=1000 bad=0 insns=543175 min=446 max=674
+moddi3 asm full be status=0 size=44 helpers=[] all n=4701 bad=0 insns=2456132 min=18 max=728
+moddi3 asm full be classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=18804 store=18804 branch=540858 other=1868264 taken=468741 total=2446730 cyc5=3291418 cyc3=3329026 max5=862 max3=870 tk_d=92794 tk_nd=375947 ntk=72117 amb=0 cyc5btc=2446730 max5btc=726 haz5lo=0 haz5hi=0
+moddi3 asm-new full be status=0 size=48 helpers=[] edge n=701 bad=0 insns=130539 min=15 max=809
+moddi3 asm-new full be status=0 size=48 helpers=[] small n=1000 bad=0 insns=106271 min=15 max=494
+moddi3 asm-new full be status=0 size=48 helpers=[] wide/narrow n=1000 bad=0 insns=525501 min=299 max=762
+moddi3 asm-new full be status=0 size=48 helpers=[] wide/wide n=1000 bad=0 insns=25106 min=15 max=36
+moddi3 asm-new full be status=0 size=48 helpers=[] mixed n=1000 bad=0 insns=246763 min=15 max=732
+moddi3 asm-new full be status=0 size=48 helpers=[] all n=4701 bad=0 insns=1034180 min=15 max=809
+moddi3 asm-new full be classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=0 store=0 branch=276204 other=748574 taken=174936 total=1024778 cyc5=1210309 cyc3=1210309 max5=903 max3=903 tk_d=164341 tk_nd=10595 ntk=101268 amb=0 cyc5btc=1024778 max5btc=807 haz5lo=0 haz5hi=0
+moddi3 generic full be status=0 size=422 helpers=[__clz_tab] edge n=701 bad=0 insns=55707 min=35 max=139
+moddi3 generic full be status=0 size=422 helpers=[__clz_tab] small n=1000 bad=0 insns=84875 min=79 max=91
+moddi3 generic full be status=0 size=422 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=115122 min=79 max=153
+moddi3 generic full be status=0 size=422 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=83189 min=35 max=136
+moddi3 generic full be status=0 size=422 helpers=[__clz_tab] mixed n=1000 bad=0 insns=92420 min=35 max=143
+moddi3 generic full be status=0 size=422 helpers=[__clz_tab] all n=4701 bad=0 insns=431313 min=35 max=153
+moddi3 generic full be classes idiv=10110 mul=23814 barrel=52999 clz=0 imm=20474 load=22526 store=18804 branch=63958 other=209226 taken=41826 total=421911 cyc5=807820 cyc3=959887 max5=297 max3=346 tk_d=31373 tk_nd=10453 ntk=22132 amb=0 cyc5btc=755541 max5btc=283 haz5lo=33628 haz5hi=37792
+moddi3 generic-nohw full be status=0 size=147 helpers=[] edge n=701 bad=0 insns=171743 min=37 max=1131
+moddi3 generic-nohw full be status=0 size=147 helpers=[] small n=1000 bad=0 insns=163474 min=42 max=629
+moddi3 generic-nohw full be status=0 size=147 helpers=[] wide/narrow n=1000 bad=0 insns=708320 min=462 max=977
+moddi3 generic-nohw full be status=0 size=147 helpers=[] wide/wide n=1000 bad=0 insns=51080 min=37 max=70
+moddi3 generic-nohw full be status=0 size=147 helpers=[] mixed n=1000 bad=0 insns=314249 min=37 max=908
+moddi3 generic-nohw full be status=0 size=147 helpers=[] all n=4701 bad=0 insns=1408866 min=37 max=1131
+moddi3 generic-nohw full be classes idiv=0 mul=0 barrel=139808 clz=9183 imm=0 load=37608 store=37608 branch=270087 other=905170 taken=157830 total=1399464 cyc5=1566602 cyc3=1781626 max5=1265 max3=1408 tk_d=148522 tk_nd=9308 ntk=112257 amb=0 cyc5btc=1399464 max5btc=1129 haz5lo=0 haz5hi=0
+moddi3 patched full be status=0 size=422 helpers=[__clz_tab] edge n=701 bad=0 insns=55707 min=35 max=139
+moddi3 patched full be status=0 size=422 helpers=[__clz_tab] small n=1000 bad=0 insns=84875 min=79 max=91
+moddi3 patched full be status=0 size=422 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=115122 min=79 max=153
+moddi3 patched full be status=0 size=422 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=83189 min=35 max=136
+moddi3 patched full be status=0 size=422 helpers=[__clz_tab] mixed n=1000 bad=0 insns=92420 min=35 max=143
+moddi3 patched full be status=0 size=422 helpers=[__clz_tab] all n=4701 bad=0 insns=431313 min=35 max=153
+moddi3 patched full be classes idiv=10110 mul=23814 barrel=52999 clz=0 imm=20474 load=22526 store=18804 branch=63958 other=209226 taken=41826 total=421911 cyc5=807820 cyc3=959887 max5=297 max3=346 tk_d=31373 tk_nd=10453 ntk=22132 amb=0 cyc5btc=755541 max5btc=283 haz5lo=33628 haz5hi=37792
+moddi3 rem full be status=0 size=114 helpers=[] edge n=701 bad=0 insns=156725 min=27 max=1053
+moddi3 rem full be status=0 size=114 helpers=[] small n=1000 bad=0 insns=132405 min=29 max=534
+moddi3 rem full be status=0 size=114 helpers=[] wide/narrow n=1000 bad=0 insns=686461 min=430 max=956
+moddi3 rem full be status=0 size=114 helpers=[] wide/wide n=1000 bad=0 insns=43087 min=27 max=61
+moddi3 rem full be status=0 size=114 helpers=[] mixed n=1000 bad=0 insns=296596 min=27 max=906
+moddi3 rem full be status=0 size=114 helpers=[] all n=4701 bad=0 insns=1315274 min=27 max=1053
+moddi3 rem full be classes idiv=0 mul=0 barrel=91230 clz=9183 imm=0 load=9402 store=9402 branch=301987 other=884668 taken=167547 total=1305872 cyc5=1520184 cyc3=1630218 max5=1181 max3=1249 tk_d=120782 tk_nd=46765 ntk=134440 amb=0 cyc5btc=1305872 max5btc=1051 haz5lo=0 haz5hi=0
+moddi3 rem-fused full be status=0 size=112 helpers=[] edge n=701 bad=0 insns=130825 min=28 max=801
+moddi3 rem-fused full be status=0 size=112 helpers=[] small n=1000 bad=0 insns=109928 min=30 max=405
+moddi3 rem-fused full be status=0 size=112 helpers=[] wide/narrow n=1000 bad=0 insns=571783 min=392 max=754
+moddi3 rem-fused full be status=0 size=112 helpers=[] wide/wide n=1000 bad=0 insns=43614 min=28 max=61
+moddi3 rem-fused full be status=0 size=112 helpers=[] mixed n=1000 bad=0 insns=249560 min=28 max=725
+moddi3 rem-fused full be status=0 size=112 helpers=[] all n=4701 bad=0 insns=1105710 min=28 max=801
+moddi3 rem-fused full be classes idiv=0 mul=0 barrel=91230 clz=9183 imm=0 load=14103 store=14103 branch=204074 other=763615 taken=144068 total=1096308 cyc5=1243692 cyc3=1363128 max5=868 max3=938 tk_d=140752 tk_nd=3316 ntk=60006 amb=0 cyc5btc=1096308 max5btc=799 haz5lo=0 haz5hi=0
+moddi3 rem-left full be status=0 size=134 helpers=[] edge n=701 bad=0 insns=186677 min=34 max=1151
+moddi3 rem-left full be status=0 size=134 helpers=[] small n=1000 bad=0 insns=151491 min=36 max=567
+moddi3 rem-left full be status=0 size=134 helpers=[] wide/narrow n=1000 bad=0 insns=831595 min=582 max=1088
+moddi3 rem-left full be status=0 size=134 helpers=[] wide/wide n=1000 bad=0 insns=55845 min=34 max=79
+moddi3 rem-left full be status=0 size=134 helpers=[] mixed n=1000 bad=0 insns=358048 min=34 max=1048
+moddi3 rem-left full be status=0 size=134 helpers=[] all n=4701 bad=0 insns=1583656 min=34 max=1151
+moddi3 rem-left full be classes idiv=0 mul=0 barrel=267708 clz=9183 imm=0 load=23505 store=23505 branch=213015 other=1037338 taken=151266 total=1574254 cyc5=1733952 cyc3=2048670 max5=1287 max3=1494 tk_d=142834 tk_nd=8432 ntk=61749 amb=0 cyc5btc=1574254 max5btc=1149 haz5lo=0 haz5hi=0
+umoddi3 generic full be status=0 size=398 helpers=[__clz_tab] edge n=701 bad=0 insns=36715 min=17 max=127
+umoddi3 generic full be status=0 size=398 helpers=[__clz_tab] small n=1000 bad=0 insns=65039 min=64 max=66
+umoddi3 generic full be status=0 size=398 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=94104 min=64 max=128
+umoddi3 generic full be status=0 size=398 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=61763 min=17 max=111
+umoddi3 generic full be status=0 size=398 helpers=[__clz_tab] mixed n=1000 bad=0 insns=71672 min=17 max=128
+umoddi3 generic full be status=0 size=398 helpers=[__clz_tab] all n=4701 bad=0 insns=329293 min=17 max=128
+umoddi3 generic full be classes idiv=9744 mul=23169 barrel=51587 clz=0 imm=20121 load=17758 store=14103 branch=45695 other=137714 taken=31136 total=319891 cyc5=684074 cyc3=823604 max5=271 max3=319 tk_d=19641 tk_nd=11495 ntk=14559 amb=0 cyc5btc=641443 max5btc=258 haz5lo=29195 haz5hi=31937
+umoddi3 generic-nohw full be status=0 size=116 helpers=[] edge n=701 bad=0 insns=143734 min=10 max=1129
+umoddi3 generic-nohw full be status=0 size=116 helpers=[] small n=1000 bad=0 insns=142680 min=14 max=612
+umoddi3 generic-nohw full be status=0 size=116 helpers=[] wide/narrow n=1000 bad=0 insns=693285 min=448 max=965
+umoddi3 generic-nohw full be status=0 size=116 helpers=[] wide/wide n=1000 bad=0 insns=29160 min=10 max=50
+umoddi3 generic-nohw full be status=0 size=116 helpers=[] mixed n=1000 bad=0 insns=296754 min=10 max=896
+umoddi3 generic-nohw full be status=0 size=116 helpers=[] all n=4701 bad=0 insns=1305613 min=10 max=1129
+umoddi3 generic-nohw full be classes idiv=0 mul=0 barrel=137527 clz=8930 imm=0 load=18558 store=18558 branch=249949 other=862689 taken=145664 total=1296211 cyc5=1448616 cyc3=1623259 max5=1259 max3=1400 tk_d=138923 tk_nd=6741 ntk=104285 amb=0 cyc5btc=1296211 max5btc=1127 haz5lo=0 haz5hi=0
+umoddi3 patched full be status=0 size=398 helpers=[__clz_tab] edge n=701 bad=0 insns=36715 min=17 max=127
+umoddi3 patched full be status=0 size=398 helpers=[__clz_tab] small n=1000 bad=0 insns=65039 min=64 max=66
+umoddi3 patched full be status=0 size=398 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=94104 min=64 max=128
+umoddi3 patched full be status=0 size=398 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=61763 min=17 max=111
+umoddi3 patched full be status=0 size=398 helpers=[__clz_tab] mixed n=1000 bad=0 insns=71672 min=17 max=128
+umoddi3 patched full be status=0 size=398 helpers=[__clz_tab] all n=4701 bad=0 insns=329293 min=17 max=128
+umoddi3 patched full be classes idiv=9744 mul=23169 barrel=51587 clz=0 imm=20121 load=17758 store=14103 branch=45695 other=137714 taken=31136 total=319891 cyc5=684074 cyc3=823604 max5=271 max3=319 tk_d=19641 tk_nd=11495 ntk=14559 amb=0 cyc5btc=641443 max5btc=258 haz5lo=29195 haz5hi=31937
+divdi3 generic full be status=0 size=372 helpers=[__clz_tab] edge n=701 bad=0 insns=54280 min=32 max=121
+divdi3 generic full be status=0 size=372 helpers=[__clz_tab] small n=1000 bad=0 insns=85440 min=80 max=89
+divdi3 generic full be status=0 size=372 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=112972 min=80 max=129
+divdi3 generic full be status=0 size=372 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=74834 min=32 max=119
+divdi3 generic full be status=0 size=372 helpers=[__clz_tab] mixed n=1000 bad=0 insns=87846 min=32 max=127
+divdi3 generic full be status=0 size=372 helpers=[__clz_tab] all n=4701 bad=0 insns=415372 min=32 max=129
+divdi3 generic full be classes idiv=10110 mul=23372 barrel=51969 clz=0 imm=20474 load=17825 store=14103 branch=62712 other=205405 taken=40611 total=405970 cyc5=789802 cyc3=930553 max5=280 max3=323 tk_d=31020 tk_nd=9591 ntk=22101 amb=0 cyc5btc=739600 max5btc=259 haz5lo=30276 haz5hi=33998
+divdi3 generic-nohw full be status=0 size=171 helpers=[] edge n=701 bad=0 insns=179194 min=41 max=1145
+divdi3 generic-nohw full be status=0 size=171 helpers=[] small n=1000 bad=0 insns=175550 min=47 max=642
+divdi3 generic-nohw full be status=0 size=171 helpers=[] wide/narrow n=1000 bad=0 insns=723096 min=475 max=992
+divdi3 generic-nohw full be status=0 size=171 helpers=[] wide/wide n=1000 bad=0 insns=58129 min=41 max=77
+divdi3 generic-nohw full be status=0 size=171 helpers=[] mixed n=1000 bad=0 insns=328382 min=41 max=925
+divdi3 generic-nohw full be status=0 size=171 helpers=[] all n=4701 bad=0 insns=1464351 min=41 max=1145
+divdi3 generic-nohw full be classes idiv=0 mul=0 barrel=146685 clz=9183 imm=0 load=51711 store=51711 branch=272322 other=923337 taken=159319 total=1454949 cyc5=1623533 cyc3=1873640 max5=1278 max3=1429 tk_d=150054 tk_nd=9265 ntk=113003 amb=0 cyc5btc=1454949 max5btc=1143 haz5lo=0 haz5hi=0
+divdi3 patched full be status=0 size=372 helpers=[__clz_tab] edge n=701 bad=0 insns=54280 min=32 max=121
+divdi3 patched full be status=0 size=372 helpers=[__clz_tab] small n=1000 bad=0 insns=85440 min=80 max=89
+divdi3 patched full be status=0 size=372 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=112972 min=80 max=129
+divdi3 patched full be status=0 size=372 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=74834 min=32 max=119
+divdi3 patched full be status=0 size=372 helpers=[__clz_tab] mixed n=1000 bad=0 insns=87846 min=32 max=127
+divdi3 patched full be status=0 size=372 helpers=[__clz_tab] all n=4701 bad=0 insns=415372 min=32 max=129
+divdi3 patched full be classes idiv=10110 mul=23372 barrel=51969 clz=0 imm=20474 load=17825 store=14103 branch=62712 other=205405 taken=40611 total=405970 cyc5=789802 cyc3=930553 max5=280 max3=323 tk_d=31020 tk_nd=9591 ntk=22101 amb=0 cyc5btc=739600 max5btc=259 haz5lo=30276 haz5hi=33998
+udivdi3 generic full be status=0 size=346 helpers=[__clz_tab] edge n=701 bad=0 insns=29718 min=8 max=100
+udivdi3 generic full be status=0 size=346 helpers=[__clz_tab] small n=1000 bad=0 insns=58039 min=57 max=59
+udivdi3 generic full be status=0 size=346 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=84468 min=57 max=97
+udivdi3 generic full be status=0 size=346 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=48762 min=8 max=94
+udivdi3 generic full be status=0 size=346 helpers=[__clz_tab] mixed n=1000 bad=0 insns=60958 min=8 max=104
+udivdi3 generic full be status=0 size=346 helpers=[__clz_tab] all n=4701 bad=0 insns=281945 min=8 max=104
+udivdi3 generic full be classes idiv=9744 mul=22724 barrel=50499 clz=0 imm=20115 load=5311 store=1618 branch=42789 other=119743 taken=28290 total=272543 cyc5=631673 cyc3=744293 max5=243 max3=279 tk_d=19002 tk_nd=9288 ntk=14499 amb=0 cyc5btc=594095 max5btc=231 haz5lo=29286 haz5hi=32941
+udivdi3 generic-nohw full be status=0 size=144 helpers=[] edge n=701 bad=0 insns=156990 min=31 max=1148
+udivdi3 generic-nohw full be status=0 size=144 helpers=[] small n=1000 bad=0 insns=163806 min=38 max=631
+udivdi3 generic-nohw full be status=0 size=144 helpers=[] wide/narrow n=1000 bad=0 insns=710926 min=466 max=984
+udivdi3 generic-nohw full be status=0 size=144 helpers=[] wide/wide n=1000 bad=0 insns=45370 min=31 max=61
+udivdi3 generic-nohw full be status=0 size=144 helpers=[] mixed n=1000 bad=0 insns=315358 min=31 max=915
+udivdi3 generic-nohw full be status=0 size=144 helpers=[] all n=4701 bad=0 insns=1392450 min=31 max=1148
+udivdi3 generic-nohw full be classes idiv=0 mul=0 barrel=143124 clz=8930 imm=0 load=47010 store=47010 branch=254602 other=882372 taken=150325 total=1383048 cyc5=1540028 cyc3=1777172 max5=1281 max3=1432 tk_d=143670 tk_nd=6655 ntk=104277 amb=0 cyc5btc=1383048 max5btc=1146 haz5lo=3093 haz5hi=3093
+udivdi3 patched full be status=0 size=346 helpers=[__clz_tab] edge n=701 bad=0 insns=29718 min=8 max=100
+udivdi3 patched full be status=0 size=346 helpers=[__clz_tab] small n=1000 bad=0 insns=58039 min=57 max=59
+udivdi3 patched full be status=0 size=346 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=84468 min=57 max=97
+udivdi3 patched full be status=0 size=346 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=48762 min=8 max=94
+udivdi3 patched full be status=0 size=346 helpers=[__clz_tab] mixed n=1000 bad=0 insns=60958 min=8 max=104
+udivdi3 patched full be status=0 size=346 helpers=[__clz_tab] all n=4701 bad=0 insns=281945 min=8 max=104
+udivdi3 patched full be classes idiv=9744 mul=22724 barrel=50499 clz=0 imm=20115 load=5311 store=1618 branch=42789 other=119743 taken=28290 total=272543 cyc5=631673 cyc3=744293 max5=243 max3=279 tk_d=19002 tk_nd=9288 ntk=14499 amb=0 cyc5btc=594095 max5btc=231 haz5lo=29286 haz5hi=32941
+moddi3 stock def le status=137 size=60 helpers=[] no result
+moddi3 asm def le status=0 size=44 helpers=[] edge n=701 bad=0 insns=291791 min=18 max=728
+moddi3 asm def le status=0 size=44 helpers=[] small n=1000 bad=0 insns=373616 min=286 max=480
+moddi3 asm def le status=0 size=44 helpers=[] wide/narrow n=1000 bad=0 insns=647670 min=618 max=680
+moddi3 asm def le status=0 size=44 helpers=[] wide/wide n=1000 bad=0 insns=599880 min=596 max=604
+moddi3 asm def le status=0 size=44 helpers=[] mixed n=1000 bad=0 insns=543175 min=446 max=674
+moddi3 asm def le status=0 size=44 helpers=[] all n=4701 bad=0 insns=2456132 min=18 max=728
+moddi3 asm def le classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=18804 store=18804 branch=540858 other=1868264 taken=468741 total=2446730 cyc5=3291418 cyc3=3329026 max5=862 max3=870 tk_d=92794 tk_nd=375947 ntk=72117 amb=0 cyc5btc=2446730 max5btc=726 haz5lo=0 haz5hi=0
+moddi3 asm-new def le status=0 size=48 helpers=[] edge n=701 bad=0 insns=130539 min=15 max=809
+moddi3 asm-new def le status=0 size=48 helpers=[] small n=1000 bad=0 insns=106271 min=15 max=494
+moddi3 asm-new def le status=0 size=48 helpers=[] wide/narrow n=1000 bad=0 insns=525501 min=299 max=762
+moddi3 asm-new def le status=0 size=48 helpers=[] wide/wide n=1000 bad=0 insns=25106 min=15 max=36
+moddi3 asm-new def le status=0 size=48 helpers=[] mixed n=1000 bad=0 insns=246763 min=15 max=732
+moddi3 asm-new def le status=0 size=48 helpers=[] all n=4701 bad=0 insns=1034180 min=15 max=809
+moddi3 asm-new def le classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=0 store=0 branch=276204 other=748574 taken=174936 total=1024778 cyc5=1210309 cyc3=1210309 max5=903 max3=903 tk_d=164341 tk_nd=10595 ntk=101268 amb=0 cyc5btc=1024778 max5btc=807 haz5lo=0 haz5hi=0
+moddi3 generic def le status=0 size=1051 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] edge n=701 bad=0 insns=680744 min=50 max=3129
+moddi3 generic def le status=0 size=1051 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] small n=1000 bad=0 insns=859842 min=432 max=1753
+moddi3 generic def le status=0 size=1051 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2645997 min=1644 max=3025
+moddi3 generic def le status=0 size=1051 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=731804 min=50 max=1491
+moddi3 generic def le status=0 size=1051 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=1430222 min=50 max=2973
+moddi3 generic def le status=0 size=1051 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] all n=4701 bad=0 insns=6348609 min=50 max=3129
+moddi3 generic def le classes idiv=0 mul=0 barrel=0 clz=0 imm=22050 load=145742 store=142020 branch=1960832 other=4068563 taken=1318206 total=6339207 cyc5=8392675 cyc3=8680437 max5=4133 max3=4222 tk_d=582944 tk_nd=735262 ntk=642626 amb=0 cyc5btc=6339207 max5btc=3127 haz5lo=4511 haz5hi=5300
+moddi3 generic-nohw def le status=0 size=267 helpers=[__clzdi2] edge n=701 bad=0 insns=748210 min=43 max=5297
+moddi3 generic-nohw def le status=0 size=267 helpers=[__clzdi2] small n=1000 bad=0 insns=714905 min=47 max=3008
+moddi3 generic-nohw def le status=0 size=267 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=3171806 min=1978 max=4492
+moddi3 generic-nohw def le status=0 size=267 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=198941 min=43 max=371
+moddi3 generic-nohw def le status=0 size=267 helpers=[__clzdi2] mixed n=1000 bad=0 insns=1433282 min=43 max=4176
+moddi3 generic-nohw def le status=0 size=267 helpers=[__clzdi2] all n=4701 bad=0 insns=6267144 min=43 max=5297
+moddi3 generic-nohw def le classes idiv=0 mul=0 barrel=0 clz=0 imm=18953 load=57919 store=51711 branch=575947 other=5553212 taken=429665 total=6257742 cyc5=6731409 cyc3=6841039 max5=5580 max3=5604 tk_d=385663 tk_nd=44002 ntk=146282 amb=0 cyc5btc=6257742 max5btc=5295 haz5lo=6208 haz5hi=12416
+moddi3 patched def le status=0 size=152 helpers=[__clzdi2] edge n=701 bad=0 insns=250164 min=41 max=1220
+moddi3 patched def le status=0 size=152 helpers=[__clzdi2] small n=1000 bad=0 insns=273319 min=43 max=825
+moddi3 patched def le status=0 size=152 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=936314 min=703 max=1176
+moddi3 patched def le status=0 size=152 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=198879 min=41 max=370
+moddi3 patched def le status=0 size=152 helpers=[__clzdi2] mixed n=1000 bad=0 insns=494435 min=41 max=1142
+moddi3 patched def le status=0 size=152 helpers=[__clzdi2] all n=4701 bad=0 insns=2153111 min=41 max=1220
+moddi3 patched def le classes idiv=0 mul=0 barrel=0 clz=0 imm=99310 load=39115 store=39115 branch=436103 other=1530066 taken=351652 total=2143709 cyc5=2499713 cyc3=2577943 max5=1350 max3=1368 tk_d=347300 tk_nd=4352 ntk=84451 amb=0 cyc5btc=2143709 max5btc=1218 haz5lo=6208 haz5hi=12416
+moddi3 rem def le status=0 size=156 helpers=[__clzdi2] edge n=701 bad=0 insns=271026 min=29 max=1470
+moddi3 rem def le status=0 size=156 helpers=[__clzdi2] small n=1000 bad=0 insns=288305 min=31 max=951
+moddi3 rem def le status=0 size=156 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=1046212 min=735 max=1373
+moddi3 rem def le status=0 size=156 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=191188 min=29 max=368
+moddi3 rem def le status=0 size=156 helpers=[__clzdi2] mixed n=1000 bad=0 insns=535529 min=29 max=1315
+moddi3 rem def le status=0 size=156 helpers=[__clzdi2] all n=4701 bad=0 insns=2332260 min=29 max=1470
+moddi3 rem def le classes idiv=0 mul=0 barrel=0 clz=0 imm=99310 load=34324 store=28116 branch=531053 other=1630055 taken=372133 total=2322858 cyc5=2739018 cyc3=2801458 max5=1658 max3=1674 tk_d=328106 tk_nd=44027 ntk=158920 amb=0 cyc5btc=2322858 max5btc=1468 haz5lo=6208 haz5hi=12416
+moddi3 rem-fused def le status=0 size=151 helpers=[__clzdi2] edge n=701 bad=0 insns=244302 min=29 max=1215
+moddi3 rem-fused def le status=0 size=151 helpers=[__clzdi2] small n=1000 bad=0 insns=265108 min=31 max=822
+moddi3 rem-fused def le status=0 size=151 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=929301 min=695 max=1168
+moddi3 rem-fused def le status=0 size=151 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=190709 min=29 max=367
+moddi3 rem-fused def le status=0 size=151 helpers=[__clzdi2] mixed n=1000 bad=0 insns=487376 min=29 max=1133
+moddi3 rem-fused def le status=0 size=151 helpers=[__clzdi2] all n=4701 bad=0 insns=2116796 min=29 max=1215
+moddi3 rem-fused def le classes idiv=0 mul=0 barrel=0 clz=0 imm=99310 load=34324 store=28116 branch=433140 other=1512504 taken=348654 total=2107394 cyc5=2457810 cyc3=2520250 max5=1343 max3=1359 tk_d=346892 tk_nd=1762 ntk=84486 amb=0 cyc5btc=2107394 max5btc=1213 haz5lo=6208 haz5hi=12416
+moddi3 rem-left def le status=0 size=297 helpers=[__clzdi2] edge n=701 bad=0 insns=1176844 min=41 max=7439
+moddi3 rem-left def le status=0 size=297 helpers=[__clzdi2] small n=1000 bad=0 insns=889221 min=43 max=3785
+moddi3 rem-left def le status=0 size=297 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=5676203 min=4058 max=7285
+moddi3 rem-left def le status=0 size=297 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=297318 min=41 max=575
+moddi3 rem-left def le status=0 size=297 helpers=[__clzdi2] mixed n=1000 bad=0 insns=2368007 min=41 max=7152
+moddi3 rem-left def le status=0 size=297 helpers=[__clzdi2] all n=4701 bad=0 insns=10407593 min=41 max=7439
+moddi3 rem-left def le classes idiv=0 mul=0 barrel=0 clz=0 imm=19517 load=48517 store=48517 branch=550081 other=9731559 taken=452408 total=10398191 cyc5=10853793 cyc3=10950827 max5=7669 max3=7691 tk_d=449214 tk_nd=3194 ntk=97673 amb=0 cyc5btc=10398191 max5btc=7437 haz5lo=6208 haz5hi=12416
+umoddi3 generic def le status=0 size=956 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] edge n=701 bad=0 insns=565455 min=29 max=3116
+umoddi3 generic def le status=0 size=956 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] small n=1000 bad=0 insns=838529 min=415 max=1727
+umoddi3 generic def le status=0 size=956 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2623942 min=1627 max=3008
+umoddi3 generic def le status=0 size=956 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=708815 min=29 max=1469
+umoddi3 generic def le status=0 size=956 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=1408018 min=29 max=2956
+umoddi3 generic def le status=0 size=956 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] all n=4701 bad=0 insns=6144759 min=29 max=3116
+umoddi3 generic def le classes idiv=0 mul=0 barrel=0 clz=0 imm=21739 load=131197 store=127542 branch=1914428 other=3940451 taken=1284244 total=6135357 cyc5=8146502 cyc3=8405241 max5=4103 max3=4186 tk_d=557343 tk_nd=726901 ntk=630184 amb=0 cyc5btc=6135357 max5btc=3114 haz5lo=4592 haz5hi=5529
+umoddi3 generic-nohw def le status=0 size=227 helpers=[__clzdi2] edge n=701 bad=0 insns=679191 min=27 max=5362
+umoddi3 generic-nohw def le status=0 size=227 helpers=[__clzdi2] small n=1000 bad=0 insns=698986 min=31 max=2990
+umoddi3 generic-nohw def le status=0 size=227 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=3155269 min=1960 max=4479
+umoddi3 generic-nohw def le status=0 size=227 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=183154 min=27 max=353
+umoddi3 generic-nohw def le status=0 size=227 helpers=[__clzdi2] mixed n=1000 bad=0 insns=1416806 min=27 max=4163
+umoddi3 generic-nohw def le status=0 size=227 helpers=[__clzdi2] all n=4701 bad=0 insns=6133406 min=27 max=5362
+umoddi3 generic-nohw def le classes idiv=0 mul=0 barrel=0 clz=0 imm=19061 load=43794 store=43794 branch=555733 other=5461622 taken=417561 total=6124004 cyc5=6584615 cyc3=6672203 max5=5647 max3=5667 tk_d=374511 tk_nd=43050 ntk=138172 amb=0 cyc5btc=6124004 max5btc=5360 haz5lo=6186 haz5hi=12372
+umoddi3 patched def le status=0 size=101 helpers=[__clzdi2] edge n=701 bad=0 insns=239040 min=27 max=1222
+umoddi3 patched def le status=0 size=101 helpers=[__clzdi2] small n=1000 bad=0 insns=257399 min=29 max=808
+umoddi3 patched def le status=0 size=101 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=921312 min=689 max=1162
+umoddi3 patched def le status=0 size=101 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=182675 min=27 max=352
+umoddi3 patched def le status=0 size=101 helpers=[__clzdi2] mixed n=1000 bad=0 insns=478339 min=27 max=1128
+umoddi3 patched def le status=0 size=101 helpers=[__clzdi2] all n=4701 bad=0 insns=2078765 min=27 max=1222
+umoddi3 patched def le classes idiv=0 mul=0 barrel=0 clz=0 imm=99001 load=31176 store=24990 branch=421664 other=1492532 taken=344268 total=2069363 cyc5=2415584 cyc3=2471750 max5=1351 max3=1365 tk_d=342315 tk_nd=1953 ntk=77396 amb=0 cyc5btc=2069363 max5btc=1220 haz5lo=6186 haz5hi=12372
+divdi3 generic def le status=0 size=1093 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] edge n=701 bad=0 insns=648755 min=45 max=3073
+divdi3 generic def le status=0 size=1093 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] small n=1000 bad=0 insns=822927 min=446 max=1672
+divdi3 generic def le status=0 size=1093 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2621287 min=1626 max=2971
+divdi3 generic def le status=0 size=1093 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=671944 min=45 max=1371
+divdi3 generic def le status=0 size=1093 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=1368146 min=45 max=2934
+divdi3 generic def le status=0 size=1093 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] all n=4701 bad=0 insns=6133059 min=45 max=3073
+divdi3 generic def le classes idiv=0 mul=0 barrel=0 clz=0 imm=21262 load=153420 store=150455 branch=1866634 other=3931886 taken=1234030 total=6123657 cyc5=8078496 cyc3=8382371 max5=4046 max3=4147 tk_d=513221 tk_nd=720809 ntk=632604 amb=0 cyc5btc=6123657 max5btc=3071 haz5lo=11031 haz5hi=18417
+divdi3 generic-nohw def le status=0 size=328 helpers=[__clzdi2] edge n=701 bad=0 insns=801847 min=42 max=5495
+divdi3 generic-nohw def le status=0 size=328 helpers=[__clzdi2] small n=1000 bad=0 insns=805244 min=46 max=3320
+divdi3 generic-nohw def le status=0 size=328 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=3259070 min=1998 max=4690
+divdi3 generic-nohw def le status=0 size=328 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=205332 min=42 max=383
+divdi3 generic-nohw def le status=0 size=328 helpers=[__clzdi2] mixed n=1000 bad=0 insns=1543706 min=42 max=4318
+divdi3 generic-nohw def le status=0 size=328 helpers=[__clzdi2] all n=4701 bad=0 insns=6615199 min=42 max=5495
+divdi3 generic-nohw def le classes idiv=0 mul=0 barrel=0 clz=0 imm=18953 load=72222 store=62620 branch=681562 other=5770440 taken=522139 total=6605797 cyc5=7143117 cyc3=7277959 max5=5779 max3=5811 tk_d=506958 tk_nd=15181 ntk=159423 amb=0 cyc5btc=6605797 max5btc=5493 haz5lo=11291 haz5hi=22582
+divdi3 patched def le status=0 size=265 helpers=[__clzdi2] edge n=701 bad=0 insns=733110 min=42 max=5304
+divdi3 patched def le status=0 size=265 helpers=[__clzdi2] small n=1000 bad=0 insns=669748 min=46 max=2920
+divdi3 patched def le status=0 size=265 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=3180003 min=1987 max=4499
+divdi3 patched def le status=0 size=265 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=204374 min=42 max=381
+divdi3 patched def le status=0 size=265 helpers=[__clzdi2] mixed n=1000 bad=0 insns=1388122 min=42 max=4183
+divdi3 patched def le status=0 size=265 helpers=[__clzdi2] all n=4701 bad=0 insns=6175357 min=42 max=5304
+divdi3 patched def le classes idiv=0 mul=0 barrel=0 clz=0 imm=18953 load=65724 store=65724 branch=534518 other=5481036 taken=394217 total=6165955 cyc5=6574841 cyc3=6706289 max5=5529 max3=5559 tk_d=379548 tk_nd=14669 ntk=140301 amb=0 cyc5btc=6165955 max5btc=5302 haz5lo=9312 haz5hi=18624
+udivdi3 generic def le status=0 size=1063 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] edge n=701 bad=0 insns=542067 min=28 max=3062
+udivdi3 generic def le status=0 size=1063 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] small n=1000 bad=0 insns=802043 min=430 max=1648
+udivdi3 generic def le status=0 size=1063 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2598792 min=1610 max=2954
+udivdi3 generic def le status=0 size=1063 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=648992 min=28 max=1346
+udivdi3 generic def le status=0 size=1063 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=1346006 min=28 max=2917
+udivdi3 generic def le status=0 size=1063 helpers=[__clz_tab __mulsi3 __udivsi3 __umodsi3] all n=4701 bad=0 insns=5937900 min=28 max=3062
+udivdi3 generic def le classes idiv=0 mul=0 barrel=0 clz=0 imm=20918 load=139817 store=136937 branch=1824782 other=3806044 taken=1205555 total=5928498 cyc5=7847009 cyc3=8123763 max5=4019 max3=4116 tk_d=492599 tk_nd=712956 ntk=619227 amb=0 cyc5btc=5928498 max5btc=3060 haz5lo=10341 haz5hi=16677
+udivdi3 generic-nohw def le status=0 size=291 helpers=[__clzdi2] edge n=701 bad=0 insns=722078 min=31 max=5570
+udivdi3 generic-nohw def le status=0 size=291 helpers=[__clzdi2] small n=1000 bad=0 insns=789444 min=38 max=3292
+udivdi3 generic-nohw def le status=0 size=291 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=3245789 min=1982 max=4681
+udivdi3 generic-nohw def le status=0 size=291 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=191944 min=31 max=367
+udivdi3 generic-nohw def le status=0 size=291 helpers=[__clzdi2] mixed n=1000 bad=0 insns=1528937 min=31 max=4309
+udivdi3 generic-nohw def le status=0 size=291 helpers=[__clzdi2] all n=4701 bad=0 insns=6478192 min=31 max=5570
+udivdi3 generic-nohw def le classes idiv=0 mul=0 barrel=0 clz=0 imm=19061 load=53196 store=53196 branch=657103 other=5686234 taken=507081 total=6468790 cyc5=7019625 cyc3=7126017 max5=5919 max3=5943 tk_d=463327 tk_nd=43754 ntk=150022 amb=0 cyc5btc=6468790 max5btc=5568 haz5lo=6186 haz5hi=12372
+udivdi3 patched def le status=0 size=227 helpers=[__clzdi2] edge n=701 bad=0 insns=675431 min=33 max=5377
+udivdi3 patched def le status=0 size=227 helpers=[__clzdi2] small n=1000 bad=0 insns=660637 min=40 max=2911
+udivdi3 patched def le status=0 size=227 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=3169816 min=1975 max=4494
+udivdi3 patched def le status=0 size=227 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=193944 min=33 max=369
+udivdi3 patched def le status=0 size=227 helpers=[__clzdi2] mixed n=1000 bad=0 insns=1378239 min=33 max=4177
+udivdi3 patched def le status=0 size=227 helpers=[__clzdi2] all n=4701 bad=0 insns=6078067 min=33 max=5377
+udivdi3 patched def le classes idiv=0 mul=0 barrel=0 clz=0 imm=19061 load=57897 store=57897 branch=520246 other=5413564 taken=389269 total=6068665 cyc5=6464614 cyc3=6580408 max5=5602 max3=5628 tk_d=382589 tk_nd=6680 ntk=130977 amb=0 cyc5btc=6068665 max5btc=5375 haz5lo=6186 haz5hi=12372
+moddi3 asm mlib le status=0 size=44 helpers=[] edge n=701 bad=0 insns=291791 min=18 max=728
+moddi3 asm mlib le status=0 size=44 helpers=[] small n=1000 bad=0 insns=373616 min=286 max=480
+moddi3 asm mlib le status=0 size=44 helpers=[] wide/narrow n=1000 bad=0 insns=647670 min=618 max=680
+moddi3 asm mlib le status=0 size=44 helpers=[] wide/wide n=1000 bad=0 insns=599880 min=596 max=604
+moddi3 asm mlib le status=0 size=44 helpers=[] mixed n=1000 bad=0 insns=543175 min=446 max=674
+moddi3 asm mlib le status=0 size=44 helpers=[] all n=4701 bad=0 insns=2456132 min=18 max=728
+moddi3 asm mlib le classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=18804 store=18804 branch=540858 other=1868264 taken=468741 total=2446730 cyc5=3291418 cyc3=3329026 max5=862 max3=870 tk_d=92794 tk_nd=375947 ntk=72117 amb=0 cyc5btc=2446730 max5btc=726 haz5lo=0 haz5hi=0
+moddi3 asm-new mlib le status=0 size=48 helpers=[] edge n=701 bad=0 insns=130539 min=15 max=809
+moddi3 asm-new mlib le status=0 size=48 helpers=[] small n=1000 bad=0 insns=106271 min=15 max=494
+moddi3 asm-new mlib le status=0 size=48 helpers=[] wide/narrow n=1000 bad=0 insns=525501 min=299 max=762
+moddi3 asm-new mlib le status=0 size=48 helpers=[] wide/wide n=1000 bad=0 insns=25106 min=15 max=36
+moddi3 asm-new mlib le status=0 size=48 helpers=[] mixed n=1000 bad=0 insns=246763 min=15 max=732
+moddi3 asm-new mlib le status=0 size=48 helpers=[] all n=4701 bad=0 insns=1034180 min=15 max=809
+moddi3 asm-new mlib le classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=0 store=0 branch=276204 other=748574 taken=174936 total=1024778 cyc5=1210309 cyc3=1210309 max5=903 max3=903 tk_d=164341 tk_nd=10595 ntk=101268 amb=0 cyc5btc=1024778 max5btc=807 haz5lo=0 haz5hi=0
+moddi3 generic mlib le status=0 size=476 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=440035 min=44 max=2576
+moddi3 generic mlib le status=0 size=476 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=470921 min=151 max=1271
+moddi3 generic mlib le status=0 size=476 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2073230 min=1197 max=2472
+moddi3 generic mlib le status=0 size=476 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=305344 min=44 max=590
+moddi3 generic mlib le status=0 size=476 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=948875 min=44 max=2450
+moddi3 generic mlib le status=0 size=476 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4238405 min=44 max=2576
+moddi3 generic mlib le classes idiv=0 mul=13704 barrel=53051 clz=0 imm=20474 load=130063 store=126341 branch=1385356 other=2500014 taken=836104 total=4229003 cyc5=5743649 cyc3=6080512 max5=3448 max3=3554 tk_d=157562 tk_nd=678542 ntk=549252 amb=0 cyc5btc=4229003 max5btc=2574 haz5lo=16341 haz5hi=17572
+moddi3 generic-nohw mlib le status=0 size=153 helpers=[__clzdi2] edge n=701 bad=0 insns=192446 min=43 max=1184
+moddi3 generic-nohw mlib le status=0 size=153 helpers=[__clzdi2] small n=1000 bad=0 insns=191838 min=47 max=679
+moddi3 generic-nohw mlib le status=0 size=153 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=760609 min=513 max=1030
+moddi3 generic-nohw mlib le status=0 size=153 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=77275 min=43 max=117
+moddi3 generic-nohw mlib le status=0 size=153 helpers=[__clzdi2] mixed n=1000 bad=0 insns=354172 min=43 max=961
+moddi3 generic-nohw mlib le status=0 size=153 helpers=[__clzdi2] all n=4701 bad=0 insns=1576340 min=43 max=1184
+moddi3 generic-nohw mlib le classes idiv=0 mul=0 barrel=147048 clz=0 imm=16413 load=57919 store=51711 branch=295350 other=998497 taken=179146 total=1566938 cyc5=1753860 cyc3=2010538 max5=1322 max3=1476 tk_d=171370 tk_nd=7776 ntk=116204 amb=0 cyc5btc=1566938 max5btc=1182 haz5lo=11141 haz5hi=14249
+moddi3 patched mlib le status=0 size=124 helpers=[__clzdi2] edge n=701 bad=0 insns=155569 min=41 max=855
+moddi3 patched mlib le status=0 size=124 helpers=[__clzdi2] small n=1000 bad=0 insns=145086 min=43 max=460
+moddi3 patched mlib le status=0 size=124 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=626583 min=447 max=811
+moddi3 patched mlib le status=0 size=124 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=76255 min=41 max=114
+moddi3 patched mlib le status=0 size=124 helpers=[__clzdi2] mixed n=1000 bad=0 insns=294793 min=41 max=783
+moddi3 patched mlib le status=0 size=124 helpers=[__clzdi2] all n=4701 bad=0 insns=1298286 min=41 max=855
+moddi3 patched mlib le classes idiv=0 mul=0 barrel=99649 clz=0 imm=16413 load=39115 store=39115 branch=231833 other=862759 taken=167486 total=1288884 cyc5=1459361 cyc3=1637240 max5=930 max3=1015 tk_d=164495 tk_nd=2991 ntk=64347 amb=0 cyc5btc=1288884 max5btc=853 haz5lo=9780 haz5hi=12888
+umoddi3 generic mlib le status=0 size=465 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=383244 min=29 max=2569
+umoddi3 generic mlib le status=0 size=465 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=456085 min=141 max=1251
+umoddi3 generic mlib le status=0 size=465 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2057324 min=1187 max=2461
+umoddi3 generic mlib le status=0 size=465 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=285481 min=29 max=565
+umoddi3 generic mlib le status=0 size=465 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=931333 min=29 max=2439
+umoddi3 generic mlib le status=0 size=465 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4113467 min=29 max=2569
+umoddi3 generic mlib le classes idiv=0 mul=13425 barrel=51425 clz=0 imm=20121 load=125534 store=121879 branch=1356403 other=2415278 taken=819076 total=4104065 cyc5=5593185 cyc3=5918873 max5=3424 max3=3530 tk_d=149032 tk_nd=670044 ntk=537327 amb=0 cyc5btc=4104065 max5btc=2567 haz5lo=12854 haz5hi=14272
+umoddi3 generic-nohw mlib le status=0 size=113 helpers=[__clzdi2] edge n=701 bad=0 insns=167208 min=27 max=1181
+umoddi3 generic-nohw mlib le status=0 size=113 helpers=[__clzdi2] small n=1000 bad=0 insns=175919 min=31 max=661
+umoddi3 generic-nohw mlib le status=0 size=113 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=744072 min=498 max=1017
+umoddi3 generic-nohw mlib le status=0 size=113 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=61488 min=27 max=99
+umoddi3 generic-nohw mlib le status=0 size=113 helpers=[__clzdi2] mixed n=1000 bad=0 insns=337696 min=27 max=948
+umoddi3 generic-nohw mlib le status=0 size=113 helpers=[__clzdi2] all n=4701 bad=0 insns=1486383 min=27 max=1181
+umoddi3 generic-nohw mlib le classes idiv=0 mul=0 barrel=145200 clz=0 imm=16578 load=43794 store=43794 branch=275873 other=951742 taken=167411 total=1476981 cyc5=1650527 cyc3=1883315 max5=1318 max3=1470 tk_d=161276 tk_nd=6135 ntk=108462 amb=0 cyc5btc=1476981 max5btc=1179 haz5lo=10926 haz5hi=13803
+umoddi3 patched mlib le status=0 size=74 helpers=[__clzdi2] edge n=701 bad=0 insns=138027 min=27 max=853
+umoddi3 patched mlib le status=0 size=74 helpers=[__clzdi2] small n=1000 bad=0 insns=128653 min=29 max=442
+umoddi3 patched mlib le status=0 size=74 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=613581 min=435 max=799
+umoddi3 patched mlib le status=0 size=74 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=59572 min=27 max=95
+umoddi3 patched mlib le status=0 size=74 helpers=[__clzdi2] mixed n=1000 bad=0 insns=278691 min=27 max=771
+umoddi3 patched mlib le status=0 size=74 helpers=[__clzdi2] all n=4701 bad=0 insns=1218524 min=27 max=853
+umoddi3 patched mlib le classes idiv=0 mul=0 barrel=97108 clz=0 imm=16578 load=31176 store=24990 branch=215856 other=823414 taken=158988 total=1209122 cyc5=1368683 cyc3=1521957 max5=926 max3=1008 tk_d=158415 tk_nd=573 ntk=56868 amb=0 cyc5btc=1209122 max5btc=851 haz5lo=9546 haz5hi=12423
+divdi3 generic mlib le status=0 size=464 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=440840 min=41 max=2585
+divdi3 generic mlib le status=0 size=464 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=474452 min=154 max=1273
+divdi3 generic mlib le status=0 size=464 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2080998 min=1200 max=2482
+divdi3 generic mlib le status=0 size=464 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=298475 min=41 max=577
+divdi3 generic mlib le status=0 size=464 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=947827 min=41 max=2460
+divdi3 generic mlib le status=0 size=464 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4242592 min=41 max=2585
+divdi3 generic mlib le classes idiv=0 mul=13262 barrel=52022 clz=0 imm=20474 load=131544 store=128579 branch=1382619 other=2504690 taken=833545 total=4233190 cyc5=5742057 cyc3=6080726 max5=3454 max3=3567 tk_d=158223 tk_nd=675322 ntk=549074 amb=0 cyc5btc=4233190 max5btc=2583 haz5lo=20983 haz5hi=24736
+divdi3 generic-nohw mlib le status=0 size=177 helpers=[__clzdi2] edge n=701 bad=0 insns=197501 min=42 max=1194
+divdi3 generic-nohw mlib le status=0 size=177 helpers=[__clzdi2] small n=1000 bad=0 insns=200839 min=46 max=695
+divdi3 generic-nohw mlib le status=0 size=177 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=769994 min=519 max=1040
+divdi3 generic-nohw mlib le status=0 size=177 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=82229 min=42 max=126
+divdi3 generic-nohw mlib le status=0 size=177 helpers=[__clzdi2] mixed n=1000 bad=0 insns=365600 min=42 max=974
+divdi3 generic-nohw mlib le status=0 size=177 helpers=[__clzdi2] all n=4701 bad=0 insns=1616163 min=42 max=1194
+divdi3 generic-nohw mlib le classes idiv=0 mul=0 barrel=156283 clz=0 imm=16413 load=71470 store=62620 branch=298227 other=1001748 taken=180848 total=1606761 cyc5=1802038 cyc3=2092411 max5=1337 max3=1500 tk_d=166419 tk_nd=14429 ntk=117379 amb=0 cyc5btc=1606761 max5btc=1192 haz5lo=17403 haz5hi=25594
+divdi3 patched mlib le status=0 size=164 helpers=[__clzdi2] edge n=701 bad=0 insns=194668 min=42 max=1189
+divdi3 patched mlib le status=0 size=164 helpers=[__clzdi2] small n=1000 bad=0 insns=194467 min=46 max=681
+divdi3 patched mlib le status=0 size=164 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=766806 min=518 max=1035
+divdi3 patched mlib le status=0 size=164 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=81750 min=42 max=125
+divdi3 patched mlib le status=0 size=164 helpers=[__clzdi2] mixed n=1000 bad=0 insns=357989 min=42 max=969
+divdi3 patched mlib le status=0 size=164 helpers=[__clzdi2] all n=4701 bad=0 insns=1595680 min=42 max=1189
+divdi3 patched mlib le classes idiv=0 mul=0 barrel=146433 clz=0 imm=16413 load=65724 store=65724 branch=292264 other=999720 taken=177405 total=1586278 cyc5=1777901 cyc3=2055782 max5=1331 max3=1491 tk_d=163187 tk_nd=14218 ntk=114859 amb=0 cyc5btc=1586278 max5btc=1187 haz5lo=14063 haz5hi=20275
+udivdi3 generic mlib le status=0 size=440 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=382350 min=27 max=2578
+udivdi3 generic mlib le status=0 size=440 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=458085 min=143 max=1253
+udivdi3 generic mlib le status=0 size=440 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2063442 min=1189 max=2470
+udivdi3 generic mlib le status=0 size=440 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=278043 min=27 max=552
+udivdi3 generic mlib le status=0 size=440 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=929167 min=27 max=2448
+udivdi3 generic mlib le status=0 size=440 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4111087 min=27 max=2578
+udivdi3 generic mlib le classes idiv=0 mul=12980 barrel=51792 clz=0 imm=20115 load=126028 store=123148 branch=1354361 other=2413261 taken=817216 total=4101685 cyc5=5585485 cyc3=5912413 max5=3431 max3=3544 tk_d=150632 tk_nd=666584 ntk=537145 amb=0 cyc5btc=4101685 max5btc=2576 haz5lo=22281 haz5hi=25970
+udivdi3 generic-nohw mlib le status=0 size=142 helpers=[__clzdi2] edge n=701 bad=0 insns=174246 min=31 max=1195
+udivdi3 generic-nohw mlib le status=0 size=142 helpers=[__clzdi2] small n=1000 bad=0 insns=188959 min=38 max=682
+udivdi3 generic-nohw mlib le status=0 size=142 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=756260 min=510 max=1031
+udivdi3 generic-nohw mlib le status=0 size=142 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=70278 min=31 max=113
+udivdi3 generic-nohw mlib le status=0 size=142 helpers=[__clzdi2] mixed n=1000 bad=0 insns=351471 min=31 max=962
+udivdi3 generic-nohw mlib le status=0 size=142 helpers=[__clzdi2] all n=4701 bad=0 insns=1541214 min=31 max=1195
+udivdi3 generic-nohw mlib le classes idiv=0 mul=0 barrel=153613 clz=0 imm=16578 load=53196 store=53196 branch=281530 other=973699 taken=172091 total=1531812 cyc5=1708870 cyc3=1968875 max5=1336 max3=1494 tk_d=167124 tk_nd=4967 ntk=109439 amb=0 cyc5btc=1531812 max5btc=1193 haz5lo=11259 haz5hi=14136
+udivdi3 patched mlib le status=0 size=126 helpers=[__clzdi2] edge n=701 bad=0 insns=173757 min=33 max=1195
+udivdi3 patched mlib le status=0 size=126 helpers=[__clzdi2] small n=1000 bad=0 insns=184740 min=40 max=670
+udivdi3 patched mlib le status=0 size=126 helpers=[__clzdi2] wide/narrow n=1000 bad=0 insns=757619 min=512 max=1031
+udivdi3 patched mlib le status=0 size=126 helpers=[__clzdi2] wide/wide n=1000 bad=0 insns=70841 min=33 max=112
+udivdi3 patched mlib le status=0 size=126 helpers=[__clzdi2] mixed n=1000 bad=0 insns=347849 min=33 max=962
+udivdi3 patched mlib le status=0 size=126 helpers=[__clzdi2] all n=4701 bad=0 insns=1534806 min=33 max=1195
+udivdi3 patched mlib le classes idiv=0 mul=0 barrel=143604 clz=0 imm=16578 load=57897 store=57897 branch=276175 other=973253 taken=170566 total=1525404 cyc5=1700937 cyc3=1960335 max5=1335 max3=1493 tk_d=165599 tk_nd=4967 ntk=105609 amb=0 cyc5btc=1525404 max5btc=1193 haz5lo=8166 haz5hi=11043
+moddi3 asm nodiv le status=0 size=44 helpers=[] edge n=701 bad=0 insns=291791 min=18 max=728
+moddi3 asm nodiv le status=0 size=44 helpers=[] small n=1000 bad=0 insns=373616 min=286 max=480
+moddi3 asm nodiv le status=0 size=44 helpers=[] wide/narrow n=1000 bad=0 insns=647670 min=618 max=680
+moddi3 asm nodiv le status=0 size=44 helpers=[] wide/wide n=1000 bad=0 insns=599880 min=596 max=604
+moddi3 asm nodiv le status=0 size=44 helpers=[] mixed n=1000 bad=0 insns=543175 min=446 max=674
+moddi3 asm nodiv le status=0 size=44 helpers=[] all n=4701 bad=0 insns=2456132 min=18 max=728
+moddi3 asm nodiv le classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=18804 store=18804 branch=540858 other=1868264 taken=468741 total=2446730 cyc5=3291418 cyc3=3329026 max5=862 max3=870 tk_d=92794 tk_nd=375947 ntk=72117 amb=0 cyc5btc=2446730 max5btc=726 haz5lo=0 haz5hi=0
+moddi3 asm-new nodiv le status=0 size=48 helpers=[] edge n=701 bad=0 insns=130539 min=15 max=809
+moddi3 asm-new nodiv le status=0 size=48 helpers=[] small n=1000 bad=0 insns=106271 min=15 max=494
+moddi3 asm-new nodiv le status=0 size=48 helpers=[] wide/narrow n=1000 bad=0 insns=525501 min=299 max=762
+moddi3 asm-new nodiv le status=0 size=48 helpers=[] wide/wide n=1000 bad=0 insns=25106 min=15 max=36
+moddi3 asm-new nodiv le status=0 size=48 helpers=[] mixed n=1000 bad=0 insns=246763 min=15 max=732
+moddi3 asm-new nodiv le status=0 size=48 helpers=[] all n=4701 bad=0 insns=1034180 min=15 max=809
+moddi3 asm-new nodiv le classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=0 store=0 branch=276204 other=748574 taken=174936 total=1024778 cyc5=1210309 cyc3=1210309 max5=903 max3=903 tk_d=164341 tk_nd=10595 ntk=101268 amb=0 cyc5btc=1024778 max5btc=807 haz5lo=0 haz5hi=0
+moddi3 generic nodiv le status=0 size=474 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=439915 min=44 max=2576
+moddi3 generic nodiv le status=0 size=474 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=470921 min=151 max=1271
+moddi3 generic nodiv le status=0 size=474 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2073230 min=1197 max=2472
+moddi3 generic nodiv le status=0 size=474 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=304386 min=44 max=588
+moddi3 generic nodiv le status=0 size=474 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=948377 min=44 max=2450
+moddi3 generic nodiv le status=0 size=474 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4236829 min=44 max=2576
+moddi3 generic nodiv le classes idiv=0 mul=13704 barrel=53051 clz=0 imm=20474 load=130063 store=126341 branch=1385356 other=2498438 taken=836104 total=4227427 cyc5=5742073 cyc3=6078936 max5=3448 max3=3554 tk_d=157562 tk_nd=678542 ntk=549252 amb=0 cyc5btc=4227427 max5btc=2574 haz5lo=16341 haz5hi=17572
+moddi3 generic-nohw nodiv le status=0 size=147 helpers=[] edge n=701 bad=0 insns=172241 min=37 max=1131
+moddi3 generic-nohw nodiv le status=0 size=147 helpers=[] small n=1000 bad=0 insns=164500 min=42 max=631
+moddi3 generic-nohw nodiv le status=0 size=147 helpers=[] wide/narrow n=1000 bad=0 insns=708320 min=462 max=977
+moddi3 generic-nohw nodiv le status=0 size=147 helpers=[] wide/wide n=1000 bad=0 insns=52038 min=37 max=72
+moddi3 generic-nohw nodiv le status=0 size=147 helpers=[] mixed n=1000 bad=0 insns=315253 min=37 max=908
+moddi3 generic-nohw nodiv le status=0 size=147 helpers=[] all n=4701 bad=0 insns=1412352 min=37 max=1131
+moddi3 generic-nohw nodiv le classes idiv=0 mul=0 barrel=141551 clz=9183 imm=0 load=37608 store=37608 branch=268344 other=908656 taken=155705 total=1402950 cyc5=1567963 cyc3=1784730 max5=1266 max3=1409 tk_d=146397 tk_nd=9308 ntk=112639 amb=0 cyc5btc=1402950 max5btc=1129 haz5lo=2722 haz5hi=2722
+moddi3 patched nodiv le status=0 size=119 helpers=[] edge n=701 bad=0 insns=133975 min=33 max=803
+moddi3 patched nodiv le status=0 size=119 helpers=[] small n=1000 bad=0 insns=114730 min=35 max=408
+moddi3 patched nodiv le status=0 size=119 helpers=[] wide/narrow n=1000 bad=0 insns=575796 min=397 max=759
+moddi3 patched nodiv le status=0 size=119 helpers=[] wide/wide n=1000 bad=0 insns=48137 min=33 max=64
+moddi3 patched nodiv le status=0 size=119 helpers=[] mixed n=1000 bad=0 insns=254125 min=33 max=731
+moddi3 patched nodiv le status=0 size=119 helpers=[] all n=4701 bad=0 insns=1126763 min=33 max=803
+moddi3 patched nodiv le classes idiv=0 mul=0 barrel=91230 clz=9183 imm=0 load=14103 store=14103 branch=204079 other=784663 taken=143726 total=1117361 cyc5=1264248 cyc3=1383684 max5=870 max3=940 tk_d=140565 tk_nd=3161 ntk=60353 amb=0 cyc5btc=1117361 max5btc=801 haz5lo=1361 haz5hi=1361
+umoddi3 generic nodiv le status=0 size=463 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=383094 min=29 max=2569
+umoddi3 generic nodiv le status=0 size=463 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=456085 min=141 max=1251
+umoddi3 generic nodiv le status=0 size=463 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2057324 min=1187 max=2461
+umoddi3 generic nodiv le status=0 size=463 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=284523 min=29 max=563
+umoddi3 generic nodiv le status=0 size=463 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=930835 min=29 max=2439
+umoddi3 generic nodiv le status=0 size=463 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4111861 min=29 max=2569
+umoddi3 generic nodiv le classes idiv=0 mul=13425 barrel=51425 clz=0 imm=20121 load=125534 store=121879 branch=1356403 other=2413672 taken=819076 total=4102459 cyc5=5591579 cyc3=5917267 max5=3424 max3=3530 tk_d=149032 tk_nd=670044 ntk=537327 amb=0 cyc5btc=4102459 max5btc=2567 haz5lo=12854 haz5hi=14272
+umoddi3 generic-nohw nodiv le status=0 size=126 helpers=[] edge n=701 bad=0 insns=143874 min=9 max=1130
+umoddi3 generic-nohw nodiv le status=0 size=126 helpers=[] small n=1000 bad=0 insns=143206 min=13 max=614
+umoddi3 generic-nohw nodiv le status=0 size=126 helpers=[] wide/narrow n=1000 bad=0 insns=693832 min=449 max=966
+umoddi3 generic-nohw nodiv le status=0 size=126 helpers=[] wide/wide n=1000 bad=0 insns=29597 min=9 max=52
+umoddi3 generic-nohw nodiv le status=0 size=126 helpers=[] mixed n=1000 bad=0 insns=297406 min=9 max=897
+umoddi3 generic-nohw nodiv le status=0 size=126 helpers=[] all n=4701 bad=0 insns=1307915 min=9 max=1130
+umoddi3 generic-nohw nodiv le classes idiv=0 mul=0 barrel=139240 clz=8930 imm=0 load=18558 store=18558 branch=250925 other=862302 taken=146474 total=1298513 cyc5=1451728 cyc3=1628084 max5=1262 max3=1403 tk_d=139733 tk_nd=6741 ntk=104451 amb=0 cyc5btc=1298513 max5btc=1128 haz5lo=4473 haz5hi=4473
+umoddi3 patched nodiv le status=0 size=72 helpers=[] edge n=701 bad=0 insns=119006 min=23 max=802
+umoddi3 patched nodiv le status=0 size=72 helpers=[] small n=1000 bad=0 insns=100758 min=25 max=391
+umoddi3 patched nodiv le status=0 size=72 helpers=[] wide/narrow n=1000 bad=0 insns=563794 min=386 max=748
+umoddi3 patched nodiv le status=0 size=72 helpers=[] wide/wide n=1000 bad=0 insns=34017 min=23 max=46
+umoddi3 patched nodiv le status=0 size=72 helpers=[] mixed n=1000 bad=0 insns=239772 min=23 max=720
+umoddi3 patched nodiv le status=0 size=72 helpers=[] all n=4701 bad=0 insns=1057347 min=23 max=802
+umoddi3 patched nodiv le classes idiv=0 mul=0 barrel=88942 clz=8930 imm=0 load=9402 store=9402 branch=190538 other=740731 taken=137803 total=1047945 cyc5=1187488 cyc3=1295234 max5=868 max3=937 tk_d=136063 tk_nd=1740 ntk=52735 amb=0 cyc5btc=1047945 max5btc=800 haz5lo=1380 haz5hi=1380
+divdi3 generic nodiv le status=0 size=462 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=440826 min=41 max=2585
+divdi3 generic nodiv le status=0 size=462 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=474452 min=154 max=1273
+divdi3 generic nodiv le status=0 size=462 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2080998 min=1200 max=2482
+divdi3 generic nodiv le status=0 size=462 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=297949 min=41 max=575
+divdi3 generic nodiv le status=0 size=462 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=947609 min=41 max=2460
+divdi3 generic nodiv le status=0 size=462 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4241834 min=41 max=2585
+divdi3 generic nodiv le classes idiv=0 mul=13262 barrel=52022 clz=0 imm=20474 load=131544 store=128579 branch=1382619 other=2503932 taken=833545 total=4232432 cyc5=5741299 cyc3=6079968 max5=3454 max3=3567 tk_d=158223 tk_nd=675322 ntk=549074 amb=0 cyc5btc=4232432 max5btc=2583 haz5lo=20983 haz5hi=24736
+divdi3 generic-nohw nodiv le status=0 size=168 helpers=[] edge n=701 bad=0 insns=178059 min=39 max=1143
+divdi3 generic-nohw nodiv le status=0 size=168 helpers=[] small n=1000 bad=0 insns=173692 min=45 max=641
+divdi3 generic-nohw nodiv le status=0 size=168 helpers=[] wide/narrow n=1000 bad=0 insns=720643 min=472 max=990
+divdi3 generic-nohw nodiv le status=0 size=168 helpers=[] wide/wide n=1000 bad=0 insns=58045 min=39 max=79
+divdi3 generic-nohw nodiv le status=0 size=168 helpers=[] mixed n=1000 bad=0 insns=326304 min=39 max=923
+divdi3 generic-nohw nodiv le status=0 size=168 helpers=[] all n=4701 bad=0 insns=1456743 min=39 max=1143
+divdi3 generic-nohw nodiv le classes idiv=0 mul=0 barrel=148610 clz=9183 imm=0 load=47010 store=47010 branch=270579 other=924949 taken=157194 total=1447341 cyc5=1613800 cyc3=1856430 max5=1277 max3=1427 tk_d=147929 tk_nd=9265 ntk=113385 amb=0 cyc5btc=1447341 max5btc=1141 haz5lo=1361 haz5hi=1361
+divdi3 patched nodiv le status=0 size=163 helpers=[] edge n=701 bad=0 insns=176646 min=37 max=1143
+divdi3 patched nodiv le status=0 size=163 helpers=[] small n=1000 bad=0 insns=170292 min=43 max=635
+divdi3 patched nodiv le status=0 size=163 helpers=[] wide/narrow n=1000 bad=0 insns=723421 min=478 max=991
+divdi3 patched nodiv le status=0 size=163 helpers=[] wide/wide n=1000 bad=0 insns=56269 min=37 max=77
+divdi3 patched nodiv le status=0 size=163 helpers=[] mixed n=1000 bad=0 insns=323600 min=37 max=924
+divdi3 patched nodiv le status=0 size=163 helpers=[] all n=4701 bad=0 insns=1450228 min=37 max=1143
+divdi3 patched nodiv le classes idiv=0 mul=0 barrel=138014 clz=9183 imm=0 load=42309 store=42309 branch=264616 other=944395 taken=153751 total=1440826 cyc5=1602506 cyc3=1825138 max5=1276 max3=1421 tk_d=145822 tk_nd=7929 ntk=110865 amb=0 cyc5btc=1440826 max5btc=1141 haz5lo=2540 haz5hi=2540
+udivdi3 generic nodiv le status=0 size=438 helpers=[__clz_tab __udivsi3 __umodsi3] edge n=701 bad=0 insns=382290 min=27 max=2578
+udivdi3 generic nodiv le status=0 size=438 helpers=[__clz_tab __udivsi3 __umodsi3] small n=1000 bad=0 insns=458085 min=143 max=1253
+udivdi3 generic nodiv le status=0 size=438 helpers=[__clz_tab __udivsi3 __umodsi3] wide/narrow n=1000 bad=0 insns=2063442 min=1189 max=2470
+udivdi3 generic nodiv le status=0 size=438 helpers=[__clz_tab __udivsi3 __umodsi3] wide/wide n=1000 bad=0 insns=277517 min=27 max=550
+udivdi3 generic nodiv le status=0 size=438 helpers=[__clz_tab __udivsi3 __umodsi3] mixed n=1000 bad=0 insns=928949 min=27 max=2448
+udivdi3 generic nodiv le status=0 size=438 helpers=[__clz_tab __udivsi3 __umodsi3] all n=4701 bad=0 insns=4110283 min=27 max=2578
+udivdi3 generic nodiv le classes idiv=0 mul=12980 barrel=51792 clz=0 imm=20115 load=126028 store=123148 branch=1354361 other=2412457 taken=817216 total=4100881 cyc5=5584681 cyc3=5911609 max5=3431 max3=3544 tk_d=150632 tk_nd=666584 ntk=537145 amb=0 cyc5btc=4100881 max5btc=2576 haz5lo=22281 haz5hi=25970
+udivdi3 generic-nohw nodiv le status=0 size=146 helpers=[] edge n=701 bad=0 insns=155643 min=27 max=1145
+udivdi3 generic-nohw nodiv le status=0 size=146 helpers=[] small n=1000 bad=0 insns=162398 min=34 max=634
+udivdi3 generic-nohw nodiv le status=0 size=146 helpers=[] wide/narrow n=1000 bad=0 insns=707020 min=461 max=981
+udivdi3 generic-nohw nodiv le status=0 size=146 helpers=[] wide/wide n=1000 bad=0 insns=45202 min=27 max=65
+udivdi3 generic-nohw nodiv le status=0 size=146 helpers=[] mixed n=1000 bad=0 insns=313170 min=27 max=912
+udivdi3 generic-nohw nodiv le status=0 size=146 helpers=[] all n=4701 bad=0 insns=1383433 min=27 max=1145
+udivdi3 generic-nohw nodiv le classes idiv=0 mul=0 barrel=145447 clz=8930 imm=0 load=37608 store=37608 branch=256761 other=887677 taken=150906 total=1374031 cyc5=1531117 cyc3=1751780 max5=1280 max3=1427 tk_d=144726 tk_nd=6180 ntk=105855 amb=0 cyc5btc=1374031 max5btc=1143 haz5lo=3093 haz5hi=3093
+udivdi3 patched nodiv le status=0 size=127 helpers=[] edge n=701 bad=0 insns=153765 min=27 max=1143
+udivdi3 patched nodiv le status=0 size=127 helpers=[] small n=1000 bad=0 insns=155871 min=34 max=619
+udivdi3 patched nodiv le status=0 size=127 helpers=[] wide/narrow n=1000 bad=0 insns=706832 min=462 max=979
+udivdi3 patched nodiv le status=0 size=127 helpers=[] wide/wide n=1000 bad=0 insns=43765 min=27 max=62
+udivdi3 patched nodiv le status=0 size=127 helpers=[] mixed n=1000 bad=0 insns=307681 min=27 max=910
+udivdi3 patched nodiv le status=0 size=127 helpers=[] all n=4701 bad=0 insns=1367914 min=27 max=1143
+udivdi3 patched nodiv le classes idiv=0 mul=0 barrel=136208 clz=8930 imm=0 load=37608 store=37608 branch=250857 other=887301 taken=149381 total=1358512 cyc5=1513466 cyc3=1724890 max5=1276 max3=1422 tk_d=143808 tk_nd=5573 ntk=101476 amb=0 cyc5btc=1358512 max5btc=1141 haz5lo=4196 haz5hi=4196
+moddi3 asm full le status=0 size=44 helpers=[] edge n=701 bad=0 insns=291791 min=18 max=728
+moddi3 asm full le status=0 size=44 helpers=[] small n=1000 bad=0 insns=373616 min=286 max=480
+moddi3 asm full le status=0 size=44 helpers=[] wide/narrow n=1000 bad=0 insns=647670 min=618 max=680
+moddi3 asm full le status=0 size=44 helpers=[] wide/wide n=1000 bad=0 insns=599880 min=596 max=604
+moddi3 asm full le status=0 size=44 helpers=[] mixed n=1000 bad=0 insns=543175 min=446 max=674
+moddi3 asm full le status=0 size=44 helpers=[] all n=4701 bad=0 insns=2456132 min=18 max=728
+moddi3 asm full le classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=18804 store=18804 branch=540858 other=1868264 taken=468741 total=2446730 cyc5=3291418 cyc3=3329026 max5=862 max3=870 tk_d=92794 tk_nd=375947 ntk=72117 amb=0 cyc5btc=2446730 max5btc=726 haz5lo=0 haz5hi=0
+moddi3 asm-new full le status=0 size=48 helpers=[] edge n=701 bad=0 insns=130539 min=15 max=809
+moddi3 asm-new full le status=0 size=48 helpers=[] small n=1000 bad=0 insns=106271 min=15 max=494
+moddi3 asm-new full le status=0 size=48 helpers=[] wide/narrow n=1000 bad=0 insns=525501 min=299 max=762
+moddi3 asm-new full le status=0 size=48 helpers=[] wide/wide n=1000 bad=0 insns=25106 min=15 max=36
+moddi3 asm-new full le status=0 size=48 helpers=[] mixed n=1000 bad=0 insns=246763 min=15 max=732
+moddi3 asm-new full le status=0 size=48 helpers=[] all n=4701 bad=0 insns=1034180 min=15 max=809
+moddi3 asm-new full le classes idiv=0 mul=0 barrel=0 clz=0 imm=0 load=0 store=0 branch=276204 other=748574 taken=174936 total=1024778 cyc5=1210309 cyc3=1210309 max5=903 max3=903 tk_d=164341 tk_nd=10595 ntk=101268 amb=0 cyc5btc=1024778 max5btc=807 haz5lo=0 haz5hi=0
+moddi3 generic full le status=0 size=419 helpers=[__clz_tab] edge n=701 bad=0 insns=54632 min=33 max=138
+moddi3 generic full le status=0 size=419 helpers=[__clz_tab] small n=1000 bad=0 insns=83358 min=77 max=90
+moddi3 generic full le status=0 size=419 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=113648 min=77 max=153
+moddi3 generic full le status=0 size=419 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=81669 min=33 max=135
+moddi3 generic full le status=0 size=419 helpers=[__clz_tab] mixed n=1000 bad=0 insns=90933 min=33 max=142
+moddi3 generic full le status=0 size=419 helpers=[__clz_tab] all n=4701 bad=0 insns=424240 min=33 max=153
+moddi3 generic full le classes idiv=10110 mul=23814 barrel=53051 clz=0 imm=20474 load=22526 store=18804 branch=61681 other=204378 taken=39696 total=414838 cyc5=798617 cyc3=950736 max5=295 max3=345 tk_d=29243 tk_nd=10453 ntk=21985 amb=0 cyc5btc=748468 max5btc=283 haz5lo=32292 haz5hi=36456
+moddi3 generic-nohw full le status=0 size=147 helpers=[] edge n=701 bad=0 insns=172241 min=37 max=1131
+moddi3 generic-nohw full le status=0 size=147 helpers=[] small n=1000 bad=0 insns=164500 min=42 max=631
+moddi3 generic-nohw full le status=0 size=147 helpers=[] wide/narrow n=1000 bad=0 insns=708320 min=462 max=977
+moddi3 generic-nohw full le status=0 size=147 helpers=[] wide/wide n=1000 bad=0 insns=52038 min=37 max=72
+moddi3 generic-nohw full le status=0 size=147 helpers=[] mixed n=1000 bad=0 insns=315253 min=37 max=908
+moddi3 generic-nohw full le status=0 size=147 helpers=[] all n=4701 bad=0 insns=1412352 min=37 max=1131
+moddi3 generic-nohw full le classes idiv=0 mul=0 barrel=141551 clz=9183 imm=0 load=37608 store=37608 branch=268344 other=908656 taken=155705 total=1402950 cyc5=1567963 cyc3=1784730 max5=1266 max3=1409 tk_d=146397 tk_nd=9308 ntk=112639 amb=0 cyc5btc=1402950 max5btc=1129 haz5lo=2722 haz5hi=2722
+moddi3 patched full le status=0 size=419 helpers=[__clz_tab] edge n=701 bad=0 insns=54632 min=33 max=138
+moddi3 patched full le status=0 size=419 helpers=[__clz_tab] small n=1000 bad=0 insns=83358 min=77 max=90
+moddi3 patched full le status=0 size=419 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=113648 min=77 max=153
+moddi3 patched full le status=0 size=419 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=81669 min=33 max=135
+moddi3 patched full le status=0 size=419 helpers=[__clz_tab] mixed n=1000 bad=0 insns=90933 min=33 max=142
+moddi3 patched full le status=0 size=419 helpers=[__clz_tab] all n=4701 bad=0 insns=424240 min=33 max=153
+moddi3 patched full le classes idiv=10110 mul=23814 barrel=53051 clz=0 imm=20474 load=22526 store=18804 branch=61681 other=204378 taken=39696 total=414838 cyc5=798617 cyc3=950736 max5=295 max3=345 tk_d=29243 tk_nd=10453 ntk=21985 amb=0 cyc5btc=748468 max5btc=283 haz5lo=32292 haz5hi=36456
+moddi3 rem full le status=0 size=118 helpers=[] edge n=701 bad=0 insns=160603 min=28 max=1056
+moddi3 rem full le status=0 size=118 helpers=[] small n=1000 bad=0 insns=136634 min=30 max=547
+moddi3 rem full le status=0 size=118 helpers=[] wide/narrow n=1000 bad=0 insns=698070 min=434 max=972
+moddi3 rem full le status=0 size=118 helpers=[] wide/wide n=1000 bad=0 insns=44330 min=28 max=62
+moddi3 rem full le status=0 size=118 helpers=[] mixed n=1000 bad=0 insns=302217 min=28 max=927
+moddi3 rem full le status=0 size=118 helpers=[] all n=4701 bad=0 insns=1341854 min=28 max=1056
+moddi3 rem full le classes idiv=0 mul=0 barrel=89487 clz=9183 imm=0 load=14103 store=14103 branch=301987 other=903589 taken=167547 total=1332452 cyc5=1525028 cyc3=1642721 max5=1154 max3=1224 tk_d=142518 tk_nd=25029 ntk=134440 amb=0 cyc5btc=1332452 max5btc=1054 haz5lo=1361 haz5hi=1361
+moddi3 rem-fused full le status=0 size=112 helpers=[] edge n=701 bad=0 insns=131187 min=28 max=802
+moddi3 rem-fused full le status=0 size=112 helpers=[] small n=1000 bad=0 insns=110441 min=30 max=406
+moddi3 rem-fused full le status=0 size=112 helpers=[] wide/narrow n=1000 bad=0 insns=572783 min=393 max=755
+moddi3 rem-fused full le status=0 size=112 helpers=[] wide/wide n=1000 bad=0 insns=44093 min=28 max=62
+moddi3 rem-fused full le status=0 size=112 helpers=[] mixed n=1000 bad=0 insns=250310 min=28 max=726
+moddi3 rem-fused full le status=0 size=112 helpers=[] all n=4701 bad=0 insns=1108814 min=28 max=802
+moddi3 rem-fused full le classes idiv=0 mul=0 barrel=91230 clz=9183 imm=0 load=14103 store=14103 branch=202331 other=768462 taken=141943 total=1099412 cyc5=1244671 cyc3=1364107 max5=870 max3=940 tk_d=138627 tk_nd=3316 ntk=60388 amb=0 cyc5btc=1099412 max5btc=800 haz5lo=1361 haz5hi=1361
+moddi3 rem-left full le status=0 size=146 helpers=[] edge n=701 bad=0 insns=185164 min=32 max=1150
+moddi3 rem-left full le status=0 size=146 helpers=[] small n=1000 bad=0 insns=149008 min=34 max=564
+moddi3 rem-left full le status=0 size=146 helpers=[] wide/narrow n=1000 bad=0 insns=831094 min=582 max=1088
+moddi3 rem-left full le status=0 size=146 helpers=[] wide/wide n=1000 bad=0 insns=53365 min=32 max=76
+moddi3 rem-left full le status=0 size=146 helpers=[] mixed n=1000 bad=0 insns=356068 min=32 max=1048
+moddi3 rem-left full le status=0 size=146 helpers=[] all n=4701 bad=0 insns=1574699 min=32 max=1150
+moddi3 rem-left full le classes idiv=0 mul=0 barrel=267326 clz=9183 imm=0 load=18804 store=18804 branch=209889 other=1041291 taken=148140 total=1565297 cyc5=1719114 cyc3=2024048 max5=1284 max3=1490 tk_d=142463 tk_nd=5677 ntk=61749 amb=0 cyc5btc=1565297 max5btc=1148 haz5lo=0 haz5hi=0
+umoddi3 generic full le status=0 size=408 helpers=[__clz_tab] edge n=701 bad=0 insns=36754 min=17 max=129
+umoddi3 generic full le status=0 size=408 helpers=[__clz_tab] small n=1000 bad=0 insns=66039 min=65 max=67
+umoddi3 generic full le status=0 size=408 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=95079 min=65 max=128
+umoddi3 generic full le status=0 size=408 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=60805 min=17 max=109
+umoddi3 generic full le status=0 size=408 helpers=[__clz_tab] mixed n=1000 bad=0 insns=71837 min=17 max=128
+umoddi3 generic full le status=0 size=408 helpers=[__clz_tab] all n=4701 bad=0 insns=330514 min=17 max=129
+umoddi3 generic full le classes idiv=9744 mul=23169 barrel=51425 clz=0 imm=20121 load=17758 store=14103 branch=45745 other=139047 taken=31064 total=321112 cyc5=683865 cyc3=823233 max5=272 max3=320 tk_d=20927 tk_nd=10137 ntk=14681 amb=0 cyc5btc=642664 max5btc=259 haz5lo=29182 haz5hi=31924
+umoddi3 generic-nohw full le status=0 size=126 helpers=[] edge n=701 bad=0 insns=143874 min=9 max=1130
+umoddi3 generic-nohw full le status=0 size=126 helpers=[] small n=1000 bad=0 insns=143206 min=13 max=614
+umoddi3 generic-nohw full le status=0 size=126 helpers=[] wide/narrow n=1000 bad=0 insns=693832 min=449 max=966
+umoddi3 generic-nohw full le status=0 size=126 helpers=[] wide/wide n=1000 bad=0 insns=29597 min=9 max=52
+umoddi3 generic-nohw full le status=0 size=126 helpers=[] mixed n=1000 bad=0 insns=297406 min=9 max=897
+umoddi3 generic-nohw full le status=0 size=126 helpers=[] all n=4701 bad=0 insns=1307915 min=9 max=1130
+umoddi3 generic-nohw full le classes idiv=0 mul=0 barrel=139240 clz=8930 imm=0 load=18558 store=18558 branch=250925 other=862302 taken=146474 total=1298513 cyc5=1451728 cyc3=1628084 max5=1262 max3=1403 tk_d=139733 tk_nd=6741 ntk=104451 amb=0 cyc5btc=1298513 max5btc=1128 haz5lo=4473 haz5hi=4473
+umoddi3 patched full le status=0 size=408 helpers=[__clz_tab] edge n=701 bad=0 insns=36754 min=17 max=129
+umoddi3 patched full le status=0 size=408 helpers=[__clz_tab] small n=1000 bad=0 insns=66039 min=65 max=67
+umoddi3 patched full le status=0 size=408 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=95079 min=65 max=128
+umoddi3 patched full le status=0 size=408 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=60805 min=17 max=109
+umoddi3 patched full le status=0 size=408 helpers=[__clz_tab] mixed n=1000 bad=0 insns=71837 min=17 max=128
+umoddi3 patched full le status=0 size=408 helpers=[__clz_tab] all n=4701 bad=0 insns=330514 min=17 max=129
+umoddi3 patched full le classes idiv=9744 mul=23169 barrel=51425 clz=0 imm=20121 load=17758 store=14103 branch=45745 other=139047 taken=31064 total=321112 cyc5=683865 cyc3=823233 max5=272 max3=320 tk_d=20927 tk_nd=10137 ntk=14681 amb=0 cyc5btc=642664 max5btc=259 haz5lo=29182 haz5hi=31924
+divdi3 generic full le status=0 size=370 helpers=[__clz_tab] edge n=701 bad=0 insns=53481 min=30 max=120
+divdi3 generic full le status=0 size=370 helpers=[__clz_tab] small n=1000 bad=0 insns=84406 min=78 max=89
+divdi3 generic full le status=0 size=370 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=111999 min=78 max=128
+divdi3 generic full le status=0 size=370 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=73315 min=30 max=118
+divdi3 generic full le status=0 size=370 helpers=[__clz_tab] mixed n=1000 bad=0 insns=86586 min=30 max=126
+divdi3 generic full le status=0 size=370 helpers=[__clz_tab] all n=4701 bad=0 insns=409787 min=30 max=128
+divdi3 generic full le classes idiv=10110 mul=23372 barrel=52022 clz=0 imm=20474 load=17825 store=14103 branch=60435 other=202044 taken=38481 total=400385 cyc5=783662 cyc3=924466 max5=277 max3=319 tk_d=27315 tk_nd=11166 ntk=21954 amb=0 cyc5btc=734015 max5btc=258 haz5lo=28940 haz5hi=32662
+divdi3 generic-nohw full le status=0 size=168 helpers=[] edge n=701 bad=0 insns=178059 min=39 max=1143
+divdi3 generic-nohw full le status=0 size=168 helpers=[] small n=1000 bad=0 insns=173692 min=45 max=641
+divdi3 generic-nohw full le status=0 size=168 helpers=[] wide/narrow n=1000 bad=0 insns=720643 min=472 max=990
+divdi3 generic-nohw full le status=0 size=168 helpers=[] wide/wide n=1000 bad=0 insns=58045 min=39 max=79
+divdi3 generic-nohw full le status=0 size=168 helpers=[] mixed n=1000 bad=0 insns=326304 min=39 max=923
+divdi3 generic-nohw full le status=0 size=168 helpers=[] all n=4701 bad=0 insns=1456743 min=39 max=1143
+divdi3 generic-nohw full le classes idiv=0 mul=0 barrel=148610 clz=9183 imm=0 load=47010 store=47010 branch=270579 other=924949 taken=157194 total=1447341 cyc5=1613800 cyc3=1856430 max5=1277 max3=1427 tk_d=147929 tk_nd=9265 ntk=113385 amb=0 cyc5btc=1447341 max5btc=1141 haz5lo=1361 haz5hi=1361
+divdi3 patched full le status=0 size=370 helpers=[__clz_tab] edge n=701 bad=0 insns=53481 min=30 max=120
+divdi3 patched full le status=0 size=370 helpers=[__clz_tab] small n=1000 bad=0 insns=84406 min=78 max=89
+divdi3 patched full le status=0 size=370 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=111999 min=78 max=128
+divdi3 patched full le status=0 size=370 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=73315 min=30 max=118
+divdi3 patched full le status=0 size=370 helpers=[__clz_tab] mixed n=1000 bad=0 insns=86586 min=30 max=126
+divdi3 patched full le status=0 size=370 helpers=[__clz_tab] all n=4701 bad=0 insns=409787 min=30 max=128
+divdi3 patched full le classes idiv=10110 mul=23372 barrel=52022 clz=0 imm=20474 load=17825 store=14103 branch=60435 other=202044 taken=38481 total=400385 cyc5=783662 cyc3=924466 max5=277 max3=319 tk_d=27315 tk_nd=11166 ntk=21954 amb=0 cyc5btc=734015 max5btc=258 haz5lo=28940 haz5hi=32662
+udivdi3 generic full le status=0 size=347 helpers=[__clz_tab] edge n=701 bad=0 insns=30447 min=9 max=102
+udivdi3 generic full le status=0 size=347 helpers=[__clz_tab] small n=1000 bad=0 insns=59039 min=58 max=60
+udivdi3 generic full le status=0 size=347 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=85443 min=58 max=99
+udivdi3 generic full le status=0 size=347 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=49762 min=9 max=95
+udivdi3 generic full le status=0 size=347 helpers=[__clz_tab] mixed n=1000 bad=0 insns=61921 min=9 max=105
+udivdi3 generic full le status=0 size=347 helpers=[__clz_tab] all n=4701 bad=0 insns=286612 min=9 max=105
+udivdi3 generic full le classes idiv=9744 mul=22724 barrel=50465 clz=0 imm=20115 load=5311 store=1618 branch=42789 other=124444 taken=28290 total=277210 cyc5=634357 cyc3=746943 max5=245 max3=282 tk_d=20985 tk_nd=7305 ntk=14499 amb=0 cyc5btc=598762 max5btc=232 haz5lo=29286 haz5hi=32941
+udivdi3 generic-nohw full le status=0 size=146 helpers=[] edge n=701 bad=0 insns=155643 min=27 max=1145
+udivdi3 generic-nohw full le status=0 size=146 helpers=[] small n=1000 bad=0 insns=162398 min=34 max=634
+udivdi3 generic-nohw full le status=0 size=146 helpers=[] wide/narrow n=1000 bad=0 insns=707020 min=461 max=981
+udivdi3 generic-nohw full le status=0 size=146 helpers=[] wide/wide n=1000 bad=0 insns=45202 min=27 max=65
+udivdi3 generic-nohw full le status=0 size=146 helpers=[] mixed n=1000 bad=0 insns=313170 min=27 max=912
+udivdi3 generic-nohw full le status=0 size=146 helpers=[] all n=4701 bad=0 insns=1383433 min=27 max=1145
+udivdi3 generic-nohw full le classes idiv=0 mul=0 barrel=145447 clz=8930 imm=0 load=37608 store=37608 branch=256761 other=887677 taken=150906 total=1374031 cyc5=1531117 cyc3=1751780 max5=1280 max3=1427 tk_d=144726 tk_nd=6180 ntk=105855 amb=0 cyc5btc=1374031 max5btc=1143 haz5lo=3093 haz5hi=3093
+udivdi3 patched full le status=0 size=347 helpers=[__clz_tab] edge n=701 bad=0 insns=30447 min=9 max=102
+udivdi3 patched full le status=0 size=347 helpers=[__clz_tab] small n=1000 bad=0 insns=59039 min=58 max=60
+udivdi3 patched full le status=0 size=347 helpers=[__clz_tab] wide/narrow n=1000 bad=0 insns=85443 min=58 max=99
+udivdi3 patched full le status=0 size=347 helpers=[__clz_tab] wide/wide n=1000 bad=0 insns=49762 min=9 max=95
+udivdi3 patched full le status=0 size=347 helpers=[__clz_tab] mixed n=1000 bad=0 insns=61921 min=9 max=105
+udivdi3 patched full le status=0 size=347 helpers=[__clz_tab] all n=4701 bad=0 insns=286612 min=9 max=105
+udivdi3 patched full le classes idiv=9744 mul=22724 barrel=50465 clz=0 imm=20115 load=5311 store=1618 branch=42789 other=124444 taken=28290 total=277210 cyc5=634357 cyc3=746943 max5=245 max3=282 tk_d=20985 tk_nd=7305 ntk=14499 amb=0 cyc5btc=598762 max5btc=232 haz5lo=29286 haz5hi=32941

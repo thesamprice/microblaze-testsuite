@@ -1,17 +1,16 @@
 # `__moddi3` on MicroBlaze: the assembly fix against the generic C
 
-> **Status, 2026-11-08.** The numbers below are instruction counts from
-> earlier drafts of `patches/gcc`. The benchmark now also estimates clock
-> cycles (`mbcount.c`, from UG984's instruction latencies), and
-> `make bench-moddi3` prints them through `summary.py`. The current
-> figures, in cycles, are in the cover letters under
-> [`patches/series/`](../../patches/series/): the libgcc series
-> `gcc-microblaze-generic-moddi3` and the back-end series
-> `gcc-microblaze-carry`. [`reproduce.sh`](reproduce.sh) rebuilds them
-> from scratch and writes every version side by side, with the slowest
-> call for each. The findings below still hold in cycles: the
-> remainder-only loop and the fused sign test win, and the sign test beats
-> a plain compare and `__builtin_sub_overflow`.
+> **Status, 2026-11-14.** The numbers in the sections below, up to
+> "Cycle estimates", are instruction counts from earlier drafts of
+> `patches/gcc`, and those for `__umoddi3` and `__udivdi3` used the
+> earlier, signed-only vectors (see the class table). The current
+> figures are in "Cycle estimates" near the end of this report, and in full
+> in [`results/tables.md`](results/tables.md), made by
+> [`reproduce.sh`](reproduce.sh) from the saved
+> [`results/series1.txt`](results/series1.txt) and
+> [`results/carry.txt`](results/carry.txt). The findings below still hold
+> in cycles: the remainder-only loop and the fused sign test win, and the
+> sign test beats a plain compare and `__builtin_sub_overflow`.
 
 The two alternative fixes for libgcc's broken 64-bit signed remainder were:
 
@@ -43,15 +42,24 @@ runs from the indirect branch into `__moddi3` to its return, delay slots
 and any libgcc helpers included. The fixture checks every result, then
 exits QEMU with the failure count as its status. [`gen.c`](gen.c) makes
 the vectors with a fixed splitmix64, so they are the same on any host, in
-five classes:
+five classes.  `gen` writes the vectors for the signed routines, in which
+each random operand is negated half the time; `gen unsigned` writes those
+for `__umoddi3` and `__udivdi3`, from the same random numbers but never
+negated, so that the classes mean the same for them.  Until 2026-11-14 the
+unsigned routines used the signed vectors read as unsigned: a negated
+operand became a value of 2^63 or more, and two thirds of their quotients
+were 0 or 1, which made their per-call figures 30% to 45% too low.
 
 | class | n | operands |
 |---|---|---|
-| edge | 701 | every pair of 27 boundary values (0, ±1, ±2^31, ±2^32, `LLONG_MIN`, `LLONG_MAX`, ...) |
-| small | 1000 | both below 2^31 |
-| wide/narrow | 1000 | 63-bit dividend, divisor below 2^31 |
+| edge | 701 | every pair of 27 boundary values (0, ±1, ±2^31, ±2^32, `LLONG_MIN`, `LLONG_MAX`, ...), read as unsigned for the unsigned routines |
+| small | 1000 | both of at most 31 significant bits |
+| wide/narrow | 1000 | 63-bit dividend, divisor of at most 31 bits: a long quotient |
 | wide/wide | 1000 | both 63-bit, so the quotient is small |
 | mixed | 1000 | dividend 33 to 63 bits, divisor 1 to 63 bits |
+
+Sizes are of the magnitude; for the signed routines either operand may
+be negative.
 
 A second pass runs each binary under [`mbcount.c`](mbcount.c), a TCG
 plugin. It counts the instructions executed from `__moddi3` to the end of
@@ -88,31 +96,30 @@ Big-endian. Little-endian is the same for `asm` and within 1.2% for every
 C variant (`results.txt` has both). All variants returned 4701 correct
 results on both byte orders. `stock` did not terminate on either.
 
-| variant | opts | size (insns) | mean insns/call | min | max | taken branches/call | `idiv`/call | ~cycles/call |
-|---|---|---:|---:|---:|---:|---:|---:|---:|
-| **asm** | | 44 | **522.5** | 18 | 728 | 99.7 | 0 | 720 |
-| **generic** | def | 1047 | **1349.8** | 50 | 3129 | 280.4 | 0 | 1909 |
-| generic-nohw | def | 263 | 1330.6 | 41 | 5294 | 91.4 | 0 | 1511 |
-| rem | def | 155 | 495.8 | 29 | 1469 | 79.2 | 0 | 652 |
-| rem-fused | def | 150 | 449.3 | 29 | 1214 | 74.2 | 0 | 596 |
-| rem-left | def | 298 | 2214.9 | 41 | 7441 | 96.2 | 0 | 2405 |
-| **generic** | full | 422 | **91.7** | 35 | 153 | 8.9 | 2.15 | 174 |
-| generic-nohw | full | 147 | 299.7 | 37 | 1131 | 33.6 | 0 | 365 |
-| rem | full | 114 | 279.8 | 27 | 1053 | 35.6 | 0 | 349 |
-| rem-fused | full | 112 | 235.2 | 28 | 801 | 30.6 | 0 | 294 |
-| rem-left | full | 134 | 336.9 | 34 | 1151 | 32.2 | 0 | 399 |
+| variant | opts | size (insns) | mean insns/call | min | max | taken branches/call | `idiv`/call |
+|---|---|---:|---:|---:|---:|---:|---:|
+| **asm** | | 44 | **522.5** | 18 | 728 | 99.7 | 0 |
+| **generic** | def | 1047 | **1349.8** | 50 | 3129 | 280.4 | 0 |
+| generic-nohw | def | 263 | 1330.6 | 41 | 5294 | 91.4 | 0 |
+| rem | def | 155 | 495.8 | 29 | 1469 | 79.2 | 0 |
+| rem-fused | def | 150 | 449.3 | 29 | 1214 | 74.2 | 0 |
+| rem-left | def | 298 | 2214.9 | 41 | 7441 | 96.2 | 0 |
+| **generic** | full | 422 | **91.7** | 35 | 153 | 8.9 | 2.15 |
+| generic-nohw | full | 147 | 299.7 | 37 | 1131 | 33.6 | 0 |
+| rem | full | 114 | 279.8 | 27 | 1053 | 35.6 | 0 |
+| rem-fused | full | 112 | 235.2 | 28 | 801 | 30.6 | 0 |
+| rem-left | full | 134 | 336.9 | 34 | 1151 | 32.2 | 0 |
 
 Size is the routine's own object, not counting helpers. With default
 options `generic` calls `__udivsi3`, `__umodsi3` and `__mulsi3` and reads
 `__clz_tab`; the shift-and-subtract variants call `__clzdi2`. With full
 options only `generic` still uses a helper, `__clz_tab`.
 
-**The cycle column is a model, not a measurement.** It assumes 1 cycle per
-instruction, 2 extra per taken branch and 31 extra per `idiv`, which is
-roughly a 5-stage MicroBlaze with a 32-cycle divider. Those latencies are
-not checked against Xilinx's UG984 for any particular configuration. It is
-there because instruction counts flatter `generic full`, whose `idivu`
-takes many cycles. Its lead survives the model with room to spare.
+An earlier version of this table had a rough cycle column (1 cycle per
+instruction, 2 extra per taken branch, 31 extra per `idiv`). It is
+replaced by the UG984-based estimates in "Cycle estimates" below, in
+which `generic full`'s lead also survives its `idivu` (171.8 cycles per
+call against 700.2 for `moddi3.S` on the 5-stage pipeline).
 
 Mean instructions per call, by vector class:
 
@@ -319,13 +326,17 @@ generic C's 91.7.
 - **Division with a barrel shifter** gets 2.6 to 2.9 times faster, as a
   side effect of selecting the shift-and-subtract path.
 - **Division with no options is the one regression**: `__divdi3` +0.7% and
-  `__udivdi3` +6.7% in mean instructions, and the worst case rises by about
-  75% (5302 against 3072). The shift-and-subtract loop costs more per
-  quotient bit than upstream's long division when the quotient is long,
-  and less when it is short. The cycle model, with its caveats, puts
-  patched division 14% to 19% *faster* there, because upstream's long
-  division calls the software `__udivsi3`, which branches heavily.
-  Settling it needs hardware or a validated cycle model.
+  `__udivdi3` +6.7% in mean instructions (+2.1% with the corrected
+  unsigned vectors), and the worst case rises by about 75% (5302 against
+  3072). The shift-and-subtract loop costs more per quotient bit than
+  upstream's long division when the quotient is long, and less when it
+  is short. With no branch target cache the cycle estimate puts patched
+  division 18% to 19% *faster* there, because upstream's long division
+  calls the software `__udivsi3`, whose loop takes about 150 taken
+  branches per call without a delay slot, 3 cycles each. With a perfect
+  branch target cache those cost 1 cycle and the estimate equals the
+  instruction count, so the regression stands. A real cache lies
+  between; see "Cycle estimates".
 - **`moddi3-new.S` is the fastest `__moddi3` without a divider**: 2.1 times
   the patched generic code with no options, and 8% to 25% faster with the
   other options. With a divider the generic code wins by 2.4 times, and an
@@ -521,6 +532,87 @@ pseudo-instructions. Its expected encodings come from QEMU and UG984, not
 from the table. Each stage was built and tested (gas 331 → 333 passes,
 binutils and ld unchanged). It has not been sent.
 
+## Cycle estimates
+
+[`mbcount.c`](mbcount.c) costs every instruction it counts with the
+latencies in Xilinx UG984 (v2026.2): "MicroBlaze Instruction Set
+Architecture" for each instruction, "Pipeline Architecture", "Branches"
+and "Branch Target Cache" for the rest.  Per call it gives:
+
+- `cyc5`, the five-stage pipeline (C_AREA_OPTIMIZED=0) with no branch
+  target cache: a taken branch costs 2 cycles with a delay slot and 3
+  without, `idiv` 34, everything else 1.
+- `cyc5btc`, the same with a perfect branch target cache: an immediate
+  branch or a return costs 1 cycle whether taken or not.  The cache is
+  optional, exists only with C_AREA_OPTIMIZED=0 or 2, and mispredicts in
+  practice, so the truth lies between `cyc5btc` and `cyc5`.  With no
+  multi-cycle instructions (`def` and `mlib`), `cyc5btc` is the
+  instruction count.
+- `haz5lo` and `haz5hi`, the range of data-hazard stalls to add to either:
+  an instruction that needs the result of a load, multiply, divide or
+  barrel shift from the instruction before stalls 1-2 cycles ("Five
+  Stage Pipeline"), and one that needs a load or multiply result from two
+  back stalls 1.
+- `cyc3`, the three-stage pipeline (C_AREA_OPTIMIZED=1): multiply 3
+  cycles, barrel shifts, loads and stores 2, `idiv` 35, branches as for
+  `cyc5`.  It has no branch target cache and no data hazards.
+
+All assume single-cycle local memory.  In QEMU the fixture runs from
+DDR at 0x90000000, which changes nothing there, but a check on hardware
+must run it from LMB.  They are estimates, not measurements; nothing
+here has been measured on hardware.
+
+Whether a branch was taken is decided from its condition and target, not
+only from where execution went next, so a taken branch to the next
+instruction is costed as taken (a branch to the instruction after it,
+taken, cost 1 cycle in versions before 2026-11-14; no benchmarked routine
+has one, so no published figure moved).  A hand-costed test program with
+every instruction class, nested calls and such a branch gives the
+expected 69 and 75 cycles per call, 60 with a perfect cache and a 2-3
+cycle stall range.  `summary.py` and `table.py` fail if the plugin's
+instruction total is not the test device's minus exactly 2 per call, or
+if any branch outcome could not be decoded.
+
+Mean estimated cycles per call, big-endian, from
+[`results/series1.txt`](results/series1.txt) ("before" is upstream: for
+`__moddi3` `moddi3.S`, for the others libgcc2.c; "after" is the libgcc
+series):
+
+| routine | pipeline | def before | def after | mlib before | mlib after | full before | full after |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `__moddi3` | 5-stage | 700.2 | 530.4 | 700.2 | 310.0 | 700.2 | 171.8 |
+| | 5-stage, perfect BTC | 520.5 | 455.0 | 520.5 | 273.3 | 520.5 | 160.7 |
+| | 3-stage | 708.2 | 547.1 | 708.2 | 347.4 | 708.2 | 204.2 |
+| `__umoddi3` | 5-stage | 1735.6 | 513.3 | 1189.4 | 290.9 | 145.5 | 145.5 |
+| | 5-stage, perfect BTC | 1307.6 | 439.9 | 873.2 | 256.9 | 136.4 | 136.4 |
+| | 3-stage | 1791.9 | 525.2 | 1258.7 | 323.5 | 175.2 | 175.2 |
+| `__divdi3` | 5-stage | 1717.2 | 1397.7 | 1222.9 | 377.2 | 168.0 | 168.0 |
+| | 5-stage, perfect BTC | 1301.3 | 1310.7 | 901.7 | 336.4 | 157.3 | 157.3 |
+| | 3-stage | 1779.8 | 1425.6 | 1295.0 | 436.4 | 197.9 | 197.9 |
+| `__udivdi3` | 5-stage | 1671.1 | 1374.1 | 1191.1 | 360.8 | 134.4 | 134.4 |
+| | 5-stage, perfect BTC | 1263.2 | 1289.9 | 875.5 | 323.5 | 126.4 | 126.4 |
+| | 3-stage | 1730.3 | 1398.8 | 1261.1 | 416.0 | 158.3 | 158.3 |
+
+- With no branch target cache, and on the three-stage pipeline, nothing
+  is slower on average.  With a perfect cache, division with no options
+  is: `__divdi3` by 0.7% and `__udivdi3` by 2.1%.  Upstream's long
+  division calls the software `__udivsi3`, about 150 taken branches per
+  call without a delay slot, which is where the cache helps it.
+- The signed figures are the same as before 2026-11-14.  The unsigned
+  ones rose 30% to 45% with the corrected vectors; the comparisons hold.
+- Data hazards add 3.8% to 5.5% to the `full` figures above, at most
+  6.2% for any variant with `full`, and under 1% for every variant with
+  the other options; they change no comparison.  [`results/tables.md`](results/tables.md)
+  has them for every variant.
+- Little-endian, in [`results/tables-le.md`](results/tables-le.md), is
+  within 1.2% of big-endian for every variant above.
+
+The figures were made with `patches/gcc` as it was at microblaze-testsuite
+`548ad83`, the libgcc series only.  `reproduce.sh` applies whatever
+`patches/gcc` holds, which now includes later series; to reproduce the
+saved files exactly, run it from a checkout of `548ad83` with this
+directory's `mbcount.c`, `gen.c` and `run.sh`.
+
 ## Suggested follow-ups
 
 In order of benefit for the effort:
@@ -557,7 +649,10 @@ In order of benefit for the effort:
 | [`run.sh`](run.sh) | builds and runs everything; `make bench-moddi3` calls it |
 | [`bench.c`](bench.c), [`start.S`](start.S), [`link.ld`](link.ld) | the fixture |
 | [`gen.c`](gen.c) | the vectors |
-| [`mbcount.c`](mbcount.c) | the instruction-class plugin |
+| [`mbcount.c`](mbcount.c) | the instruction-class plugin and the cycle estimates |
+| [`summary.py`](summary.py), [`table.py`](table.py) | per-call figures and the side-by-side tables, with consistency checks |
+| [`reproduce.sh`](reproduce.sh) | both toolchains from scratch, then `results/tables.md` |
+| [`results/`](results/) | the saved results the published figures come from |
 | [`moddi3-rem.c`](moddi3-rem.c) | the `rem`, `rem-fused` and `rem-left` variants |
 | [`moddi3-new.S`](moddi3-new.S) | `moddi3.S` with the C's improvements, for comparison only |
 | [`moddi3-stock.S`](moddi3-stock.S) | `moddi3.S` as it was before `3a721dc02`, byte for byte |
