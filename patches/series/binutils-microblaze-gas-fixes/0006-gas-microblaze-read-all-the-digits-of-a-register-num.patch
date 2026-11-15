@@ -1,0 +1,206 @@
+From 03618292d0a6cddbf8bb461af184da5ba2afdd62 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 01:19:23 -0500
+Subject: [PATCH 6/9] gas: microblaze: read all the digits of a register number
+
+parse_reg reads at most two digits after "r", "rfsl" or "rpvr", so
+
+	add r3, r4, r100
+
+assembled as "add r3, r4, r10" with only "Warning: ignoring operands:
+0".
+
+Read all the digits, so that the existing range check rejects the
+number, and point the error at the start of the register name rather
+than past it.
+
+gas/
+	* config/tc-microblaze.c (parse_regnum): New function.
+	(parse_reg): Use it for general, FSL and PVR register numbers.
+	* testsuite/gas/microblaze/reg-err.d: New test.
+	* testsuite/gas/microblaze/reg-err.l: New file.
+	* testsuite/gas/microblaze/reg-err.s: New file.
+	* testsuite/gas/microblaze/errors.exp: Run it.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ gas/config/tc-microblaze.c              | 63 ++++++++++++-------------
+ gas/testsuite/gas/microblaze/errors.exp |  1 +
+ gas/testsuite/gas/microblaze/reg-err.d  |  4 ++
+ gas/testsuite/gas/microblaze/reg-err.l  |  6 +++
+ gas/testsuite/gas/microblaze/reg-err.s  |  8 ++++
+ 5 files changed, 48 insertions(+), 34 deletions(-)
+ create mode 100644 gas/testsuite/gas/microblaze/reg-err.d
+ create mode 100644 gas/testsuite/gas/microblaze/reg-err.l
+ create mode 100644 gas/testsuite/gas/microblaze/reg-err.s
+
+diff --git a/gas/config/tc-microblaze.c b/gas/config/tc-microblaze.c
+index 681de605cee..c204990a6b7 100644
+--- a/gas/config/tc-microblaze.c
++++ b/gas/config/tc-microblaze.c
+@@ -417,12 +417,29 @@ microblaze_regname_to_dw2regnum (char *regname)
+   return n;
+ }
+ 
++/* Read the register number at S, all of its digits, and return the
++   character after it.  A number too large for any register is stored
++   as some number over 1000.  */
++
++static char *
++parse_regnum (char *s, unsigned *num)
++{
++  unsigned n = 0;
++
++  for (; ISDIGIT (*s); s++)
++    if (n <= 1000)
++      n = n * 10 + (*s - '0');
++  *num = n;
++  return s;
++}
++
+ /* Try to parse a reg name.  */
+ 
+ static char *
+ parse_reg (char * s, unsigned * reg)
+ {
+   unsigned tmpreg = 0;
++  char *start;
+ 
+   /* Strip leading whitespace.  */
+   while (is_whitespace (* s))
+@@ -497,24 +514,16 @@ parse_reg (char * s, unsigned * reg)
+   /* MMU registers end.  */
+   else if (strncasecmp (s, "rpvr", 4) == 0)
+     {
+-      if (ISDIGIT (s[4]) && ISDIGIT (s[5]))
+-        {
+-          tmpreg = (s[4]-'0')*10 + s[5] - '0';
+-          s += 6;
+-        }
+-
+-      else if (ISDIGIT (s[4]))
+-        {
+-          tmpreg = s[4] - '0';
+-          s += 5;
+-        }
++      start = s;
++      if (ISDIGIT (s[4]))
++	s = parse_regnum (s + 4, &tmpreg);
+       else
+         as_bad (_("register expected, but saw '%.6s'"), s);
+       if (tmpreg - MIN_PVR_REGNUM <= MAX_PVR_REGNUM - MIN_PVR_REGNUM)
+         *reg = MICROBLAZE_REG_PVR + tmpreg;
+       else
+         {
+-          as_bad (_("Invalid register number at '%.6s'"), s);
++          as_bad (_("Invalid register number at '%.6s'"), start);
+           *reg = MICROBLAZE_REG_PVR;
+         }
+       return s;
+@@ -526,16 +535,9 @@ parse_reg (char * s, unsigned * reg)
+     }
+   else if (strncasecmp (s, "rfsl", 4) == 0)
+     {
+-      if (ISDIGIT (s[4]) && ISDIGIT (s[5]))
+-        {
+-          tmpreg = (s[4] - '0') * 10 + s[5] - '0';
+-          s += 6;
+-        }
+-      else if (ISDIGIT (s[4]))
+-        {
+-          tmpreg = s[4] - '0';
+-          s += 5;
+-        }
++      start = s;
++      if (ISDIGIT (s[4]))
++	s = parse_regnum (s + 4, &tmpreg);
+       else
+ 	as_bad (_("register expected, but saw '%.6s'"), s);
+ 
+@@ -543,7 +545,7 @@ parse_reg (char * s, unsigned * reg)
+         *reg = tmpreg;
+       else
+ 	{
+-          as_bad (_("Invalid register number at '%.6s'"), s);
++          as_bad (_("Invalid register number at '%.6s'"), start);
+           *reg = 0;
+ 	}
+       return s;
+@@ -563,16 +565,9 @@ parse_reg (char * s, unsigned * reg)
+     {
+       if (TOLOWER (s[0]) == 'r')
+         {
+-          if (ISDIGIT (s[1]) && ISDIGIT (s[2]))
+-            {
+-              tmpreg = (s[1] - '0') * 10 + s[2] - '0';
+-              s += 3;
+-            }
+-          else if (ISDIGIT (s[1]))
+-            {
+-              tmpreg = s[1] - '0';
+-              s += 2;
+-            }
++          start = s;
++          if (ISDIGIT (s[1]))
++	    s = parse_regnum (s + 1, &tmpreg);
+           else
+             as_bad (_("register expected, but saw '%.6s'"), s);
+ 
+@@ -580,7 +575,7 @@ parse_reg (char * s, unsigned * reg)
+             *reg = tmpreg;
+           else
+ 	    {
+-              as_bad (_("Invalid register number at '%.6s'"), s);
++              as_bad (_("Invalid register number at '%.6s'"), start);
+               *reg = 0;
+ 	    }
+           return s;
+diff --git a/gas/testsuite/gas/microblaze/errors.exp b/gas/testsuite/gas/microblaze/errors.exp
+index 77010202008..1dd68b14b24 100644
+--- a/gas/testsuite/gas/microblaze/errors.exp
++++ b/gas/testsuite/gas/microblaze/errors.exp
+@@ -6,4 +6,5 @@ if [istarget microblaze*-*-*] {
+     run_dump_test "imm-range"
+     run_dump_test "tls-err"
+     run_dump_test "suffix-err"
++    run_dump_test "reg-err"
+ }
+diff --git a/gas/testsuite/gas/microblaze/reg-err.d b/gas/testsuite/gas/microblaze/reg-err.d
+new file mode 100644
+index 00000000000..06ef0c99f09
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/reg-err.d
+@@ -0,0 +1,4 @@
++#as:
++#source: reg-err.s
++#error_output: reg-err.l
++#name: MicroBlaze register numbers out of range
+diff --git a/gas/testsuite/gas/microblaze/reg-err.l b/gas/testsuite/gas/microblaze/reg-err.l
+new file mode 100644
+index 00000000000..bb9ed7ed288
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/reg-err.l
+@@ -0,0 +1,6 @@
++.*: Assembler messages:
++.*:4: Error: Invalid register number at 'r100'
++.*:5: Error: Invalid register number at 'r32'
++.*:6: Error: Invalid register number at 'rfsl10'
++.*:7: Error: Invalid register number at 'rpvr12'
++.*:8: Error: Invalid register number at 'r99999'
+diff --git a/gas/testsuite/gas/microblaze/reg-err.s b/gas/testsuite/gas/microblaze/reg-err.s
+new file mode 100644
+index 00000000000..374c95f4eea
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/reg-err.s
+@@ -0,0 +1,8 @@
++# A register number is all of its digits.  r100 was read as r10.
++
++	.text
++	add	r3, r4, r100
++	add	r3, r031, r32
++	get	r3, rfsl100
++	mfs	r3, rpvr120
++	add	r3, r4, r99999999999
+-- 
+2.39.5 (Apple Git-154)
+

@@ -1,0 +1,203 @@
+From 88fbc4091d19d78b9b65d3bba255f335b00e286f Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 05:52:27 -0500
+Subject: [PATCH 2/8] microblaze: set up the GOT pointer for TLS accesses on
+ every target
+
+Every TLS access calls __tls_get_addr with r20 plus a TLSGD or TLSLDM
+offset, and so needs the GOT pointer in r20.  The prologue loaded it
+only for -fPIC and when TLS_NEEDS_GOT, which only linux.h set.  On
+microblaze-elf a non-PIC function using TLS passed __tls_get_addr an
+address built from whatever r20 held.  With -fPIC
+-mpic-data-is-text-relative r20 holds the text base instead, and the
+same offsets were added to it.
+
+Load r20 with the GOT in the prologue of any function that accesses
+TLS, recorded in crtl->uses_pic_offset_table, and drop TLS_NEEDS_GOT.
+When r20 is the text base, compute the GOT address into a pseudo for
+the TLS access.  The GOT entries are filled in by the static link with
+module 1 and the offset in the TLS segment, so a run-time with a
+single static TLS block can return its start plus the offset.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/linux.h (TLS_NEEDS_GOT): Remove.
+	* config/microblaze/microblaze.h (TLS_NEEDS_GOT): Remove.
+	* config/microblaze/microblaze.cc (load_tls_operand): Use a GOT
+	address computed into a new register when r20 is the text base,
+	otherwise use r20 and set crtl->uses_pic_offset_table.
+	(microblaze_call_tls_get_addr): Leave marking r20 live to
+	load_tls_operand.
+	(microblaze_expand_prologue): Load the GOT into r20 for TLS
+	accesses in non-PIC code; do not load it in place of the text base
+	for -mpic-data-is-text-relative.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/tls-run.c: New test.
+---
+ gcc/config/microblaze/linux.h                 |  3 --
+ gcc/config/microblaze/microblaze.cc           | 31 ++++++++---
+ gcc/config/microblaze/microblaze.h            |  3 --
+ .../gcc.target/microblaze/others/tls-run.c    | 52 +++++++++++++++++++
+ 4 files changed, 76 insertions(+), 13 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/tls-run.c
+
+diff --git a/gcc/config/microblaze/linux.h b/gcc/config/microblaze/linux.h
+index 5152b20c3..86feaa0ae 100644
+--- a/gcc/config/microblaze/linux.h
++++ b/gcc/config/microblaze/linux.h
+@@ -25,9 +25,6 @@
+ #undef CPP_SPEC
+ #define CPP_SPEC "%{posix:-D_POSIX_SOURCE} %{pthread:-D_REENTRANT}"
+ 
+-#undef TLS_NEEDS_GOT
+-#define TLS_NEEDS_GOT 1
+-
+ #define GLIBC_DYNAMIC_LINKER "/lib/ld.so.1"
+ #define UCLIBC_DYNAMIC_LINKER "/lib/ld-uClibc.so.0"
+ 
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index fe27f461b..2cb393676 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -558,18 +558,35 @@ tls_mentioned_p (rtx x)
+     }
+ }
+ 
++/* Load the GOT address of TLS entry X into REG, or into a new register
++   if REG is null.  The TLSGD and TLSLDM offsets are relative to the GOT,
++   which r20 holds unless -mpic-data-is-text-relative makes r20 the text
++   base; then the GOT address is computed here.  */
++
+ static rtx
+ load_tls_operand (rtx x, rtx reg)
+ {
+-  rtx tmp;
++  rtx tmp, got;
+ 
+   if (reg == NULL_RTX)
+     reg = gen_reg_rtx (Pmode);
+ 
++  if (flag_pic == 2 && TARGET_PIC_DATA_TEXT_REL)
++    {
++      got = gen_reg_rtx (Pmode);
++      emit_insn (gen_set_got (got));
++    }
++  else
++    {
++      /* Have the prologue load r20, whether or not this is PIC.  */
++      crtl->uses_pic_offset_table = true;
++      df_set_regs_ever_live (PIC_OFFSET_TABLE_REGNUM, true);
++      got = pic_offset_table_rtx;
++    }
++
+   tmp = gen_rtx_CONST (Pmode, x);
+ 
+-  emit_insn (gen_rtx_SET (reg,
+-                          gen_rtx_PLUS (Pmode, pic_offset_table_rtx, tmp)));
++  emit_insn (gen_rtx_SET (reg, gen_rtx_PLUS (Pmode, got, tmp)));
+ 
+   return reg;
+ }
+@@ -580,8 +597,6 @@ microblaze_call_tls_get_addr (rtx x, rtx reg, rtx *valuep, int reloc)
+   rtx_insn *insns;
+   rtx tls_entry;
+ 
+-  df_set_regs_ever_live (PIC_OFFSET_TABLE_REGNUM, true);
+-
+   start_sequence ();
+ 
+   tls_entry = gen_rtx_UNSPEC (Pmode, gen_rtvec (2, x, GEN_INT (reloc)),
+@@ -3129,10 +3144,12 @@ microblaze_expand_prologue (void)
+ 	}
+     }
+ 
+-  if ((flag_pic == 2 || TLS_NEEDS_GOT )
++  /* r20 holds the GOT for PIC, and for TLS accesses in any code, see
++     load_tls_operand; or the text base for -mpic-data-is-text-relative.  */
++  if ((flag_pic == 2 || crtl->uses_pic_offset_table)
+       && df_regs_ever_live_p (MB_ABI_PIC_ADDR_REGNUM))
+     {
+-      if ((flag_pic == 2 && !TARGET_PIC_DATA_TEXT_REL) || TLS_NEEDS_GOT)
++      if (!(flag_pic == 2 && TARGET_PIC_DATA_TEXT_REL))
+ 	{
+ 	  SET_REGNO (pic_offset_table_rtx, MB_ABI_PIC_ADDR_REGNUM);
+ 	  /* setting GOT.  */
+diff --git a/gcc/config/microblaze/microblaze.h b/gcc/config/microblaze/microblaze.h
+index 9cb52a20a..bba729177 100644
+--- a/gcc/config/microblaze/microblaze.h
++++ b/gcc/config/microblaze/microblaze.h
+@@ -67,9 +67,6 @@ extern enum pipeline_type microblaze_pipe;
+ /* The default is to support PIC.  */
+ #define TARGET_SUPPORTS_PIC 1
+ 
+-/* The default is to not need GOT for TLS.  */
+-#define TLS_NEEDS_GOT 0
+-
+ /* What is the default setting for -mcpu= . We set it to v4.00.a even though
+    we are actually ahead. This is safest version that has generate code
+    compatible for the original ISA */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/tls-run.c b/gcc/testsuite/gcc.target/microblaze/others/tls-run.c
+new file mode 100644
+index 000000000..bc6dc3213
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/tls-run.c
+@@ -0,0 +1,52 @@
++/* { dg-do run } */
++/* { dg-options "-Wl,--defsym,mb_tls_start=ADDR(.tdata)" } */
++
++/* Every TLS access calls __tls_get_addr with r20 plus a TLSGD or TLSLDM
++   offset, so r20 must hold the GOT pointer.  It was set up only on Linux,
++   and on microblaze-elf __tls_get_addr got a pointer built from whatever
++   r20 held.  The static link fills the GOT entries with module 1 and the
++   offset of the variable in the TLS segment.  This __tls_get_addr stands
++   for a run-time with one static TLS block: the .tdata image.  */
++
++extern void abort (void);
++
++typedef struct
++{
++  unsigned long module;
++  unsigned long offset;
++} tls_index;
++
++extern char mb_tls_start[];
++
++void *__tls_get_addr (tls_index *);
++
++__attribute__ ((noipa)) void *
++__tls_get_addr (tls_index *ti)
++{
++  if (ti->module != 1)
++    abort ();
++  return mb_tls_start + ti->offset;
++}
++
++/* Local exec, done as local dynamic plus a DTPREL offset.  */
++static __thread int a = 2;
++/* A weak definition may be preempted: initial exec, done as global
++   dynamic.  */
++__thread int b __attribute__ ((weak)) = 5;
++__thread int c __attribute__ ((weak)) = 7;
++
++__attribute__ ((noipa)) int get_a (void) { return a; }
++__attribute__ ((noipa)) int get_b (void) { return b; }
++__attribute__ ((noipa)) int get_c (void) { return c; }
++__attribute__ ((noipa)) void set_b (int x) { b = x; }
++
++int
++main (void)
++{
++  if (get_a () != 2 || get_b () != 5 || get_c () != 7)
++    abort ();
++  set_b (11);
++  if (get_a () != 2 || get_b () != 11 || get_c () != 7)
++    abort ();
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

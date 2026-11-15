@@ -1,0 +1,119 @@
+From a6f44b17fac0555c5a62e165f15e01fcf1402c77 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 05:52:26 -0500
+Subject: [PATCH 1/8] microblaze: test compare-and-swap equality with xor, not
+ cmp
+
+atomic_compare_and_swapsi compared the loaded value with the expected
+one using cmp.  cmp computes rB - rA and then replaces bit 31 of the
+result with the signed comparison rA > rB, so when the two values
+differ only in bit 31 the result can be zero: the loop treated them as
+equal and stored the new value.  Every 32-bit __sync and __atomic
+compare-and-swap was affected, e.g. memory -1 and expected 0x7fffffff.
+
+Test equality with xor, which is zero exactly when the values are equal.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/sync.md (atomic_compare_and_swapsi): Use xor
+	rather than cmp for the equality test.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/atomic-cas-run.c: New test.
+---
+ gcc/config/microblaze/sync.md                 |  2 +-
+ .../microblaze/others/atomic-cas-run.c        | 66 +++++++++++++++++++
+ 2 files changed, 67 insertions(+), 1 deletion(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/atomic-cas-run.c
+
+diff --git a/gcc/config/microblaze/sync.md b/gcc/config/microblaze/sync.md
+index cc094df95..777b9b1de 100644
+--- a/gcc/config/microblaze/sync.md
++++ b/gcc/config/microblaze/sync.md
+@@ -38,7 +38,7 @@
+       "lwx  \t%1,%y2,r0\n\t"
+       "addic\t%8,r0,0\n\t"
+       "bnei \t%8,.-8\n\t"
+-      "cmp  \t%8,%1,%3\n\t"
++      "xor  \t%8,%1,%3\n\t"
+       "bnei \t%8,.+20\n\t"
+       "swx  \t%4,%y2,r0\n\t"
+       "addic\t%8,r0,0\n\t"
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/atomic-cas-run.c b/gcc/testsuite/gcc.target/microblaze/others/atomic-cas-run.c
+new file mode 100644
+index 000000000..dfc58e820
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/atomic-cas-run.c
+@@ -0,0 +1,66 @@
++/* { dg-do run } */
++
++/* The compare-and-swap loop used cmp for its equality test.  cmp replaces
++   bit 31 of the difference with the result of a signed comparison, so two
++   values that differ only in bit 31 compared equal and the swap was done
++   anyway.  */
++
++extern void abort (void);
++
++int v;
++
++__attribute__ ((noipa)) int
++bcas (int *p, int e, int d)
++{
++  return __sync_bool_compare_and_swap (p, e, d);
++}
++
++__attribute__ ((noipa)) int
++vcas (int *p, int e, int d)
++{
++  return __sync_val_compare_and_swap (p, e, d);
++}
++
++__attribute__ ((noipa)) int
++acas (int *p, int *e, int d)
++{
++  return __atomic_compare_exchange_n (p, e, d, 0, __ATOMIC_SEQ_CST,
++				      __ATOMIC_SEQ_CST);
++}
++
++static void
++check (int mem, int expected)
++{
++  int e, r;
++
++  v = mem;
++  r = bcas (&v, expected, 5);
++  if (r != (mem == expected) || v != (mem == expected ? 5 : mem))
++    abort ();
++
++  v = mem;
++  r = vcas (&v, expected, 5);
++  if (r != mem || v != (mem == expected ? 5 : mem))
++    abort ();
++
++  v = mem;
++  e = expected;
++  r = acas (&v, &e, 5);
++  if (r != (mem == expected) || v != (mem == expected ? 5 : mem) || e != mem)
++    abort ();
++}
++
++int
++main (void)
++{
++  check (-1, 0x7fffffff);
++  check (0x7fffffff, -1);
++  check ((int) 0x80000000, 0);
++  check (0, (int) 0x80000000);
++  check (0x12345678, (int) 0x92345678);
++  check ((int) 0x92345678, 0x12345678);
++  check (-1, -1);
++  check ((int) 0x80000000, (int) 0x80000000);
++  check (3, 4);
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

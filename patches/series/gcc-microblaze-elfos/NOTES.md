@@ -17,6 +17,12 @@ xilinx-rework commit "microblaze: use bsefi and bsifi for bit-fields".
 The conflict is context only; rebasing onto upstream master needs that
 hunk refreshed (not done).
 
+2026-11-15: the patch now also changes `isa/nofcmp.c`'s
+`scan-assembler-not "fcmp"` to `"\tfcmp"`, since the `.file "nofcmp.c"`
+line this patch adds matched it (message and ChangeLog updated).
+Regenerated from `2d6b763ce` (branch `pkg/elfos-scanfix`, `423f5843b`
+amended); in the audit stack it is `8ebe246d4` on `pkg/series-scanfix`.
+
 Checks: `contrib/gcc-changelog/git_check_commit.py` OK;
 `contrib/check_GNU_style.py` no output; `git diff --check` clean;
 `tools/review-commit-msg.py --project gcc`: no Signed-off-by, the

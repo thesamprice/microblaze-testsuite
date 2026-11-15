@@ -1,0 +1,265 @@
+From 263ca9d055afcc6dc04b9720c36963c0064d0f62 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 05:52:33 -0500
+Subject: [PATCH 6/8] microblaze: fix latent pattern bugs and
+ atomic_test_and_set's result
+
+branch_zero accepted the unsigned comparison codes, and printed them as
+the signed branches.  simplify-rtx rewrites unsigned comparisons with
+zero first, so this was latent.  Accept only EQ, NE and the signed
+codes.
+
+The register-to-register alternatives of movdi and movdf are normally
+split after reload, so their templates went unchecked.  movdi printed
+a two-operand addk, which does not assemble, and movdf printed a copy
+of zero; with the post-reload splits disabled both are reached.  Print
+the copies, ordered for overlapping registers as the splits do, and
+give movdf's alternative its length of 8.  *one_cmpldi2 printed nor,
+which MicroBlaze does not have; the middle end already does not:DI
+word by word, so remove it and its split.
+
+atomic_test_and_set returned the old byte, so a byte holding 0x80 gave
+128 rather than true.  Return 1 if the byte was not zero and 0
+otherwise, as TARGET_ATOMIC_TEST_AND_SET_TRUEVAL, 1, says.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/predicates.md (branch_zero_operator): New
+	predicate.
+	* config/microblaze/microblaze.md (branch_zero): Use it.
+	(*one_cmpldi2): Remove, and its split.
+	(*movdi_internal): Print a register copy with three-operand addk,
+	in an order safe for overlapping registers.
+	(*movdf_internal): Likewise rather than a copy of zero, and give
+	that alternative a length of 8.
+	* config/microblaze/sync.md (atomic_test_and_set): Return whether
+	the byte was nonzero.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/atomic-test-and-set-run.c: New test.
+	* gcc.target/microblaze/others/move-nosplit-run.c: New test.
+---
+ gcc/config/microblaze/microblaze.md           | 37 ++++++---------
+ gcc/config/microblaze/predicates.md           |  4 ++
+ gcc/config/microblaze/sync.md                 | 11 ++++-
+ .../others/atomic-test-and-set-run.c          | 46 +++++++++++++++++++
+ .../microblaze/others/move-nosplit-run.c      | 40 ++++++++++++++++
+ 5 files changed, 112 insertions(+), 26 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/atomic-test-and-set-run.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/move-nosplit-run.c
+
+diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
+index 067cc881c..5c583e9ca 100644
+--- a/gcc/config/microblaze/microblaze.md
++++ b/gcc/config/microblaze/microblaze.md
+@@ -805,27 +805,6 @@
+   (set_attr "mode"	"SI")
+   (set_attr "length"	"4")])
+ 
+-(define_insn "*one_cmpldi2"
+-  [(set (match_operand:DI 0 "register_operand" "=d")
+-	(not:DI (match_operand:DI 1 "register_operand" "d")))]
+-  ""
+-  "nor\t%M0,r0,%M1\;nor\t%L0,r0,%L1"
+-  [(set_attr "type"	"darith")
+-  (set_attr "mode"	"DI")
+-  (set_attr "length"    "8")]
+-)
+-
+-(define_split
+-  [(set (match_operand:DI 0 "register_operand" "")
+-	(not:DI (match_operand:DI 1 "register_operand" "")))]
+-  "reload_completed 
+-   && GET_CODE (operands[0]) == REG && GP_REG_P (REGNO (operands[0]))
+-   && GET_CODE (operands[1]) == REG && GP_REG_P (REGNO (operands[1]))"
+-
+-  [(set (subreg:SI (match_dup 0) 0) (not:SI (subreg:SI (match_dup 1) 0)))
+-  (set (subreg:SI (match_dup 0) 4) (not:SI (subreg:SI (match_dup 1) 4)))]
+-  "")
+-
+ 
+ ;;----------------------------------------------------------------
+ ;; Logical
+@@ -1009,7 +988,11 @@
+     switch (which_alternative)
+     {
+       case 0:
+-        return "addk\t%0,%1\n\taddk\t%D0,%d1";
++        /* Copy the word that the other one's destination overlaps
++           first.  */
++        if (REGNO (operands[0]) == REGNO (operands[1]) + 1)
++          return "addk\t%D0,%D1,r0\n\taddk\t%0,%1,r0";
++        return "addk\t%0,%1,r0\n\taddk\t%D0,%D1,r0";
+       case 1:
+ 	return "addik\t%M0,r0,%h1\n\taddik\t%L0,r0,%j1 #li => la";
+       case 2:
+@@ -1321,6 +1304,12 @@
+     switch (which_alternative)
+     {
+       case 0:
++	if (REG_P (operands[1]))
++	  {
++	    if (REGNO (operands[0]) == REGNO (operands[1]) + 1)
++	      return "addk\t%D0,%D1,r0\n\taddk\t%0,%1,r0";
++	    return "addk\t%0,%1,r0\n\taddk\t%D0,%D1,r0";
++	  }
+ 	return "addk\t%0,r0,r0\n\taddk\t%D0,r0,r0";
+       case 1:
+       case 3:
+@@ -1339,7 +1328,7 @@
+   }
+   [(set_attr "type"     "no_delay_move,no_delay_load,no_delay_load,no_delay_load,no_delay_store")
+   (set_attr "mode"      "DF")
+-  (set_attr "length"    "4,8,8,16,8")])
++  (set_attr "length"    "8,8,8,16,8")])
+ 
+ (define_split
+   [(set (match_operand:DF 0 "register_operand" "")
+@@ -1942,7 +1931,7 @@
+ 
+ (define_insn "branch_zero"
+   [(set (pc)
+-	(if_then_else (match_operator:SI 0 "ordered_comparison_operator"
++	(if_then_else (match_operator:SI 0 "branch_zero_operator"
+   				 [(match_operand:SI 1 "register_operand" "d")
+                                   (const_int 0)])
+                       (match_operand:SI 2 "pc_or_label_operand" "")
+diff --git a/gcc/config/microblaze/predicates.md b/gcc/config/microblaze/predicates.md
+index accbb3cfa..c01d2eb81 100644
+--- a/gcc/config/microblaze/predicates.md
++++ b/gcc/config/microblaze/predicates.md
+@@ -127,3 +127,7 @@
+ ;; Return if the code of this rtx pattern is a comparison.
+ (define_predicate "cmp_op"
+   (match_code "gt,ge,gtu,geu,lt,le,ltu,leu"))
++
++;; The branches on a register test it against zero as a signed value.
++(define_predicate "branch_zero_operator"
++  (match_code "eq,ne,gt,ge,lt,le"))
+diff --git a/gcc/config/microblaze/sync.md b/gcc/config/microblaze/sync.md
+index 777b9b1de..2199e2c4c 100644
+--- a/gcc/config/microblaze/sync.md
++++ b/gcc/config/microblaze/sync.md
+@@ -106,9 +106,16 @@
+ 
+   emit_insn (gen_atomic_fetch_orsi (old, aligned_mem, shifted_set, model));
+ 
+-  emit_move_insn (old, gen_rtx_ASHIFTRT (SImode, old, shift));
++  /* Return true, 1 as TARGET_ATOMIC_TEST_AND_SET_TRUEVAL says, if the byte
++     was not zero, and false otherwise: not the byte itself.  */
++  rtx byte = expand_simple_binop (SImode, LSHIFTRT, old, shift, NULL_RTX,
++				  1, OPTAB_LIB_WIDEN);
++  byte = expand_simple_binop (SImode, AND, byte, GEN_INT (0xff), NULL_RTX,
++			      1, OPTAB_LIB_WIDEN);
++  rtx res = emit_store_flag_force (gen_reg_rtx (SImode), NE, byte,
++				   const0_rtx, SImode, 1, 1);
+ 
+-  emit_move_insn (operands[0], gen_lowpart (QImode, old));
++  emit_move_insn (operands[0], gen_lowpart (QImode, res));
+ 
+   DONE;
+ })
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/atomic-test-and-set-run.c b/gcc/testsuite/gcc.target/microblaze/others/atomic-test-and-set-run.c
+new file mode 100644
+index 000000000..465833575
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/atomic-test-and-set-run.c
+@@ -0,0 +1,46 @@
++/* { dg-do run } */
++
++/* __atomic_test_and_set returned the old byte rather than true or false,
++   so a byte that held 0x80 gave 128.  Check every byte of a word, since
++   the byte is reached through an aligned word and a shift.  */
++
++extern void abort (void);
++
++union
++{
++  unsigned int w;
++  unsigned char b[4];
++} u __attribute__ ((aligned (4)));
++
++__attribute__ ((noipa)) int
++tas (unsigned char *p)
++{
++  return __atomic_test_and_set (p, __ATOMIC_SEQ_CST);
++}
++
++int
++main (void)
++{
++  int i;
++  static const unsigned char vals[] = { 0, 1, 0x80, 0xff, 0x7f, 0x81 };
++  unsigned int j;
++
++  for (i = 0; i < 4; i++)
++    for (j = 0; j < sizeof vals; j++)
++      {
++	u.w = 0x5a5a5a5a;
++	u.b[i] = vals[j];
++	if (tas (&u.b[i]) != (vals[j] != 0))
++	  abort ();
++	if (u.b[i] == 0)
++	  abort ();
++	if (vals[j] == 0 && u.b[i] != 1)
++	  abort ();
++	u.b[i] = 0x5a;
++	if (u.w != 0x5a5a5a5a)
++	  abort ();
++	if (tas (&u.b[i]) != 1)
++	  abort ();
++      }
++  return 0;
++}
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/move-nosplit-run.c b/gcc/testsuite/gcc.target/microblaze/others/move-nosplit-run.c
+new file mode 100644
+index 000000000..9c359fd6a
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/move-nosplit-run.c
+@@ -0,0 +1,40 @@
++/* { dg-do run } */
++/* { dg-options "-fdisable-rtl-split1 -fdisable-rtl-split2 -fdisable-rtl-split3 -fdisable-rtl-split4 -fdisable-rtl-split5" } */
++/* { dg-prune-output "disable pass" } */
++
++/* The register-to-register alternatives of movdi and movdf are normally
++   split after reload, so their templates went unchecked: movdi printed a
++   two-operand addk, which does not assemble, and movdf printed a copy of
++   zero.  */
++
++extern void abort (void);
++
++__attribute__ ((noipa)) long long
++second_ll (long long a, long long b)
++{
++  return b;
++}
++
++__attribute__ ((noipa)) double
++second_d (double a, double b)
++{
++  return b;
++}
++
++__attribute__ ((noipa)) long long
++swap_ll (long long a)
++{
++  return (a << 32) | ((unsigned long long) a >> 32);
++}
++
++int
++main (void)
++{
++  if (second_ll (1, 0x123456789abcdefLL) != 0x123456789abcdefLL)
++    abort ();
++  if (second_d (1.0, 2.5) != 2.5)
++    abort ();
++  if (swap_ll (0x0000000100000002LL) != 0x0000000200000001LL)
++    abort ();
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

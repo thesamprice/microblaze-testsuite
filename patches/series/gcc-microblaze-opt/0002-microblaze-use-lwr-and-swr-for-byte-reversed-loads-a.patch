@@ -1,0 +1,318 @@
+From 5d46d219044f9f4509d5da99a6fecfbe0f501ce1 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 03:06:38 -0500
+Subject: [PATCH 2/3] microblaze: use lwr and swr for byte-reversed loads and
+ stores
+
+With the reorder instructions (-mxl-reorder, on by default for -mcpu=
+later than v8.30.a, and at v8.30.a with -mxl-pattern-compare),
+MicroBlaze has lwr and swr, which load and store a word with its bytes
+reversed. The port's only pattern for them, movsi4_rev, takes the
+bswap:SI of an SFmode operand, which no RTL ever has, so they were never
+used: __builtin_bswap32 (*p) was lw and swapb, and *p =
+__builtin_bswap32 (x) swapb and sw.
+
+Replace movsi4_rev with *bswapsi2_load and *bswapsi2_store, which match
+bswap:SI of a word in memory and a store of bswap:SI to memory, so that
+combine merges the swap into the access.  lwr and swr exist only in the
+register form, so a new predicate and memory constraint, Y, accept a
+word addressed by a register or by the sum of two; any other address
+keeps lwi and swapb, which is no longer than materializing the address
+would be.  The halfword lhur and shr are left alone: they also reverse
+the halfword's address within the word, so they are not a bswap:HI of
+the access.
+
+A loop converting 1024 words with d[i] = __builtin_bswap32 (s[i]) at
+-O2 -mcpu=v10.0 goes from 6158 to 5134 instructions under QEMU, one
+instruction in six per word, and summing byte-reversed words or storing
+byte-reversed values likewise, from 6160 to 5136 and 6157 to 5134.
+
+others/bswap-mem-run.c checks the loads and stores, with plain and
+indexed addresses, against the bytes in memory, for either byte order.
+
+Tested on microblaze-elf and microblazeel-elf under QEMU:
+gcc.c-torture/execute.exp and gcc.target/microblaze, with no new
+failures.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.md (movsi4_rev): Remove.
+	(*bswapsi2_load, *bswapsi2_store): New insns.
+	* config/microblaze/predicates.md (reorder_memory_operand): New
+	predicate.
+	* config/microblaze/constraints.md (Y): New memory constraint.
+	* config/microblaze/microblaze.cc (microblaze_reorder_memory_p):
+	New function.
+	(microblaze_output_reorder_mem): New function.
+	* config/microblaze/microblaze-protos.h
+	(microblaze_reorder_memory_p, microblaze_output_reorder_mem):
+	Declare.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/isa/bswap-mem.c: New test.
+	* gcc.target/microblaze/isa/bswap-mem-noreorder.c: New test.
+	* gcc.target/microblaze/others/bswap-mem-run.c: New test.
+---
+ gcc/config/microblaze/constraints.md          |  5 ++
+ gcc/config/microblaze/microblaze-protos.h     |  2 +
+ gcc/config/microblaze/microblaze.cc           | 39 ++++++++++++
+ gcc/config/microblaze/microblaze.md           | 33 +++++++---
+ gcc/config/microblaze/predicates.md           |  4 ++
+ .../microblaze/isa/bswap-mem-noreorder.c      | 11 ++++
+ .../gcc.target/microblaze/isa/bswap-mem.c     | 15 +++++
+ .../microblaze/others/bswap-mem-run.c         | 61 +++++++++++++++++++
+ 8 files changed, 160 insertions(+), 10 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/bswap-mem-noreorder.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/bswap-mem.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/bswap-mem-run.c
+
+diff --git a/gcc/config/microblaze/constraints.md b/gcc/config/microblaze/constraints.md
+index 0d57ad29c..263b53050 100644
+--- a/gcc/config/microblaze/constraints.md
++++ b/gcc/config/microblaze/constraints.md
+@@ -61,6 +61,11 @@
+ 
+ ;; Define memory constraints
+ 
++(define_memory_constraint "Y"
++  "Memory operand addressed by a register or the sum of two registers."
++  (and (match_code "mem")
++       (match_test "microblaze_reorder_memory_p (op)")))
++
+ (define_memory_constraint "R"
+   "Memory operand which fits in single instruction."
+   (and (match_code "mem")
+diff --git a/gcc/config/microblaze/microblaze-protos.h b/gcc/config/microblaze/microblaze-protos.h
+index acee3333b..90c532b1d 100644
+--- a/gcc/config/microblaze/microblaze-protos.h
++++ b/gcc/config/microblaze/microblaze-protos.h
+@@ -35,6 +35,8 @@ extern int microblaze_expand_shift (rtx *);
+ extern bool microblaze_dword_overlap_p (rtx, bool, rtx, bool);
+ extern const char *microblaze_output_adddi3_imm (rtx *);
+ extern int microblaze_adddi3_imm_length (rtx *);
++extern bool microblaze_reorder_memory_p (rtx);
++extern const char *microblaze_output_reorder_mem (const char *, rtx, rtx);
+ extern bool microblaze_expand_move (machine_mode, rtx *);
+ extern bool microblaze_expand_block_move (rtx, rtx, rtx, rtx);
+ extern bool microblaze_expand_strlen (rtx, rtx, rtx);
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index 63c7224e5..486207ac0 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -3663,6 +3663,45 @@ microblaze_adddi3_imm_length (rtx *operands)
+   return len;
+ }
+ 
++/* Return true if the memory operand OP is addressed by a register or
++   by the sum of two registers, the only addresses of the byte-reversed
++   loads and stores lwr and swr.  */
++bool
++microblaze_reorder_memory_p (rtx op)
++{
++  rtx addr = XEXP (op, 0);
++  if (REG_P (addr))
++    return true;
++  return (GET_CODE (addr) == PLUS
++	  && REG_P (XEXP (addr, 0))
++	  && REG_P (XEXP (addr, 1)));
++}
++
++/* Output the byte-reversed load or store INSN of the register REG at
++   the memory operand MEM.  */
++const char *
++microblaze_output_reorder_mem (const char *insn, rtx reg, rtx mem)
++{
++  rtx addr = XEXP (mem, 0);
++  rtx ops[3];
++  char buf[32];
++
++  ops[0] = reg;
++  if (REG_P (addr))
++    {
++      ops[1] = addr;
++      ops[2] = gen_rtx_REG (SImode, GP_REG_FIRST);
++    }
++  else
++    {
++      ops[1] = XEXP (addr, 0);
++      ops[2] = XEXP (addr, 1);
++    }
++  snprintf (buf, sizeof buf, "%s\t%%0,%%1,%%2", insn);
++  output_asm_insn (buf, ops);
++  return "";
++}
++
+ /* Return an RTX indicating where the return address to the
+    calling function can be found.  */
+ rtx
+diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
+index 9801ecaa5..550911a9e 100644
+--- a/gcc/config/microblaze/microblaze.md
++++ b/gcc/config/microblaze/microblaze.md
+@@ -1233,17 +1233,30 @@
+   }
+ )
+ 
+-;;Load and store reverse
+-(define_insn "movsi4_rev"
+-  [(set (match_operand:SI 0 "reg_or_mem_operand" "=r,Q")
+-        (bswap:SI (match_operand:SF 1 "reg_or_mem_operand" "Q,r")))]
++;; Byte-reversed loads and stores of a word.  lwr and swr only have the
++;; register form, so the address is a register or the sum of two.
++
++(define_insn "*bswapsi2_load"
++  [(set (match_operand:SI 0 "register_operand" "=d")
++	(bswap:SI (match_operand:SI 1 "reorder_memory_operand" "Y")))]
+   "TARGET_REORDER"
+-  "@
+-   lwr\t%0,%y1,r0
+-   swr\t%1,%y0,r0"
+-  [(set_attr "type"     "load,store")
+-  (set_attr "mode"      "SI")
+-  (set_attr "length"    "4,4")])
++  {
++    return microblaze_output_reorder_mem ("lwr", operands[0], operands[1]);
++  }
++  [(set_attr "type"	"load")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"4")])
++
++(define_insn "*bswapsi2_store"
++  [(set (match_operand:SI 0 "reorder_memory_operand" "=Y")
++	(bswap:SI (match_operand:SI 1 "register_operand" "d")))]
++  "TARGET_REORDER"
++  {
++    return microblaze_output_reorder_mem ("swr", operands[1], operands[0]);
++  }
++  [(set_attr "type"	"store")
++   (set_attr "mode"	"SI")
++   (set_attr "length"	"4")])
+ 
+ ;; 32-bit floating point moves
+ 
+diff --git a/gcc/config/microblaze/predicates.md b/gcc/config/microblaze/predicates.md
+index accbb3cfa..18f004017 100644
+--- a/gcc/config/microblaze/predicates.md
++++ b/gcc/config/microblaze/predicates.md
+@@ -30,6 +30,10 @@
+        (and (match_code "const_int,const_double")
+ 	    (match_test "LARGE_INT (op)"))))
+ 
++(define_predicate "reorder_memory_operand"
++  (and (match_operand 0 "memory_operand")
++       (match_test "microblaze_reorder_memory_p (op)")))
++
+ (define_predicate "arith_plus_operand"
+  (match_operand 0 "general_operand")
+ {
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/bswap-mem-noreorder.c b/gcc/testsuite/gcc.target/microblaze/isa/bswap-mem-noreorder.c
+new file mode 100644
+index 000000000..1abbc4ca2
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/bswap-mem-noreorder.c
+@@ -0,0 +1,11 @@
++/* Without the reorder instructions there is no lwr or swr.  */
++/* { dg-options "-O2 -mcpu=v8.20.a" } */
++/* { dg-skip-if "reorder requested" { *-*-* } { "-mxl-reorder" } { "" } } */
++
++typedef unsigned int u32;
++
++u32 load (const u32 *p) { return __builtin_bswap32 (*p); }
++void store (u32 *p, u32 x) { *p = __builtin_bswap32 (x); }
++
++/* { dg-final { scan-assembler-not {\tlwr\t} } } */
++/* { dg-final { scan-assembler-not {\tswr\t} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/bswap-mem.c b/gcc/testsuite/gcc.target/microblaze/isa/bswap-mem.c
+new file mode 100644
+index 000000000..89e34a64c
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/bswap-mem.c
+@@ -0,0 +1,15 @@
++/* With the reorder instructions, a byte-reversed load or store of a
++   word addressed by a register or the sum of two registers is lwr or
++   swr.  */
++/* { dg-options "-O2 -mcpu=v10.0" } */
++
++typedef unsigned int u32;
++
++u32 load (const u32 *p) { return __builtin_bswap32 (*p); }
++u32 load_idx (const u32 *p, int i) { return __builtin_bswap32 (p[i]); }
++void store (u32 *p, u32 x) { *p = __builtin_bswap32 (x); }
++void store_idx (u32 *p, int i, u32 x) { p[i] = __builtin_bswap32 (x); }
++
++/* { dg-final { scan-assembler-times {\tlwr\tr[0-9]+,r[0-9]+,r[0-9]+\n} 2 } } */
++/* { dg-final { scan-assembler-times {\tswr\tr[0-9]+,r[0-9]+,r[0-9]+\n} 2 } } */
++/* { dg-final { scan-assembler-not {\tswapb\t} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/bswap-mem-run.c b/gcc/testsuite/gcc.target/microblaze/others/bswap-mem-run.c
+new file mode 100644
+index 000000000..aef077a62
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/bswap-mem-run.c
+@@ -0,0 +1,61 @@
++/* Check byte-reversed loads and stores of words against byte accesses.  */
++/* { dg-do run } */
++
++extern void abort (void);
++
++typedef unsigned int u32;
++
++static u32 buf[4] __attribute__ ((aligned (4)));
++
++__attribute__ ((noipa)) u32 load (const u32 *p) { return __builtin_bswap32 (*p); }
++__attribute__ ((noipa)) u32 load_idx (const u32 *p, int i) { return __builtin_bswap32 (p[i]); }
++__attribute__ ((noipa)) void store (u32 *p, u32 x) { *p = __builtin_bswap32 (x); }
++__attribute__ ((noipa)) void store_idx (u32 *p, int i, u32 x) { p[i] = __builtin_bswap32 (x); }
++__attribute__ ((noipa)) u32 load_add (const u32 *p, u32 y) { return __builtin_bswap32 (*p) + y; }
++
++/* The value of the bytes at P read as a big-endian word.  */
++static u32
++be_bytes (const void *p)
++{
++  const unsigned char *b = p;
++  return ((u32) b[0] << 24) | ((u32) b[1] << 16) | ((u32) b[2] << 8) | b[3];
++}
++
++int
++main (void)
++{
++  static const unsigned char bytes[16] = {
++    0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
++    0xff, 0x00, 0x80, 0x7f, 0xde, 0xad, 0xbe, 0xef
++  };
++  const union { u32 w; unsigned char b[4]; } u = { 0x01020304 };
++  int le = u.b[0] == 4;
++  int i;
++
++  __builtin_memcpy (buf, bytes, sizeof buf);
++  for (i = 0; i < 4; i++)
++    {
++      /* Reversed, the bytes read in the other byte order.  */
++      u32 want = be_bytes (&bytes[4 * i]);
++      if (!le)
++	want = __builtin_bswap32 (want);
++      if (load (&buf[i]) != want || load_idx (buf, i) != want)
++	abort ();
++      if (load_add (&buf[i], 1) != want + 1)
++	abort ();
++    }
++
++  for (i = 0; i < 4; i++)
++    {
++      u32 x = 0x01234567u * (i + 1);
++      store (&buf[0], x);
++      if (buf[0] != __builtin_bswap32 (x))
++	abort ();
++      store_idx (buf, i, x);
++      if (buf[i] != __builtin_bswap32 (x))
++	abort ();
++      if (be_bytes (&buf[i]) != (le ? x : __builtin_bswap32 (x)))
++	abort ();
++    }
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

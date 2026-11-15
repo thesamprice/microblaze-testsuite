@@ -1,0 +1,166 @@
+From 210124658950d121607fcceb7e5cf0a101a68d98 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 06:14:57 -0500
+Subject: [PATCH 3/3] microblaze: cost shifts by what they expand to without a
+ barrel shifter
+
+Without a barrel shifter but with a multiplier, microblaze_rtx_costs
+rated every shift as one instruction.  Only a left shift by a constant
+is one, a muli.  A right shift by N is a chain of N srl or sra, and a
+shift by a register is a loop.  So the middle end chose long chains
+freely: x % 16 for a signed x became a shift by 31 and a chain of 28 srl,
+35 instructions, where the shift-by-31 sequence and a mask take 8.
+
+Cost a left shift by a constant as a muli: the cost of MULT when
+optimizing for speed, one instruction for size, and one more for the
+imm prefix when the multiplier does not fit in 16 bits.  Every other
+shift now gets the costs already used without a multiplier.  A shift
+by 31, which goes through the carry in two or three instructions, is
+costed as such, and a shift by a register costs the seven
+instructions of its loop when optimizing for size.
+
+expmed also asks for the cost of a shift-and-add, (plus (mult x 2^n) y),
+and an addition was one instruction whatever its operands.  With a
+multiplier, add the cost of the shift: there is no shift-and-add
+instruction.  Without this, x * 10 at -mcpu=v4.00.a, where a multiply
+costs three, became four adds rather than one muli.  Without a
+multiplier the addition stays cheap: a multiply is then a call to
+__mulsi3, much slower than MULT's cost says, and pricing the shift
+there made expmed prefer the call, for instance in pr37125.c.
+
+At -O2 -mno-xl-soft-mul, x % 16 goes from 35 instructions to 8, x * 9
+from 2 to 1 and x * 10 from 3 to 1 at the default -mcpu=v4.00.a.  Under
+QEMU, summing a[i] % 16 over 1000 elements takes 13015 instructions
+instead of 40014, at -mcpu=v4.00.a and v9.6, and a[i] * 10 + a[i] * 9
+6016 instead of 9015 at v4.00.a.  Without a multiplier the same loops
+are unchanged.
+
+Over gcc.c-torture/execute and gcc.target/microblaze, 1646 files, text
+size with -mno-xl-soft-mul goes from 3117428 to 3096272 bytes at -Os
+(53 files smaller, 10 larger by 140 bytes in all), and from 3021612 to
+2991908 at -O2 (63 smaller, 111 larger by 2048 bytes, mostly where an
+add chain replaces a muli).  With the default options it goes from
+3124652 to 3124048 at -Os (9 smaller, 2 larger by 12 bytes) and from
+3126036 to 3125312 at -O2 (18 smaller, 3 larger by 152 bytes).
+
+Tested on microblaze-elf and microblazeel-elf under QEMU:
+gcc.c-torture/execute.exp and
+gcc.target/microblaze, with no new failures.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.cc (microblaze_rtx_costs): With a
+	multiplier and no barrel shifter, cost a left shift by a constant
+	as a muli and other shifts as their sequences.  Cost a shift by
+	31 as two or three instructions, and a shift by a register as
+	seven when optimizing for size.  With a multiplier, add the cost
+	of a shift or multiply operand of PLUS and MINUS.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/isa/shift-cost-mul.c: New test.
+---
+ gcc/config/microblaze/microblaze.cc           | 48 +++++++++++++++++--
+ .../microblaze/isa/shift-cost-mul.c           | 14 ++++++
+ 2 files changed, 58 insertions(+), 4 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/shift-cost-mul.c
+
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index 486207ac0..2415e6993 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -1451,8 +1451,29 @@ microblaze_rtx_costs (rtx x, machine_mode mode, int outer_code ATTRIBUTE_UNUSED,
+ 	    else
+ 	      *total = COSTS_N_INSNS (2);
+ 	  }
+-	else if (!TARGET_SOFT_MUL)
+-	  *total = COSTS_N_INSNS (1);
++	else if (!TARGET_SOFT_MUL
++		 && code == ASHIFT
++		 && CONST_INT_P (XEXP (x, 1))
++		 && INTVAL (XEXP (x, 1)) != 1
++		 && INTVAL (XEXP (x, 1)) != 31)
++	  {
++	    /* A left shift by a constant is a muli, as costed for MULT
++	       when optimizing for speed, with an imm prefix when the
++	       multiplier does not fit in 16 signed bits.  Every other
++	       shift is the same sequence as without the multiplier.  */
++	    if (!speed
++		|| MICROBLAZE_VERSION_COMPARE (microblaze_select_cpu,
++					       "v5.00.a") >= 0)
++	      *total = COSTS_N_INSNS (1);
++	    else
++	      *total = COSTS_N_INSNS (3);
++	    if (INTVAL (XEXP (x, 1)) > 14)
++	      *total += COSTS_N_INSNS (1);
++	  }
++	else if (CONST_INT_P (XEXP (x, 1)) && INTVAL (XEXP (x, 1)) == 31)
++	  /* Through the carry: srl and src, add and addc, or those and a
++	     negation.  */
++	  *total = COSTS_N_INSNS (code == ASHIFTRT ? 3 : 2);
+ 	else if (GET_CODE (XEXP (x, 1)) == CONST_INT)
+ 	  {
+ 	    /* Add 1 to make shift slightly more expensive than add.  */
+@@ -1465,8 +1486,9 @@ microblaze_rtx_costs (rtx x, machine_mode mode, int outer_code ATTRIBUTE_UNUSED,
+ 	  }
+ 	else
+ 	  /* Double the worst cost of shifts when there is no barrel shifter and
+-	     the shift amount is in a reg.  */
+-	  *total = COSTS_N_INSNS (32 * 4);
++	     the shift amount is in a reg.  For size, the loop is at most
++	     seven instructions.  */
++	  *total = COSTS_N_INSNS (speed ? 32 * 4 : 7);
+ 	return true;
+       }
+     case PLUS:
+@@ -1485,7 +1507,25 @@ microblaze_rtx_costs (rtx x, machine_mode mode, int outer_code ATTRIBUTE_UNUSED,
+ 	  }
+ 	else
+ 	  {
++	    /* There is no shift-and-add instruction: with a multiplier,
++	       the shift or multiply that expmed asks about as part of an
++	       addition costs what it costs on its own.  Without one, a
++	       multiply is a call to __mulsi3, far slower than MULT's cost
++	       says, so keep shift-and-add cheap and the multiply
++	       synthesized.  */
+ 	    *total = COSTS_N_INSNS (1);
++	    rtx op0 = XEXP (x, 0);
++	    if (!TARGET_SOFT_MUL && GET_CODE (op0) == MULT)
++	      {
++		/* expmed writes a shift as a multiply by a power of 2.  */
++		int n = (CONST_INT_P (XEXP (op0, 1))
++			 ? exact_log2 (INTVAL (XEXP (op0, 1))) : -1);
++		if (n > 0)
++		  op0 = gen_rtx_ASHIFT (mode, XEXP (op0, 0), GEN_INT (n));
++		*total += rtx_cost (op0, mode, (enum rtx_code) code, 0, speed);
++	      }
++	    else if (!TARGET_SOFT_MUL && GET_CODE (op0) == ASHIFT)
++	      *total += rtx_cost (op0, mode, (enum rtx_code) code, 0, speed);
+ 	    return true;
+ 	  }
+ 
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/shift-cost-mul.c b/gcc/testsuite/gcc.target/microblaze/isa/shift-cost-mul.c
+new file mode 100644
+index 000000000..b049f714d
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/shift-cost-mul.c
+@@ -0,0 +1,14 @@
++/* With a multiplier and no barrel shifter, a left shift by a constant is
++   a muli and costs as much, so a multiply by 9 or 10 is not split into
++   shifts and adds; and a right shift by 28 costs 28 instructions, so x % 16
++   uses the shift by 31 rather than a chain of srl.  */
++/* { dg-options "-O2 -mcpu=v4.00.a -mno-xl-soft-mul" } */
++/* { dg-skip-if "barrel shifter or reorder" { *-*-* } { "-mxl-barrel-shift" "-mxl-reorder" } { "" } } */
++
++int mul9 (int x) { return x * 9; }
++int mul10 (int x) { return x * 10; }
++int mod16 (int x) { return x % 16; }
++
++/* { dg-final { scan-assembler {\tmuli\tr[0-9]+,r[0-9]+,9\n} } } */
++/* { dg-final { scan-assembler {\tmuli\tr[0-9]+,r[0-9]+,10\n} } } */
++/* { dg-final { scan-assembler-not {\tsrl\t} } } */
+-- 
+2.39.5 (Apple Git-154)
+

@@ -1,0 +1,118 @@
+From bfd4bdd404ac6d4d41a71d631c9db18a59ed806c Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 05:52:36 -0500
+Subject: [PATCH 8/8] microblaze: legitimize the small-divide table address
+
+With -msmall-divides and -mxl-barrel-shift, microblaze_expand_divide
+built (mem:QI (plus reg (symbol_ref "_divsi3_table"))) directly, which
+is not a valid address under PIC: -fPIC ended in an unrecognizable insn.
+The symbol also had QImode, and the byte was widened through a
+paradoxical subreg.
+
+Make the symbol Pmode and pass the address through memory_address,
+which loads the table through the GOT, or the text base, under PIC, and
+load the byte with zero_extendqisi2.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.cc (microblaze_expand_divide):
+	Legitimize the table address, and use zero_extendqisi2.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/small-divides-pic-run.c: New test.
+---
+ gcc/config/microblaze/microblaze.cc           | 11 ++---
+ .../microblaze/others/small-divides-pic-run.c | 45 +++++++++++++++++++
+ 2 files changed, 51 insertions(+), 5 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/small-divides-pic-run.c
+
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index 02490be23..234851652 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -3806,10 +3806,9 @@ microblaze_expand_divide (rtx operands[])
+ 
+   rtx regt1 = gen_reg_rtx (SImode);
+   rtx reg18 = gen_rtx_REG (SImode, R_TMP);
+-  rtx regqi = gen_reg_rtx (QImode);
+   rtx_code_label *div_label = gen_label_rtx ();
+   rtx_code_label *div_end_label = gen_label_rtx ();
+-  rtx div_table_rtx = gen_rtx_SYMBOL_REF (QImode,"_divsi3_table");
++  rtx div_table_rtx = gen_rtx_SYMBOL_REF (Pmode, "_divsi3_table");
+   rtx mem_rtx;
+   rtx ret;
+   rtx_insn *insn;
+@@ -3824,11 +3823,13 @@ microblaze_expand_divide (rtx operands[])
+ 
+   emit_insn (gen_ashlsi3_bshift (regt1, operands[1], GEN_INT(4)));
+   emit_insn (gen_addsi3 (regt1, regt1, operands[2]));
++  /* The table address needs the GOT, or the text base, under PIC.  */
+   mem_rtx = gen_rtx_MEM (QImode,
+-                            gen_rtx_PLUS (Pmode, regt1, div_table_rtx));
++			 memory_address (QImode,
++					 gen_rtx_PLUS (Pmode, regt1,
++						       div_table_rtx)));
+ 
+-  insn = emit_insn (gen_movqi (regqi, mem_rtx));
+-  insn = emit_insn (gen_movsi (operands[0], gen_rtx_SUBREG (SImode, regqi, 0)));
++  insn = emit_insn (gen_zero_extendqisi2 (operands[0], mem_rtx));
+   rtx_jump_insn *jump = emit_jump_insn_after (gen_jump (div_end_label), insn);
+   JUMP_LABEL (jump) = div_end_label;
+   LABEL_NUSES (div_end_label) = 1;
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/small-divides-pic-run.c b/gcc/testsuite/gcc.target/microblaze/others/small-divides-pic-run.c
+new file mode 100644
+index 000000000..79d499f1e
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/small-divides-pic-run.c
+@@ -0,0 +1,45 @@
++/* { dg-do run } */
++/* { dg-options "-fPIC -msmall-divides -mxl-barrel-shift" } */
++
++/* With -msmall-divides, quotients of operands up to 15 come from
++   _divsi3_table.  Its address was not legitimized for PIC, which ended in
++   an unrecognizable insn.  */
++
++extern void abort (void);
++
++__attribute__ ((noipa)) int
++d (int a, int b)
++{
++  return a / b;
++}
++
++/* The quotient by repeated subtraction, truncated toward zero.  */
++static int
++ref (int a, int b)
++{
++  int neg = (a < 0) != (b < 0);
++  int q = 0;
++
++  if (a < 0)
++    a = -a;
++  if (b < 0)
++    b = -b;
++  while (a >= b)
++    {
++      a -= b;
++      q++;
++    }
++  return neg ? -q : q;
++}
++
++int
++main (void)
++{
++  int a, b;
++
++  for (a = -20; a <= 20; a++)
++    for (b = -20; b <= 20; b++)
++      if (b != 0 && d (a, b) != ref (a, b))
++	abort ();
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

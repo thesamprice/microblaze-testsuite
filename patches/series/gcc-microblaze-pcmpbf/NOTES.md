@@ -14,6 +14,12 @@ small structs in their own mode, bsefi/bsifi).  The patch does not depend
 on them: `git apply --cached --check` onto `df809a029` succeeds, and onto
 the gcc-microblaze-elfos commit (`423f5843b`) too.
 
+2026-11-15: the three `scan-assembler-not "pcmpbf"` tests (`-nopcmp`,
+`-os`, `-unaligned`) now scan for `"\tpcmpbf"`: with the elfos.h patch's
+`.file "strlen-pcmpbf-....c"` line they failed. Regenerated from
+`4648c1bc3` (branch `pkg/pcmpbf-scanfix`, `9777be92c` amended); in the
+audit stack it is `bddc90cf2` on `pkg/series-scanfix`.
+
 ## The patch
 
 `0001-microblaze-expand-strlen-inline-with-pcmpbf.patch`

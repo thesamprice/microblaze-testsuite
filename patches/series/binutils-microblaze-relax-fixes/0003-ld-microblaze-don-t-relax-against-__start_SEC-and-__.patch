@@ -1,0 +1,116 @@
+From 66ae338d6194f572f986a098b983d85bbb415fc0 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 00:58:28 -0500
+Subject: [PATCH 3/9] ld: microblaze: don't relax against __start_SEC and
+ __stop_SEC
+
+The value of a __start_SEC or __stop_SEC symbol is not final until the
+sections are laid out, which happens after relaxation.
+microblaze_elf_relax_section used the value such a symbol had while
+relaxing, decided that its IMM could go, and the link then failed when
+the real value did not fit in 16 bits:
+
+  relocation truncated to fit: R_MICROBLAZE_32_LO against symbol
+  `__stop_mysec'
+
+The reproducer loads __start_mysec and __stop_mysec, with mysec
+starting below 32 KiB and ending above it.  Skip such symbols, as
+LoongArch does (a73d9047009).
+
+bfd/
+	* elf32-microblaze.c (microblaze_elf_relax_section): Don't relax
+	relocations against start/stop symbols.
+
+ld/
+	* testsuite/ld-microblaze/relax-start-stop.s: New file.
+	* testsuite/ld-microblaze/relax-start-stop.ld: New file.
+	* testsuite/ld-microblaze/relax-start-stop.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ bfd/elf32-microblaze.c                         |  5 +++++
+ ld/testsuite/ld-microblaze/relax-start-stop.d  | 15 +++++++++++++++
+ ld/testsuite/ld-microblaze/relax-start-stop.ld | 10 ++++++++++
+ ld/testsuite/ld-microblaze/relax-start-stop.s  | 15 +++++++++++++++
+ 4 files changed, 45 insertions(+)
+ create mode 100644 ld/testsuite/ld-microblaze/relax-start-stop.d
+ create mode 100644 ld/testsuite/ld-microblaze/relax-start-stop.ld
+ create mode 100644 ld/testsuite/ld-microblaze/relax-start-stop.s
+
+diff --git a/bfd/elf32-microblaze.c b/bfd/elf32-microblaze.c
+index dac4ae39900..0aeddb34610 100644
+--- a/bfd/elf32-microblaze.c
++++ b/bfd/elf32-microblaze.c
+@@ -2442,6 +2442,11 @@ microblaze_elf_relax_section (bfd *abfd,
+ 	       regular reloc processing.  */
+ 	    continue;
+ 
++	  /* The values of __start_SEC and __stop_SEC are not final until
++	     the sections are laid out, after relaxation.  */
++	  if (h->start_stop)
++	    continue;
++
+ 	  symval = (h->root.u.def.value
+ 		    + h->root.u.def.section->output_section->vma
+ 		    + h->root.u.def.section->output_offset);
+diff --git a/ld/testsuite/ld-microblaze/relax-start-stop.d b/ld/testsuite/ld-microblaze/relax-start-stop.d
+new file mode 100644
+index 00000000000..804f452efe2
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-start-stop.d
+@@ -0,0 +1,15 @@
++#source: relax-start-stop.s
++#ld: -relax -T $srcdir/$subdir/relax-start-stop.ld
++#objdump: -d
++#name: MicroBlaze relaxation leaves __start_SEC and __stop_SEC alone
++
++.*: +file format .*
++
++Disassembly of section \.text:
++
++0+100 <_start>:
++ 100:	b0000000 	imm	0
++ 104:	30a01000 	addik	r5, r0, 4096	// 1000 <__start_mysec>
++ 108:	b0000000 	imm	0
++ 10c:	30c0a000 	addik	r6, r0, -24576	// a000 <__stop_mysec>
++ 110:	b8000000 	bri	0		// 110
+diff --git a/ld/testsuite/ld-microblaze/relax-start-stop.ld b/ld/testsuite/ld-microblaze/relax-start-stop.ld
+new file mode 100644
+index 00000000000..91a01c70ec6
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-start-stop.ld
+@@ -0,0 +1,10 @@
++/* Fixed layout, with mysec straddling 0x8000.  */
++ENTRY(_start)
++SECTIONS
++{
++  . = 0x100;
++  .text : { *(.text) }
++  . = 0x1000;
++  mysec : { *(mysec) }
++  /DISCARD/ : { *(.comment) *(.note*) }
++}
+diff --git a/ld/testsuite/ld-microblaze/relax-start-stop.s b/ld/testsuite/ld-microblaze/relax-start-stop.s
+new file mode 100644
+index 00000000000..ec8dfbb2be8
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-start-stop.s
+@@ -0,0 +1,15 @@
++/* mysec starts below 32 KiB and ends above it.  Relaxation used the
++   values __start_mysec and __stop_mysec had before the sections were
++   laid out, deleted the IMM in front of both, and the link failed with
++   "relocation truncated to fit: R_MICROBLAZE_32_LO against symbol
++   `__stop_mysec'".  Their IMMs have to stay.  */
++
++	.text
++	.globl	_start
++_start:
++	addik	r5, r0, __start_mysec
++	addik	r6, r0, __stop_mysec
++	bri	0
++
++	.section mysec,"aw",@progbits
++	.space	0x9000
+-- 
+2.39.5 (Apple Git-154)
+

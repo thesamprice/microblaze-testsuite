@@ -1,0 +1,176 @@
+From 4b3b80bcc771e34d5515fa20411763b51deffc40 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 07:31:58 -0500
+Subject: [PATCH] cpukit/libdl: Add MicroBlaze ADD, SUB, SET and ALIGN
+ relocations
+
+GNU binutils makes the MicroBlaze DWARF unwind information and exception
+tables safe for linker relaxation in the same way as on RISC-V.  The
+assembler no longer resolves the difference of two code labels itself,
+since relaxation can move the labels apart.  It emits a pair of
+relocations instead, an ADD or SET for the first label and a SUB for
+the second, R_MICROBLAZE_ADD8 to R_MICROBLAZE_SUB_ULEB128 (36 to 45).
+For code alignment of more than four bytes it emits R_MICROBLAZE_ALIGN
+(46).
+
+The loader rejected these with "unsupported relocation type", so any
+object with unwind tables, such as every C++ object, failed to load
+once it was built with the new binutils.
+
+Apply the ADD and SUB relocations as on RISC-V, with S + A as the value.
+The fields are data and need not be aligned, so access them with
+memcpy() in the native byte order.  A ULEB128 field keeps its length.
+The loader does not relax, so R_MICROBLAZE_ALIGN needs no action.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ cpukit/libdl/rtl-mdreloc-microblaze.c | 119 ++++++++++++++++++++++++++
+ 1 file changed, 119 insertions(+)
+
+diff --git a/cpukit/libdl/rtl-mdreloc-microblaze.c b/cpukit/libdl/rtl-mdreloc-microblaze.c
+index 6c3236c7f5..d564879000 100644
+--- a/cpukit/libdl/rtl-mdreloc-microblaze.c
++++ b/cpukit/libdl/rtl-mdreloc-microblaze.c
+@@ -38,6 +38,7 @@
+ 
+ #include <errno.h>
+ #include <stdio.h>
++#include <string.h>
+ #include <sys/stat.h>
+ #include <sys/types.h>
+ 
+@@ -124,6 +125,67 @@ static uint32_t read32le(void* loc) {
+   return *((uint32_t*)loc);
+ }
+ 
++/*
++ * The fields of the ADD, SUB, SET and ULEB128 relocations are data, for
++ * example in the exception and unwind tables, and need not be naturally
++ * aligned. Access them in the native byte order with memcpy().
++ */
++
++static uint16_t read16(const void* loc) {
++  uint16_t val;
++
++  memcpy(&val, loc, sizeof(val));
++  return val;
++}
++
++static void write16(void* loc, uint16_t val) {
++  memcpy(loc, &val, sizeof(val));
++}
++
++static uint32_t read32(const void* loc) {
++  uint32_t val;
++
++  memcpy(&val, loc, sizeof(val));
++  return val;
++}
++
++static void write32(void* loc, uint32_t val) {
++  memcpy(loc, &val, sizeof(val));
++}
++
++/*
++ * A ULEB128 field is updated in place. The encoded length of the field does
++ * not change, the assembler pads the field when it is created.
++ */
++
++static uint32_t read_uleb128(const void* loc) {
++  const uint8_t* p = (const uint8_t*)loc;
++  uint32_t val = 0;
++  unsigned int shift = 0;
++  uint8_t byte;
++
++  do {
++    byte = *p++;
++    if (shift < 32) {
++      val |= (uint32_t)(byte & 0x7f) << shift;
++    }
++    shift += 7;
++  } while ((byte & 0x80) != 0);
++
++  return val;
++}
++
++static void write_uleb128(void* loc, uint32_t val) {
++  uint8_t* p = (uint8_t*)loc;
++
++  while ((*p & 0x80) != 0) {
++    *p++ = (uint8_t)(0x80 | (val & 0x7f));
++    val >>= 7;
++  }
++
++  *p = (uint8_t)(val & 0x7f);
++}
++
+ /*
+  * If reviewing / debugging the following links are helpful.
+  * Relocations table
+@@ -245,6 +307,63 @@ rtems_rtl_elf_reloc_rela(rtems_rtl_obj* obj, const Elf_Rela* rela,
+   case 33: /* R_MICROBLAZE_32_NONE */
+     break;
+ 
++  /*
++   * GNU binutils emits the following relocations for the difference of two
++   * labels that linker relaxation can move apart, for example the address
++   * ranges and advances in the DWARF unwind information and the call site
++   * tables of the exception tables. The value is S + A. They come in pairs at
++   * the same offset, an ADD or SET for the first label and a SUB for the
++   * second one.
++   */
++  case 36: /* R_MICROBLAZE_ADD8 */
++    *(uint8_t*)where = (uint8_t)(*(uint8_t*)where + (uint8_t)target);
++    break;
++
++  case 37: /* R_MICROBLAZE_ADD16 */
++    write16(where, (uint16_t)(read16(where) + (uint16_t)target));
++    break;
++
++  case 38: /* R_MICROBLAZE_ADD32 */
++    write32(where, read32(where) + target);
++    break;
++
++  case 39: { /* R_MICROBLAZE_SUB6 */
++    uint8_t* p = (uint8_t*)where;
++    *p = (*p & 0xc0) | (((*p & 0x3f) - (uint8_t)target) & 0x3f);
++  } break;
++
++  case 40: /* R_MICROBLAZE_SUB8 */
++    *(uint8_t*)where = (uint8_t)(*(uint8_t*)where - (uint8_t)target);
++    break;
++
++  case 41: /* R_MICROBLAZE_SUB16 */
++    write16(where, (uint16_t)(read16(where) - (uint16_t)target));
++    break;
++
++  case 42: /* R_MICROBLAZE_SUB32 */
++    write32(where, read32(where) - target);
++    break;
++
++  case 43: { /* R_MICROBLAZE_SET6 */
++    uint8_t* p = (uint8_t*)where;
++    *p = (*p & 0xc0) | ((uint8_t)target & 0x3f);
++  } break;
++
++  case 44: /* R_MICROBLAZE_SET_ULEB128 */
++    write_uleb128(where, target);
++    break;
++
++  case 45: /* R_MICROBLAZE_SUB_ULEB128 */
++    write_uleb128(where, read_uleb128(where) - target);
++    break;
++
++  /*
++   * Code alignment for linker relaxation. The loader does not relax, so the
++   * padding the assembler emitted is already correct.
++   */
++  case 46: /* R_MICROBLAZE_ALIGN */
++    break;
++
+   /*
+    * R_MICROBLAZE_32_LO: low 16 bits of (S + A).
+    * See binutils bfd/elf32-microblaze.c HOWTO entry.
+-- 
+2.39.5 (Apple Git-154)
+

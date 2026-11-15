@@ -1,0 +1,76 @@
+microblaze: assembler fixes, and disassembly of high addresses
+
+Eight gas fixes and one opcodes fix from an audit of tc-microblaze.c.
+Most turn a crash, an abort or silently wrong output into an error.
+They apply on top of the relax-safe CFI series, the opcodes series and
+the relaxation fixes listed in NOTES.md, none of which is in master
+yet.
+
+1/9 gas: microblaze: put line table rows at the IMM prefix
+
+  dwarf2_emit_insn was called after the whole instruction, so the row
+  of an instruction with an IMM prefix pointed at its second word.  Now
+  called first, as i386, cr16 and loongarch do.  GCC's ".loc ... view"
+  line tables were not affected.
+
+2/9 gas: microblaze: reject a symbol in a shift, mbar or bit-field immediate
+
+  "bslli r3, r4, foo" warned, then wrote through a null pointer.  There
+  is no relocation for these fields; it is now an error.
+
+3/9 gas: microblaze: reject immediates that do not fit in 32 bits
+
+  "addik r3, r4, 0x100000005" assembled as "addik r3, r4, 5" on a
+  64-bit host.
+
+4/9 gas: microblaze: reject @TLSTPREL and @TLSDTPMOD operands
+
+  They aborted in md_convert_frag.  ld implements neither the IE nor
+  the LE TLS model and GCC never emits them, so they are errors until
+  it does.
+
+5/9 gas: microblaze: reject an unknown relocation suffix
+
+  An unknown suffix was dropped with a misleading warning, and parse_imm
+  stored through NULL.  Suffixes are case-sensitive, so "foo@plt" and
+  "foo@got", which went the same way, are now errors too.
+
+6/9 gas: microblaze: read all the digits of a register number
+
+  "r100" was read as r10.  Numbers out of range are now rejected; a
+  leading zero is accepted, so "r031" is r31.
+
+7/9 gas: microblaze: don't write an imm instruction for .8byte
+
+  ".8byte foo" wrote an imm opcode into data.  There is no 64-bit data
+  relocation, so a value that needs one is now an error.
+
+8/9 gas: microblaze: fix @GOTOFF in .word
+
+  ".word a, b@GOTOFF" gave "junk at end of line", and ".word b@GOTOFF"
+  a plain R_MICROBLAZE_32.  @GOT and @PLT in data, which have no data
+  relocation and were dropped, are now errors.
+
+9/9 opcodes: microblaze: symbolize addresses at or above 0x80000000
+
+  objdump named no symbol for a branch target or immediate address at
+  or above 0x80000000, where many boards put memory.  The ld tests
+  that link at 0x90000000 (four from the series underneath, and
+  relax-align) now expect the symbols in their disassembly.
+
+Behaviour changes for existing input: lowercase @plt/@got, @GOT/@PLT in
+data, @TLSTPREL/@TLSDTPMOD, symbols in shift/mbar/bit-field immediates,
+out-of-range immediates and register numbers, and .8byte values needing
+a relocation are now errors instead of wrong output or a crash.
+
+Testing, macOS host, these nine together with the nine relaxation
+fixes and the local-label fix before them (one tree), against the base
+without any of them:
+
+  microblaze-elf    gas 329 -> 344 PASS, ld 498 -> 507 PASS,
+                    binutils 245 -> 245 PASS, 0 FAIL in both
+  microblaze-linux  gas 326 -> 341 PASS, ld 829 -> 839 PASS,
+                    binutils 249 -> 249 PASS; the same 12 ld FAIL and
+                    1 XPASS as the base
+
+microblazeel-elf gas: all the new tests pass.

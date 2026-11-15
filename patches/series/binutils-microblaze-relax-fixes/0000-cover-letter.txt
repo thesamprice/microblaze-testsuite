@@ -1,0 +1,79 @@
+microblaze: linker relaxation fixes
+
+Nine fixes to MicroBlaze linker relaxation, found by an audit of
+microblaze_elf_relax_section and the code around it.  They apply on
+top of the relax-safe CFI series (ADD/SUB/SET relocations, their
+relaxation, gas emitting them for code label differences, CFA and line
+advances, SET_ULEB128/SUB_ULEB128) and the other MicroBlaze patches
+listed in NOTES.md, none of which is in master yet.
+
+1/9 microblaze: relaxation cleanups
+
+  SEC_HAS_CONTENTS test, a relaxation table leaked on every pass that
+  deleted something, the size of R_MICROBLAZE_32_NONE, and an
+  unreachable R_MICROBLAZE_32_SYM_OP_SYM case.
+
+2/9 ld: microblaze: don't read other sections' contents when relaxing
+
+  Any -g object assembled with --compress-debug-sections failed to
+  link with --relax: "unable to get decompressed section .debug_info".
+
+3/9 ld: microblaze: don't relax against __start_SEC and __stop_SEC
+
+  Their values are not final while relaxing; an IMM could be deleted
+  and the link then failed with "relocation truncated to fit".  Skipped
+  as on LoongArch.
+
+4/9 ld: microblaze: don't map merged-section addends twice when relaxing
+
+  _bfd_elf_rela_local_sym wrote the mapped addend back into the cached
+  relocation, which relocate_section then mapped again: wrong string
+  addresses, or "access beyond end of merged section".
+
+5/9 microblaze: add a howto for R_MICROBLAZE_TEXTREL_32_LO
+
+  Relaxing R_MICROBLAZE_TEXTREL_64 produced a type with no howto, so
+  -fPIC -mpic-data-is-text-relative code failed to link with --relax.
+
+6/9 ld: microblaze: size .rela.got for the GOT relocations actually emitted
+
+  GOT entries reserved dynamic relocations that were never filled,
+  leaving R_MICROBLAZE_NONE entries, even in static links.
+
+7/9 microblaze: adjust words in the relaxed section that point into it
+
+  ".long .Lmid" and ".long .L2 - .L1" in the code section itself kept
+  their pre-relaxation values.  As on RISC-V, a difference between
+  forward references is now left to the linker, so the generic gas
+  test for it becomes an expected failure.
+
+8/9 gas: microblaze: emit ADD and SUB for differences with a global symbol
+
+  ".long b - a" with global a and b across a relaxable call crashed
+  gas; elsewhere it gave R_MICROBLAZE_32_SYM_OP_SYM, which ld ignores.
+
+9/9 microblaze: keep code alignment when relaxing
+
+  .balign/.p2align and -falign-functions alignment was lost when IMMs
+  before it were deleted.  Adds R_MICROBLAZE_ALIGN (46), after
+  R_RISCV_ALIGN and R_LARCH_ALIGN, but gas keeps emitting only the
+  padding needed, so links without relaxation are unchanged.  As with
+  R_RISCV_ALIGN's introduction, an older ld rejects objects from the
+  new gas that align code to more than 4 bytes.  RTEMS's run-time
+  loader (libdl) needs a matching change to accept the new
+  relocations.
+
+Testing, macOS host, with these nine and the ten local-label, gas and
+opcodes fixes that follow them (one tree), against the base
+without any of them:
+
+  microblaze-elf    gas 329 -> 344 PASS, ld 498 -> 507 PASS,
+                    binutils 245 -> 245 PASS, 0 FAIL in both
+  microblaze-linux  gas 326 -> 341 PASS, ld 829 -> 839 PASS,
+                    binutils 249 -> 249 PASS; the same 12 ld FAIL and
+                    1 XPASS (ld-elf/pr24511) as the base
+
+One new XFAIL, "difference between forward references" (7/9), as on
+riscv.  A C program built with -O2 -falign-functions=32, linked with
+--relax and run under QEMU, has all its functions 32-byte aligned and
+gives the same result as with --no-relax.

@@ -1,4 +1,4 @@
-From 9777be92cc00190c495aa12876ce1b069a4306f8 Mon Sep 17 00:00:00 2001
+From 4648c1bc39caaffa24013377cf0b6731059b3376 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Thu, 12 Nov 2026 22:12:21 -0500
 Subject: [PATCH] microblaze: expand strlen inline with pcmpbf
@@ -264,7 +264,7 @@ index 000000000..ace18f367
 +/* { dg-final { scan-assembler-not "brlid\tr15,strlen" } } */
 diff --git a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-nopcmp.c b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-nopcmp.c
 new file mode 100644
-index 000000000..c3f597591
+index 000000000..e7bd5714d
 --- /dev/null
 +++ b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-nopcmp.c
 @@ -0,0 +1,12 @@
@@ -278,11 +278,11 @@ index 000000000..c3f597591
 +  return __builtin_strlen (__builtin_assume_aligned (p, 4));
 +}
 +
-+/* { dg-final { scan-assembler-not "pcmpbf" } } */
++/* { dg-final { scan-assembler-not "\tpcmpbf" } } */
 +/* { dg-final { scan-assembler "brlid\tr15,strlen" } } */
 diff --git a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-os.c b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-os.c
 new file mode 100644
-index 000000000..378e81ddb
+index 000000000..f73c53149
 --- /dev/null
 +++ b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-os.c
 @@ -0,0 +1,14 @@
@@ -298,11 +298,11 @@ index 000000000..378e81ddb
 +  return __builtin_strlen (__builtin_assume_aligned (p, 4));
 +}
 +
-+/* { dg-final { scan-assembler-not "pcmpbf" } } */
++/* { dg-final { scan-assembler-not "\tpcmpbf" } } */
 +/* { dg-final { scan-assembler "brlid\tr15,strlen" } } */
 diff --git a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-unaligned.c b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-unaligned.c
 new file mode 100644
-index 000000000..f7cb39431
+index 000000000..a9d4bef4a
 --- /dev/null
 +++ b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-unaligned.c
 @@ -0,0 +1,15 @@
@@ -319,7 +319,7 @@ index 000000000..f7cb39431
 +  return __builtin_strlen (p);
 +}
 +
-+/* { dg-final { scan-assembler-not "pcmpbf" } } */
++/* { dg-final { scan-assembler-not "\tpcmpbf" } } */
 +/* { dg-final { scan-assembler "brlid\tr15,strlen" } } */
 diff --git a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf.c b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf.c
 new file mode 100644

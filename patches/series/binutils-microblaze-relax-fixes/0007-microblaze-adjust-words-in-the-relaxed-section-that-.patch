@@ -1,0 +1,282 @@
+From 56bc7332275e2d27e697647ee453b1a458d5cbfa Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 01:20:27 -0500
+Subject: [PATCH 7/9] microblaze: adjust words in the relaxed section that
+ point into it
+
+When relaxation deletes bytes from a code section, words in that same
+section that hold addresses or differences of its labels were left
+alone:
+
+- An R_MICROBLAZE_32 against the section's own symbol (".long .Lmid"
+  in .text) was adjusted only when it lived in another section; the
+  loop over the relaxed section's own relocations ignored it, so it
+  pointed past its label by the size of every deletion before the
+  label.  R_MICROBLAZE_32_PCREL had the same problem.
+
+- The assembler resolved a difference of two labels in the code
+  section that holds it (".long .L2 - .L1" in .text) to a constant.
+  TC_FORCE_RELOCATION_SUB_SAME keeps such a difference, but
+  fixup_segment then takes the path for "sym - ." and makes it
+  PC-relative, and the remaining label is in the fixup's own section,
+  so it resolves it.  803f17bfb7d left TC_FORCE_RELOCATION_SUB_LOCAL
+  undefined to keep "sym - ." across sections working, which only
+  needs the case where the two labels are in different sections.  The
+  1- and 2-byte forms were not even written: the field stayed zero.
+
+- The constant came out as an R_MICROBLAZE_32_NONE, which relaxation
+  took for a resolved PC-relative instruction: it treated the addend
+  as a branch offset and rewrote the low 16 bits of the word.
+
+In ld, adjust the addend of R_MICROBLAZE_32 and R_MICROBLAZE_32_PCREL
+against the relaxed section's own symbol, as SH does for R_SH_DIR32,
+and leave R_MICROBLAZE_32_NONE alone: what the assembler resolves
+spans nothing that can be deleted.  In gas, define
+TC_FORCE_RELOCATION_SUB_LOCAL and extend TC_FORCE_RELOCATION_LOCAL so
+that a difference of two labels in the code section holding it reaches
+md_apply_fix, which makes an ADD and SUB pair of it.  As with RISC-V,
+a difference between forward references is now left to the linker,
+so the generic test for it is an expected failure.
+
+In the reproducer, with the IMM in front of the first call deleted,
+".long .Lmid" gave 0x1018 for a label at 0x1014, ".L2 - .L1" stayed
+0x10 instead of 0xc and ".L2 - _start" 0x1c instead of 0x14.
+
+bfd/
+	* elf32-microblaze.c (microblaze_elf_relax_section): Adjust
+	R_MICROBLAZE_32 and R_MICROBLAZE_32_PCREL against the relaxed
+	section.  Leave R_MICROBLAZE_32_NONE alone.
+
+gas/
+	* config/tc-microblaze.h (MICROBLAZE_LOCAL_CODE_DIFF): New.
+	(TC_FORCE_RELOCATION_SUB_LOCAL): Define.
+	(TC_FORCE_RELOCATION_LOCAL): Keep differences of labels in the
+	fixup's own code section.
+	* testsuite/gas/all/gas.exp (do_930509a): Expect a failure for
+	MicroBlaze.
+	* testsuite/gas/microblaze/reloc_diff_code.s: New file.
+	* testsuite/gas/microblaze/reloc_diff_code.d: New test.
+	* testsuite/gas/microblaze/reloc_diff.exp: Run it.
+
+ld/
+	* testsuite/ld-microblaze/relax-code-words.s: New file.
+	* testsuite/ld-microblaze/relax-code-words.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ bfd/elf32-microblaze.c                        |  8 ++++-
+ gas/config/tc-microblaze.h                    | 15 ++++++++
+ gas/testsuite/gas/all/gas.exp                 |  6 ++--
+ gas/testsuite/gas/microblaze/reloc_diff.exp   |  1 +
+ .../gas/microblaze/reloc_diff_code.d          | 23 ++++++++++++
+ .../gas/microblaze/reloc_diff_code.s          | 18 ++++++++++
+ ld/testsuite/ld-microblaze/relax-code-words.d | 14 ++++++++
+ ld/testsuite/ld-microblaze/relax-code-words.s | 36 +++++++++++++++++++
+ 8 files changed, 118 insertions(+), 3 deletions(-)
+ create mode 100644 gas/testsuite/gas/microblaze/reloc_diff_code.d
+ create mode 100644 gas/testsuite/gas/microblaze/reloc_diff_code.s
+ create mode 100644 ld/testsuite/ld-microblaze/relax-code-words.d
+ create mode 100644 ld/testsuite/ld-microblaze/relax-code-words.s
+
+diff --git a/bfd/elf32-microblaze.c b/bfd/elf32-microblaze.c
+index 93866e7c924..2b05f5ebe5f 100644
+--- a/bfd/elf32-microblaze.c
++++ b/bfd/elf32-microblaze.c
+@@ -2552,6 +2552,8 @@ microblaze_elf_relax_section (bfd *abfd,
+ 	    case R_MICROBLAZE_TEXTREL_32_LO:
+ 	    case R_MICROBLAZE_64:
+ 	    case R_MICROBLAZE_32_LO:
++	    case R_MICROBLAZE_32:
++	    case R_MICROBLAZE_32_PCREL:
+ 	    case R_MICROBLAZE_ADD8:
+ 	    case R_MICROBLAZE_ADD16:
+ 	    case R_MICROBLAZE_ADD32:
+@@ -2574,8 +2576,12 @@ microblaze_elf_relax_section (bfd *abfd,
+ 		    irel->r_addend -= calc_fixup (irel->r_addend, 0, sec);
+ 		}
+ 	      break;
+-	    case R_MICROBLAZE_NONE:
+ 	    case R_MICROBLAZE_32_NONE:
++	      /* A data word the assembler resolved to a constant.  Nothing
++		 between the labels of a difference that it resolves can be
++		 deleted, so the value stays right.  */
++	      break;
++	    case R_MICROBLAZE_NONE:
+ 	      {
+ 		/* This was a PC-relative instruction that was
+ 		   completely resolved.  */
+diff --git a/gas/config/tc-microblaze.h b/gas/config/tc-microblaze.h
+index 7da3b2f405a..7a0be482068 100644
+--- a/gas/config/tc-microblaze.h
++++ b/gas/config/tc-microblaze.h
+@@ -51,8 +51,23 @@ extern bfd_reloc_code_real_type parse_cons_expression_microblaze
+    || ((SEG)->flags & SEC_CODE) != 0)
+ #define UNDEFINED_DIFFERENCE_OK 1
+ 
++/* Whether FIX is the difference of two labels in the code section SEG
++   that holds the fixup itself.  fixup_segment would otherwise resolve it
++   as a PC-relative value, and then the label, to a constant.  Keep it,
++   so that md_apply_fix makes an ADD and SUB pair of it; "sym - ." with
++   sym in another section still becomes R_MICROBLAZE_32_PCREL.  */
++#define MICROBLAZE_LOCAL_CODE_DIFF(FIX, SEG)			\
++  ((FIX)->fx_subsy != NULL					\
++   && (SEG) == S_GET_SEGMENT ((FIX)->fx_subsy)			\
++   && ((SEG)->flags & SEC_CODE) != 0)
++#define TC_FORCE_RELOCATION_SUB_LOCAL(FIX, SEG)			\
++  MICROBLAZE_LOCAL_CODE_DIFF (FIX, SEG)
++
+ #define TC_FORCE_RELOCATION_LOCAL(FIX)				\
+   (GENERIC_FORCE_RELOCATION_LOCAL (FIX)				\
++   || ((FIX)->fx_addsy != NULL					\
++       && MICROBLAZE_LOCAL_CODE_DIFF (FIX,			\
++				      S_GET_SEGMENT ((FIX)->fx_addsy))) \
+    || (FIX)->fx_r_type == BFD_RELOC_MICROBLAZE_64_GOT		\
+    || (FIX)->fx_r_type == BFD_RELOC_MICROBLAZE_64_PLT		\
+    || (FIX)->fx_r_type == BFD_RELOC_MICROBLAZE_64_GOTOFF	\
+diff --git a/gas/testsuite/gas/all/gas.exp b/gas/testsuite/gas/all/gas.exp
+index 8ae48b2aeb6..35aafe8bb5a 100644
+--- a/gas/testsuite/gas/all/gas.exp
++++ b/gas/testsuite/gas/all/gas.exp
+@@ -292,8 +292,10 @@ if {    ![istarget *c30*-*-*]
+      && ![istarget ft32-*-*]
+      && ![istarget h8300*-*-*]
+      && ![istarget hppa*-*-*] } then {
+-    # msp430, mn10[23]00 and riscv emit two relocs to handle the difference of two symbols.
+-    setup_xfail "am3*-*-*" "mn10200-*-*" "mn10300*-*-*" "msp430*-*-*" "riscv*-*-*"
++    # msp430, mn10[23]00, riscv and microblaze emit two relocs to handle
++    # the difference of two symbols.
++    setup_xfail "am3*-*-*" "microblaze*-*-*" "mn10200-*-*" "mn10300*-*-*" "msp430*-*-*" \
++	"riscv*-*-*"
+     do_930509a
+ }
+ 
+diff --git a/gas/testsuite/gas/microblaze/reloc_diff.exp b/gas/testsuite/gas/microblaze/reloc_diff.exp
+index da2b7118493..03df11fec84 100644
+--- a/gas/testsuite/gas/microblaze/reloc_diff.exp
++++ b/gas/testsuite/gas/microblaze/reloc_diff.exp
+@@ -2,6 +2,7 @@
+ 
+ if [istarget microblaze*-*-*] {
+     run_dump_test "reloc_diff"
++    run_dump_test "reloc_diff_code"
+     run_dump_test "reloc_diff_far"
+     run_dump_test "reloc_uleb128"
+ }
+diff --git a/gas/testsuite/gas/microblaze/reloc_diff_code.d b/gas/testsuite/gas/microblaze/reloc_diff_code.d
+new file mode 100644
+index 00000000000..c3660ed2ed2
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/reloc_diff_code.d
+@@ -0,0 +1,23 @@
++#objdump: -r -s -j .text
++#name: MicroBlaze differences of labels in a code section
++#source: reloc_diff_code.s
++
++.*: +file format .*
++
++RELOCATION RECORDS FOR \[\.text\]:
++OFFSET +TYPE +VALUE
++0+001c R_MICROBLAZE_ADD32 +\.text\+0x0+0014
++0+001c R_MICROBLAZE_SUB32 +\.L0
++0+0020 R_MICROBLAZE_ADD16 +\.text\+0x0+0014
++0+0020 R_MICROBLAZE_SUB16 +\.L1
++0+0022 R_MICROBLAZE_ADD8 +\.text\+0x0+0014
++0+0022 R_MICROBLAZE_SUB8 +\.L1
++0+0024 R_MICROBLAZE_ADD32 +\.text
++0+0024 R_MICROBLAZE_SUB32 +.*
++0+0008 R_MICROBLAZE_64_PCREL +ext
++
++
++Contents of section \.text:
++ 0000 (80000000|00000080) (80000000|00000080) (b0000000|000000b0) (b9f40000|0000f4b9)  .*
++ 0010 (80000000|00000080) (80000000|00000080) (00000004|04000000) 00000000  .*
++ 0020 00000000 00000000 +.*
+diff --git a/gas/testsuite/gas/microblaze/reloc_diff_code.s b/gas/testsuite/gas/microblaze/reloc_diff_code.s
+new file mode 100644
+index 00000000000..27a7f2a1432
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/reloc_diff_code.s
+@@ -0,0 +1,18 @@
++# Differences of labels in the code section that holds them.  Both used
++# to be resolved to constants, as "sym - ." is, so the linker could not
++# recompute them after deleting the IMM before "brlid r15, ext"; the 1-
++# and 2-byte ones were not even written.  .L1 - .L0 spans no IMM and
++# is resolved here.
++
++	.text
++.L0:	nop
++.L1:	nop
++	brlid	r15, ext
++	nop
++.L2:	nop
++	.4byte	.L1 - .L0
++	.4byte	.L2 - .L0
++	.2byte	.L2 - .L1
++	.byte	.L2 - .L1
++	.byte	0
++	.4byte	.L0 - .
+diff --git a/ld/testsuite/ld-microblaze/relax-code-words.d b/ld/testsuite/ld-microblaze/relax-code-words.d
+new file mode 100644
+index 00000000000..f44ec4faf22
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-code-words.d
+@@ -0,0 +1,14 @@
++#source: relax-code-words.s
++#ld: -relax -T $srcdir/$subdir/relax-diff.ld
++#objdump: -s -j .text
++#name: MicroBlaze relaxation adjusts words in the relaxed section
++
++# .L1 is at 0x90000008, .L2 at 0x90000010 and .L3 at 0x9000002c.
++
++.*: +file format .*
++
++Contents of section \.text:
++ 90000000 b9f40030 80000000 b9f40028 80000000  .*
++ 90000010 80000000 9000002c 00000024 0000002c  .*
++ 90000020 00242400 ffffffec 00000010 80000000  .*
++#pass
+diff --git a/ld/testsuite/ld-microblaze/relax-code-words.s b/ld/testsuite/ld-microblaze/relax-code-words.s
+new file mode 100644
+index 00000000000..bc9f909286f
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-code-words.s
+@@ -0,0 +1,36 @@
++/* Words in the relaxed section itself.  The IMM in front of the first
++   brlid is deleted, so everything after it moves down by 4, and after
++   the second by 8.
++
++   An address word against the section's own symbol was not adjusted,
++   because relaxation adjusted R_MICROBLAZE_32 only in other sections.
++   A difference of two labels in the section was resolved by the
++   assembler to a constant, so the linker could not adjust it either;
++   and relaxation took the R_MICROBLAZE_32_NONE that carried such a
++   constant for a PC-relative instruction and rewrote its low half.  */
++
++	.section .text.aaa,"ax",@progbits
++	.globl	_start
++_start:
++	brlid	r15, far
++	nop
++.L1:
++	brlid	r15, far
++	nop
++.L2:
++	nop
++	.4byte	.L3
++	.4byte	.L3 - .L1
++	.4byte	.L3 - _start
++	.2byte	.L3 - .L1
++	.byte	.L3 - .L1
++	.byte	0
++	.4byte	.L2 - .
++	.4byte	0x10
++.L3:
++	nop
++
++	.section .text.zz,"ax",@progbits
++far:
++	rtsd	r15, 8
++	nop
+-- 
+2.39.5 (Apple Git-154)
+

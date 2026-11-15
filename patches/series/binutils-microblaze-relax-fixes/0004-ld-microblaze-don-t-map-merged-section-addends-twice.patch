@@ -1,0 +1,236 @@
+From 3800cbc5af384a547878f7d024e996c8b41e2bbd Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 01:02:31 -0500
+Subject: [PATCH 4/9] ld: microblaze: don't map merged-section addends twice
+ when relaxing
+
+To get the value of a local symbol, microblaze_elf_relax_section
+called _bfd_elf_rela_local_sym.  For a section symbol in a SEC_MERGE
+section that function maps the relocation's addend into the merged
+section and writes the result back into the relocation, which here is
+the cached copy relocate_section uses later.  relocate_section then
+maps the already-mapped addend again.  Linking two objects that both
+put "world" in .rodata.str1.4 and load their strings with addik gives
+"access beyond end of merged section (-6)" and, in the second object,
+references to the wrong strings; without --relax the link is right.
+
+Compute the merged offset on a local value instead, as elfnn-riscv.c
+does (04b865dc2ed), and do the same for global symbols, whose values in
+merged sections have not been adjusted at this point either.  The
+symbol value computed now includes the addend for every relocation
+type.
+
+bfd/
+	* elf32-microblaze.c (microblaze_elf_relax_section): Map offsets
+	into merged sections with _bfd_merged_section_offset on a local
+	copy instead of _bfd_elf_rela_local_sym.
+
+ld/
+	* testsuite/ld-microblaze/relax-merge-1.s: New file.
+	* testsuite/ld-microblaze/relax-merge-2.s: New file.
+	* testsuite/ld-microblaze/relax-merge.ld: New file.
+	* testsuite/ld-microblaze/relax-merge.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ bfd/elf32-microblaze.c                     | 55 +++++++++++++++-------
+ ld/testsuite/ld-microblaze/relax-merge-1.s | 17 +++++++
+ ld/testsuite/ld-microblaze/relax-merge-2.s | 12 +++++
+ ld/testsuite/ld-microblaze/relax-merge.d   | 28 +++++++++++
+ ld/testsuite/ld-microblaze/relax-merge.ld  | 10 ++++
+ 5 files changed, 104 insertions(+), 18 deletions(-)
+ create mode 100644 ld/testsuite/ld-microblaze/relax-merge-1.s
+ create mode 100644 ld/testsuite/ld-microblaze/relax-merge-2.s
+ create mode 100644 ld/testsuite/ld-microblaze/relax-merge.d
+ create mode 100644 ld/testsuite/ld-microblaze/relax-merge.ld
+
+diff --git a/bfd/elf32-microblaze.c b/bfd/elf32-microblaze.c
+index 0aeddb34610..780ef6b5334 100644
+--- a/bfd/elf32-microblaze.c
++++ b/bfd/elf32-microblaze.c
+@@ -2386,6 +2386,8 @@ microblaze_elf_relax_section (bfd *abfd,
+   for (irel = internal_relocs; irel < irelend; irel++)
+     {
+       bfd_vma symval;
++      asection *sym_sec;
++
+       if ((ELF32_R_TYPE (irel->r_info) != (int) R_MICROBLAZE_64_PCREL)
+ 	  && (ELF32_R_TYPE (irel->r_info) != (int) R_MICROBLAZE_64)
+ 	  && (ELF32_R_TYPE (irel->r_info) != (int) R_MICROBLAZE_TEXTREL_64))
+@@ -2408,12 +2410,11 @@ microblaze_elf_relax_section (bfd *abfd,
+ 	    }
+ 	}
+ 
+-      /* Get the value of the symbol referred to by the reloc.  */
++      /* Get the value of the symbol referred to by the reloc, plus the
++	 addend.  */
+       if (ELF32_R_SYM (irel->r_info) < symtab_hdr->sh_info)
+ 	{
+ 	  /* A local symbol.  */
+-	  asection *sym_sec;
+-
+ 	  isym = isymbuf + ELF32_R_SYM (irel->r_info);
+ 	  if (isym->st_shndx == SHN_UNDEF)
+ 	    sym_sec = bfd_und_section_ptr;
+@@ -2424,7 +2425,26 @@ microblaze_elf_relax_section (bfd *abfd,
+ 	  else
+ 	    sym_sec = bfd_section_from_elf_index (abfd, isym->st_shndx);
+ 
+-	  symval = _bfd_elf_rela_local_sym (abfd, isym, &sym_sec, irel);
++	  symval = isym->st_value;
++	  if (sym_sec->sec_info_type == SEC_INFO_TYPE_MERGE
++	      && (sym_sec->flags & SEC_MERGE) != 0)
++	    {
++	      /* Map the offset into the merged section, as
++		 _bfd_elf_rela_local_sym would, but without rewriting the
++		 addend of a section symbol's relocation in place:
++		 relocate_section maps that addend again.  For a section
++		 symbol the location of interest is the symbol plus the
++		 addend; otherwise it is the symbol, and the addend is an
++		 offset from it.  From elfnn-riscv.c.  */
++	      if (ELF_ST_TYPE (isym->st_info) == STT_SECTION)
++		symval += irel->r_addend;
++	      symval = _bfd_merged_section_offset (abfd, &sym_sec, symval);
++	      if (ELF_ST_TYPE (isym->st_info) != STT_SECTION)
++		symval += irel->r_addend;
++	    }
++	  else
++	    symval += irel->r_addend;
++	  symval += sym_sec->output_section->vma + sym_sec->output_offset;
+ 	}
+       else
+ 	{
+@@ -2447,26 +2467,25 @@ microblaze_elf_relax_section (bfd *abfd,
+ 	  if (h->start_stop)
+ 	    continue;
+ 
+-	  symval = (h->root.u.def.value
+-		    + h->root.u.def.section->output_section->vma
+-		    + h->root.u.def.section->output_offset);
++	  sym_sec = h->root.u.def.section;
++	  symval = h->root.u.def.value;
++	  /* Symbols in merged sections have not been adjusted yet.  */
++	  if (sym_sec->sec_info_type == SEC_INFO_TYPE_MERGE
++	      && (sym_sec->flags & SEC_MERGE) != 0)
++	    symval = _bfd_merged_section_offset (abfd, &sym_sec, symval);
++	  symval += (irel->r_addend
++		     + sym_sec->output_section->vma
++		     + sym_sec->output_offset);
+ 	}
+ 
+       /* If this is a PC-relative reloc, subtract the instr offset from
+ 	 the symbol value.  */
+       if (ELF32_R_TYPE (irel->r_info) == (int) R_MICROBLAZE_64_PCREL)
+-	{
+-	  symval = symval + irel->r_addend
+-	    - (irel->r_offset
+-	       + sec->output_section->vma
+-	       + sec->output_offset);
+-	}
++	symval -= (irel->r_offset
++		   + sec->output_section->vma
++		   + sec->output_offset);
+       else if (ELF32_R_TYPE (irel->r_info) == (int) R_MICROBLAZE_TEXTREL_64)
+-	{
+-	  symval = symval + irel->r_addend - (sec->output_section->vma);
+-	}
+-      else
+-	symval += irel->r_addend;
++	symval -= sec->output_section->vma;
+ 
+       if ((symval & 0xffff8000) == 0
+ 	  || (symval & 0xffff8000) == 0xffff8000)
+diff --git a/ld/testsuite/ld-microblaze/relax-merge-1.s b/ld/testsuite/ld-microblaze/relax-merge-1.s
+new file mode 100644
+index 00000000000..81920101be1
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-merge-1.s
+@@ -0,0 +1,17 @@
++/* Relocations against a section symbol in a mergeable string section.
++   Relaxation mapped their addends into the merged section in place,
++   through _bfd_elf_rela_local_sym, and relocate_section then mapped
++   them a second time: "access beyond end of merged section", and the
++   references in relax-merge-2.s pointed at the wrong strings.  */
++
++	.text
++	.globl	_start
++_start:
++	addik	r5, r0, .LC0
++	addik	r6, r0, .LC1
++	bri	0
++
++	.section .rodata.str1.4,"aMS",@progbits,1
++.LC0:	.string	"hello"
++	.balign	4
++.LC1:	.string	"world"
+diff --git a/ld/testsuite/ld-microblaze/relax-merge-2.s b/ld/testsuite/ld-microblaze/relax-merge-2.s
+new file mode 100644
+index 00000000000..833c4c870ed
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-merge-2.s
+@@ -0,0 +1,12 @@
++	.text
++	.globl	g
++g:
++	addik	r5, r0, .LC0
++	addik	r6, r0, .LC1
++	rtsd	r15, 8
++	nop
++
++	.section .rodata.str1.4,"aMS",@progbits,1
++.LC0:	.string	"zzzz1"
++	.balign	4
++.LC1:	.string	"world"
+diff --git a/ld/testsuite/ld-microblaze/relax-merge.d b/ld/testsuite/ld-microblaze/relax-merge.d
+new file mode 100644
+index 00000000000..45a4b1c1b46
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-merge.d
+@@ -0,0 +1,28 @@
++#source: relax-merge-1.s
++#source: relax-merge-2.s
++#ld: -relax -T $srcdir/$subdir/relax-merge.ld
++#objdump: -d -s -j .text -j .rodata
++#name: MicroBlaze relaxation against a merged section
++
++# "world" is merged, so both .LC1 references are 0x2008; "zzzz1" is at
++# 0x2010.  Every IMM is deleted.
++
++.*: +file format .*
++
++Contents of section \.text:
++#...
++Contents of section \.rodata:
++ 2000 68656c6c 6f000000 776f726c 64000000  hello\.\.\.world\.\.\.
++ 2010 7a7a7a7a 3100 .*
++
++Disassembly of section \.text:
++
++0+1000 <_start>:
++    1000:	30a02000 	addik	r5, r0, 8192
++    1004:	30c02008 	addik	r6, r0, 8200
++    1008:	b8000000 	bri	0		// 1008
++
++0+100c <g>:
++    100c:	30a02010 	addik	r5, r0, 8208
++    1010:	30c02008 	addik	r6, r0, 8200
++#pass
+diff --git a/ld/testsuite/ld-microblaze/relax-merge.ld b/ld/testsuite/ld-microblaze/relax-merge.ld
+new file mode 100644
+index 00000000000..8f216a35998
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-merge.ld
+@@ -0,0 +1,10 @@
++/* Fixed layout so the addresses in the expected output are deterministic.  */
++ENTRY(_start)
++SECTIONS
++{
++  . = 0x1000;
++  .text : { *(.text) }
++  . = 0x2000;
++  .rodata : { *(.rodata*) }
++  /DISCARD/ : { *(.comment) *(.note*) }
++}
+-- 
+2.39.5 (Apple Git-154)
+

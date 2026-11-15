@@ -1,0 +1,51 @@
+From 79686b95d0c5ebc66d744f5963e7ae7540d0ff62 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 02:27:31 -0500
+Subject: [PATCH] cpukit/microblaze: Return the TLS variable in
+ __tls_get_addr()
+
+GCC lowers every MicroBlaze thread-local storage access to a call of
+__tls_get_addr().  For the general dynamic model, used for an extern
+_Thread_local object, the argument points to a GOT entry pair which
+the static link fills with module 1 and the offset of the object in
+the TLS segment.  For the local dynamic model the offset is zero and
+GCC adds the DTPREL offset of the object to the result.
+
+__tls_get_addr() ignored its argument and returned the thread pointer,
+which is the start of the TLS data on MicroBlaze (TLS variant I without
+a TCB offset).  This was right only for the local dynamic model.  An
+extern _Thread_local object always got the address of the first object
+of the TLS segment, see sptls04.
+
+Return the thread pointer plus the offset, as the ARM port does.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ cpukit/score/cpu/microblaze/__tls_get_addr.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/cpukit/score/cpu/microblaze/__tls_get_addr.c b/cpukit/score/cpu/microblaze/__tls_get_addr.c
+index 97f46975e4..08ee5dc374 100644
+--- a/cpukit/score/cpu/microblaze/__tls_get_addr.c
++++ b/cpukit/score/cpu/microblaze/__tls_get_addr.c
+@@ -47,9 +47,15 @@ void *__tls_get_addr( const TLS_Index *ti )
+ {
+   const Thread_Control *executing;
+ 
+-  (void) ti;
++  /*
++   * There is only the static thread-local storage block of the executable.
++   * The thread pointer is the start of its data, see
++   * CPU_THREAD_LOCAL_STORAGE_VARIANT, and the linker resolves the offset
++   * relative to the start of the TLS segment.
++   */
++  _Assert( ti->module == 1 );
+ 
+   executing = _Thread_Get_executing();
+ 
+-  return executing->Registers.thread_pointer;
++  return (char *) executing->Registers.thread_pointer + ti->offset;
+ }
+-- 
+2.39.5 (Apple Git-154)
+

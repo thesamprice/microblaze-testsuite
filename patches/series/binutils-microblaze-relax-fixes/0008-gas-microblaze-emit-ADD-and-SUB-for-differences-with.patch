@@ -1,0 +1,205 @@
+From 90a55ca30e3f1ef2fa7250d85d78cd69d20ea236 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 01:26:41 -0500
+Subject: [PATCH 8/9] gas: microblaze: emit ADD and SUB for differences with a
+ global symbol
+
+cons_fix_new_microblaze gave a 4-byte difference whose second symbol
+is not local R_MICROBLAZE_32_SYM_OP_SYM, a relocation against that
+second symbol which the linker ignores.  When the second symbol is in
+the section holding the fixup, fixup_segment makes the difference
+PC-relative and drops the second symbol, and tc_gen_reloc then
+dereferenced the null symbol:
+
+	.text
+	.globl a, b
+  a:	brlid r15, far
+	nop
+  b:	nop
+	.long b - a
+
+crashes the assembler with a segmentation fault.  Elsewhere the
+relocation is emitted, but since the linker does nothing with it, the
+field keeps whatever the assembler computed, which is wrong once the
+symbols are in different sections or relaxation moves them.
+
+Stop using R_MICROBLAZE_32_SYM_OP_SYM.  A difference fixup_segment
+cannot resolve now always becomes an ADD and SUB pair in md_apply_fix,
+not only one of two labels in a code section, as on RISC-V; the linker
+computes it after relaxation.  And keep any difference whose second
+symbol is in the code section holding the fixup, not just one whose
+first symbol is there too: "ext - b" with b in .text would otherwise
+become a PC-relative relocation with the distance from b in the
+addend, which relaxation can change.  "sym - ." with sym in another
+section still becomes R_MICROBLAZE_32_PCREL; cons_fix_new_microblaze
+handles it before fixup_segment sees it.
+
+gas/
+	* config/tc-microblaze.c (md_apply_fix): Emit an ADD and SUB pair
+	for any difference left.
+	(cons_fix_new_microblaze): Don't use
+	BFD_RELOC_MICROBLAZE_32_SYM_OP_SYM.
+	* config/tc-microblaze.h (TC_FORCE_RELOCATION_SUB_LOCAL): Keep
+	every difference whose second symbol is in a code section.
+	* testsuite/gas/microblaze/reloc_diff_global.s: New file.
+	* testsuite/gas/microblaze/reloc_diff_global.d: New test.
+	* testsuite/gas/microblaze/reloc_diff.exp: Run it.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ gas/config/tc-microblaze.c                    | 26 ++++++++++---------
+ gas/config/tc-microblaze.h                    | 19 +++++++++-----
+ gas/testsuite/gas/microblaze/reloc_diff.exp   |  1 +
+ .../gas/microblaze/reloc_diff_global.d        | 22 ++++++++++++++++
+ .../gas/microblaze/reloc_diff_global.s        | 19 ++++++++++++++
+ 5 files changed, 68 insertions(+), 19 deletions(-)
+ create mode 100644 gas/testsuite/gas/microblaze/reloc_diff_global.d
+ create mode 100644 gas/testsuite/gas/microblaze/reloc_diff_global.s
+
+diff --git a/gas/config/tc-microblaze.c b/gas/config/tc-microblaze.c
+index 5398e59667a..4825c7b8a13 100644
+--- a/gas/config/tc-microblaze.c
++++ b/gas/config/tc-microblaze.c
+@@ -2277,14 +2277,17 @@ md_apply_fix (fixS *   fixP,
+   else
+     fixP->fx_done = 1;
+ 
+-  /* TC_FORCE_RELOCATION_SUB_SAME kept the difference of two labels in a
+-     code section.  Emit it as an ADD relocation against the first and a
+-     SUB relocation against the second, as tc-riscv.c does, so that the
+-     linker computes it after relaxation.  The relocations add to and
+-     subtract from the field, so it starts at zero.  */
++  /* A difference of two symbols that fixup_segment could not resolve:
++     TC_FORCE_RELOCATION_SUB_SAME kept two labels in a code section, or
++     the symbols are in different sections or undefined.  Emit it as an
++     ADD relocation against the first and a SUB relocation against the
++     second, as tc-riscv.c does, so that the linker computes it, after
++     relaxation.  The relocations add to and subtract from the field, so
++     it starts at zero.  */
+   if (fixP->fx_addsy != NULL && fixP->fx_subsy != NULL
+-      && S_GET_SEGMENT (fixP->fx_addsy) == S_GET_SEGMENT (fixP->fx_subsy)
+-      && (S_GET_SEGMENT (fixP->fx_addsy)->flags & SEC_CODE) != 0)
++      && (fixP->fx_r_type != BFD_RELOC_MICROBLAZE_CFA
++	  || (S_GET_SEGMENT (fixP->fx_addsy) == S_GET_SEGMENT (fixP->fx_subsy)
++	      && (S_GET_SEGMENT (fixP->fx_addsy)->flags & SEC_CODE) != 0)))
+     {
+       bfd_reloc_code_real_type add, sub;
+ 
+@@ -2810,11 +2813,10 @@ cons_fix_new_microblaze (fragS * frag,
+       return;
+     }
+ 
+-  if ((exp->X_op == O_subtract) && (exp->X_add_symbol) &&
+-      (exp->X_op_symbol) && (now_seg != absolute_section) && (size == 4)
+-      && (!S_IS_LOCAL (exp->X_op_symbol)))
+-    r = BFD_RELOC_MICROBLAZE_32_SYM_OP_SYM;
+-  else if (exp->X_md == IMM_GOTOFF && exp->X_op == O_symbol_rva)
++  /* A difference of two symbols needs nothing special: fixup_segment
++     resolves it, or md_apply_fix turns it into an ADD and SUB pair.
++     R_MICROBLAZE_32_SYM_OP_SYM, which the linker ignores, is not used.  */
++  if (exp->X_md == IMM_GOTOFF && exp->X_op == O_symbol_rva)
+     {
+       exp->X_op = O_symbol;
+       r = BFD_RELOC_MICROBLAZE_32_GOTOFF;
+diff --git a/gas/config/tc-microblaze.h b/gas/config/tc-microblaze.h
+index 7a0be482068..4dd21724d23 100644
+--- a/gas/config/tc-microblaze.h
++++ b/gas/config/tc-microblaze.h
+@@ -51,17 +51,22 @@ extern bfd_reloc_code_real_type parse_cons_expression_microblaze
+    || ((SEG)->flags & SEC_CODE) != 0)
+ #define UNDEFINED_DIFFERENCE_OK 1
+ 
+-/* Whether FIX is the difference of two labels in the code section SEG
+-   that holds the fixup itself.  fixup_segment would otherwise resolve it
+-   as a PC-relative value, and then the label, to a constant.  Keep it,
+-   so that md_apply_fix makes an ADD and SUB pair of it; "sym - ." with
+-   sym in another section still becomes R_MICROBLAZE_32_PCREL.  */
++/* A difference whose second symbol is a label in the code section that
++   holds the fixup.  fixup_segment would otherwise make it PC-relative,
++   with the distance from that label to the fixup in the addend, which
++   relaxation can change; and if the first symbol is in the same
++   section, resolve it to a constant.  Keep it, so that md_apply_fix
++   makes an ADD and SUB pair of it.  "sym - ." with sym in another
++   section is not affected: cons_fix_new_microblaze has already made it
++   a PC-relative fixup, for R_MICROBLAZE_32_PCREL.  */
++#define TC_FORCE_RELOCATION_SUB_LOCAL(FIX, SEG)			\
++  ((S_GET_SEGMENT ((FIX)->fx_subsy)->flags & SEC_CODE) != 0)
++
++/* Whether FIX is the difference of two labels in the code section SEG.  */
+ #define MICROBLAZE_LOCAL_CODE_DIFF(FIX, SEG)			\
+   ((FIX)->fx_subsy != NULL					\
+    && (SEG) == S_GET_SEGMENT ((FIX)->fx_subsy)			\
+    && ((SEG)->flags & SEC_CODE) != 0)
+-#define TC_FORCE_RELOCATION_SUB_LOCAL(FIX, SEG)			\
+-  MICROBLAZE_LOCAL_CODE_DIFF (FIX, SEG)
+ 
+ #define TC_FORCE_RELOCATION_LOCAL(FIX)				\
+   (GENERIC_FORCE_RELOCATION_LOCAL (FIX)				\
+diff --git a/gas/testsuite/gas/microblaze/reloc_diff.exp b/gas/testsuite/gas/microblaze/reloc_diff.exp
+index 03df11fec84..1b2efef6248 100644
+--- a/gas/testsuite/gas/microblaze/reloc_diff.exp
++++ b/gas/testsuite/gas/microblaze/reloc_diff.exp
+@@ -3,6 +3,7 @@
+ if [istarget microblaze*-*-*] {
+     run_dump_test "reloc_diff"
+     run_dump_test "reloc_diff_code"
++    run_dump_test "reloc_diff_global"
+     run_dump_test "reloc_diff_far"
+     run_dump_test "reloc_uleb128"
+ }
+diff --git a/gas/testsuite/gas/microblaze/reloc_diff_global.d b/gas/testsuite/gas/microblaze/reloc_diff_global.d
+new file mode 100644
+index 00000000000..219b89da552
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/reloc_diff_global.d
+@@ -0,0 +1,22 @@
++#objdump: -r
++#name: MicroBlaze differences with a global second symbol
++#source: reloc_diff_global.s
++
++.*: +file format .*
++
++RELOCATION RECORDS FOR \[\.text\]:
++OFFSET +TYPE +VALUE
++0+0010 R_MICROBLAZE_ADD32 +b
++0+0010 R_MICROBLAZE_SUB32 +a
++0+0014 R_MICROBLAZE_ADD32 +ext
++0+0014 R_MICROBLAZE_SUB32 +b
++0+0018 R_MICROBLAZE_32_PCREL +ext
++0+0000 R_MICROBLAZE_64_PCREL +\.text\.far
++
++
++RELOCATION RECORDS FOR \[\.data\]:
++OFFSET +TYPE +VALUE
++0+0000 R_MICROBLAZE_ADD32 +b
++0+0000 R_MICROBLAZE_SUB32 +a
++0+0004 R_MICROBLAZE_ADD32 +ext
++0+0004 R_MICROBLAZE_SUB32 +b
+diff --git a/gas/testsuite/gas/microblaze/reloc_diff_global.s b/gas/testsuite/gas/microblaze/reloc_diff_global.s
+new file mode 100644
+index 00000000000..8d8af9f8e70
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/reloc_diff_global.s
+@@ -0,0 +1,19 @@
++# Differences whose second symbol is global.  These used to become
++# R_MICROBLAZE_32_SYM_OP_SYM, which the linker ignores, and when the
++# second symbol was in the fixup's own section, the assembler crashed.
++# They are ADD and SUB pairs now, except "ext - .".
++
++	.text
++	.globl	a, b
++a:	brlid	r15, far
++	nop
++b:	nop
++	.long	b - a
++	.long	ext - b
++	.long	ext - .
++	.data
++	.long	b - a
++	.long	ext - b
++	.section .text.far,"ax",@progbits
++far:	rtsd	r15, 8
++	nop
+-- 
+2.39.5 (Apple Git-154)
+

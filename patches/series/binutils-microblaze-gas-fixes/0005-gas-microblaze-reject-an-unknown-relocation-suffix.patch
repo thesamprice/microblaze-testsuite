@@ -1,0 +1,111 @@
+From 6363018324c5e5b2029bf04a5b8fd9d009c72553 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 01:16:34 -0500
+Subject: [PATCH 5/9] gas: microblaze: reject an unknown relocation suffix
+
+For an "@" suffix that match_imm does not know, parse_imm set atp to
+NULL and then stored through it.  With a clang host build the store is
+optimized away and the suffix is dropped with only a misleading
+warning, leaving a plain reference to the symbol:
+
+	addik r3, r4, foo@BOGUS
+	-> Warning: ignoring operands: BOGUS
+	   R_MICROBLAZE_64 foo
+
+The suffixes are case-sensitive, so foo@plt went the same way.
+
+Report an unknown suffix as an error, and skip its name so that it is
+not also reported as an extra operand.
+
+gas/
+	* config/tc-microblaze.c (parse_imm): Report an unknown suffix as
+	an error instead of storing through a null pointer.
+	* testsuite/gas/microblaze/suffix-err.d: New test.
+	* testsuite/gas/microblaze/suffix-err.l: New file.
+	* testsuite/gas/microblaze/suffix-err.s: New file.
+	* testsuite/gas/microblaze/errors.exp: Run it.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ gas/config/tc-microblaze.c                | 15 +++++++++------
+ gas/testsuite/gas/microblaze/errors.exp   |  1 +
+ gas/testsuite/gas/microblaze/suffix-err.d |  4 ++++
+ gas/testsuite/gas/microblaze/suffix-err.l |  4 ++++
+ gas/testsuite/gas/microblaze/suffix-err.s |  7 +++++++
+ 5 files changed, 25 insertions(+), 6 deletions(-)
+ create mode 100644 gas/testsuite/gas/microblaze/suffix-err.d
+ create mode 100644 gas/testsuite/gas/microblaze/suffix-err.l
+ create mode 100644 gas/testsuite/gas/microblaze/suffix-err.s
+
+diff --git a/gas/config/tc-microblaze.c b/gas/config/tc-microblaze.c
+index e70d5dfbd4c..681de605cee 100644
+--- a/gas/config/tc-microblaze.c
++++ b/gas/config/tc-microblaze.c
+@@ -726,12 +726,15 @@ parse_imm (char * s, expressionS * e, offsetT min, offsetT max)
+ 	    }
+         }
+       else
+-        {
+-          atp = NULL;
+-          e->X_md = 0;
+-          ilen = 0;
+-        }
+-      *atp = 0;
++	{
++	  /* Skip the unknown name too, so that it is not also reported
++	     as an extra operand.  */
++	  for (ilen = 0; is_part_of_name (atp[1 + ilen]); ilen++)
++	    ;
++	  as_bad (_("unknown relocation suffix @%.*s"), ilen, atp + 1);
++	  e->X_md = 0;
++	  *atp = 0;
++	}
+     }
+   else
+     {
+diff --git a/gas/testsuite/gas/microblaze/errors.exp b/gas/testsuite/gas/microblaze/errors.exp
+index 7404198d64e..77010202008 100644
+--- a/gas/testsuite/gas/microblaze/errors.exp
++++ b/gas/testsuite/gas/microblaze/errors.exp
+@@ -5,4 +5,5 @@ if [istarget microblaze*-*-*] {
+     run_dump_test "imm-range-err"
+     run_dump_test "imm-range"
+     run_dump_test "tls-err"
++    run_dump_test "suffix-err"
+ }
+diff --git a/gas/testsuite/gas/microblaze/suffix-err.d b/gas/testsuite/gas/microblaze/suffix-err.d
+new file mode 100644
+index 00000000000..f24b01cfd8e
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/suffix-err.d
+@@ -0,0 +1,4 @@
++#as:
++#source: suffix-err.s
++#error_output: suffix-err.l
++#name: MicroBlaze unknown relocation suffix
+diff --git a/gas/testsuite/gas/microblaze/suffix-err.l b/gas/testsuite/gas/microblaze/suffix-err.l
+new file mode 100644
+index 00000000000..55cb048bbda
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/suffix-err.l
+@@ -0,0 +1,4 @@
++.*: Assembler messages:
++.*:5: Error: unknown relocation suffix @BOGUS
++.*:6: Error: unknown relocation suffix @plt
++.*:7: Error: unknown relocation suffix @
+diff --git a/gas/testsuite/gas/microblaze/suffix-err.s b/gas/testsuite/gas/microblaze/suffix-err.s
+new file mode 100644
+index 00000000000..777c033d704
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/suffix-err.s
+@@ -0,0 +1,7 @@
++# An unknown relocation suffix is an error.  It was dropped with a
++# warning about extra operands, leaving a plain reference to foo.
++
++	.text
++	addik	r3, r4, foo@BOGUS
++	brlid	r15, foo@plt
++	addik	r3, r4, foo@
+-- 
+2.39.5 (Apple Git-154)
+

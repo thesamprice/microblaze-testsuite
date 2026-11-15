@@ -1,0 +1,68 @@
+microblaze: wrong-code, ICE and CFI fixes from a back-end audit
+
+Eight MicroBlaze back-end fixes from reading the machine description
+and microblaze.cc.  Each comes with a test.  They were written and
+tested on master df809a029 plus the other MicroBlaze series listed in
+NOTES.md.  All but 4/8 also apply to bare df809a029; 4/8 needs
+"microblaze: emit only _break_handler for break_handler" from the
+earlier series.
+
+1/8 test compare-and-swap equality with xor, not cmp
+
+  cmp replaces bit 31 of the difference with a signed comparison, so
+  every 32-bit __sync/__atomic compare-and-swap succeeded when the
+  values differed only in bit 31 (memory -1, expected 0x7fffffff).
+
+2/8 set up the GOT pointer for TLS accesses on every target
+
+  TLS accesses call __tls_get_addr with r20 plus a GOT offset, but r20
+  was loaded only for -fPIC on Linux.  On microblaze-elf the address
+  was built from whatever r20 held.  RTEMS's __tls_get_addr also
+  ignored its argument; that is fixed separately in RTEMS.
+
+3/8 keep the dynamic area's accesses before sp is reset
+
+  The scheduler could move the last accesses to an alloca or VLA area
+  after the epilogue's sp = fp, where an interrupt can overwrite them.
+  A blockage, as on MIPS.
+
+4/8 do not save sp in interrupt handlers, and give their CFI r14
+
+  Interrupt handlers saved sp (and r2, r13) and recorded the save in
+  the CFI, which then described the interrupted code's sp wrongly, and
+  the CFI gave r15 as the return address instead of r14 (r16 for
+  break_handler).
+
+5/8 keep iprefetch out of delay slots
+
+  -mxl-prefetch's two-instruction iprefetch had type arith and could
+  fill a delay slot, where only its first instruction executes.
+
+6/8 fix latent pattern bugs and atomic_test_and_set's result
+
+  branch_zero accepted unsigned codes and printed signed branches;
+  movdi and movdf had unassemblable or wrong register-copy templates;
+  *one_cmpldi2 printed a nonexistent "nor".  atomic_test_and_set
+  returned the old byte (128 for 0x80) rather than 1.
+
+7/8 do not offer -fstack-check as the replacement of -mxl-stack-check
+
+  The deprecation note suggested an option that does something else.
+
+8/8 legitimize the small-divide table address
+
+  -fPIC -msmall-divides -mxl-barrel-shift ICEd with an unrecognizable
+  insn.
+
+Tested on microblaze-elf, QEMU 10.2.4, newlib, on top of the other
+series (21 patches):
+
+  execute.exp     before and after: 24536 PASS, 0 FAIL, 183 UNSUPPORTED
+  microblaze.exp  before: 1077 PASS, 162 FAIL, 9 UNRESOLVED (the new
+                  tests, on the unfixed compiler)
+                  after:  1236 PASS, 4 FAIL
+
+and on microblazeel-elf, microblaze.exp 1213 PASS, 4 FAIL.  The four
+FAILs, the same on both, are scan-assembler-not tests from the elfos.h
+and strlen series that matched the new .file directive; those series
+now anchor the patterns.

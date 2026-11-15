@@ -1,0 +1,381 @@
+From 0fdf7fd411a54b8c026d4aa5286d5ca5f8d4c28b Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 01:04:21 -0500
+Subject: [PATCH] microblaze: keep local labels out of the symbol table
+
+Fixup for "gas: microblaze: emit ADD and SUB for code label
+differences" (the SUB half in md_apply_fix) and "gas: microblaze: emit
+CFA advances as relocations" (the SUB and SUB6 half in
+microblaze_cfa_fix); "emit line advances as relocations" inherits it
+through the first.
+
+md_apply_fix and microblaze_cfa_fix make the SUB half of an ADD/SUB
+pair when fixup_segment applies the fixup, after adjust_reloc_syms has
+replaced local symbols with section symbols.  The ADD half names
+.text+offset, but the SUB half names the label itself, so every such
+label is written to the symbol table.  An object assembled with -g
+lists five "L0^A" symbols (gas's fake label) for a three-instruction
+function with CFI, and a gcc -g -O2 program linked with --relax keeps
+73 $L* and 11 L0^A symbols, which objdump -d then uses to name code
+("00000458 <$LCFI5>:").
+
+Make the SUB half against the section symbol plus an offset too, with
+the same conditions as adjust_reloc_syms.  ld already corrects the
+addend of an ADD or SUB relocation against a section symbol when
+relaxation deletes code before it ("microblaze: adjust ADD and SUB
+relocations when relaxing").  A gcc -g -O2 program linked with --relax
+now has the same .debug_info, .debug_line and .eh_frame contents as
+before, and no local labels from its own objects.
+
+readelf subtracted the addend of a SUB relocation with the wrong sign,
+computing field + A - S rather than field - (S + A).  No SUB
+relocation had an addend before, but now the line table of DWARF2 13
+ended at 0x58 instead of 0x18.  Subtract the addend.  This applies to
+the RISC-V and LoongArch SUB relocations too, which gas emits against
+labels with no addend.
+
+Objects from an older assembler still carry such labels.  As RISC-V
+does (PR27584, PR27916), treat MicroBlaze local labels as target
+special symbols, so that nm omits them, and do not choose them as
+function names.
+
+bfd/
+	* elf32-microblaze.c (microblaze_elf_is_target_special_symbol)
+	(microblaze_elf_maybe_function_sym): New functions.
+	(bfd_elf32_bfd_is_target_special_symbol)
+	(elf_backend_maybe_function_sym): Define.
+
+binutils/
+	* readelf.c (apply_relocations): Subtract the addend of a
+	subtracting relocation.
+
+gas/
+	* config/tc-microblaze.c (microblaze_adjust_sub_sym): New function.
+	(microblaze_cfa_fix, md_apply_fix): Use it for the SUB half.
+	* testsuite/gas/microblaze/local-syms.d: New test.
+	* testsuite/gas/microblaze/local-syms.exp: New file.
+	* testsuite/gas/microblaze/local-syms.s: New file.
+	* testsuite/gas/microblaze/dwarf2-fixed-advance.d: Expect the
+	SUB16 relocations against .text.
+	* testsuite/gas/microblaze/reloc_diff.d: Expect the SUB relocations
+	against .text.
+	* testsuite/gas/microblaze/reloc_diff_far.d: Likewise.
+	* testsuite/gas/microblaze/reloc_diff_code.d: Likewise.
+
+ld/
+	* testsuite/ld-microblaze/local-syms.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ bfd/elf32-microblaze.c                        | 29 ++++++++++++++
+ binutils/readelf.c                            |  4 +-
+ gas/config/tc-microblaze.c                    | 40 +++++++++++++++++++
+ .../gas/microblaze/dwarf2-fixed-advance.d     |  9 +++--
+ gas/testsuite/gas/microblaze/local-syms.d     |  6 +++
+ gas/testsuite/gas/microblaze/local-syms.exp   |  5 +++
+ gas/testsuite/gas/microblaze/local-syms.s     | 14 +++++++
+ gas/testsuite/gas/microblaze/reloc_diff.d     |  8 ++--
+ .../gas/microblaze/reloc_diff_code.d          |  8 ++--
+ gas/testsuite/gas/microblaze/reloc_diff_far.d |  8 ++--
+ ld/testsuite/ld-microblaze/local-syms.d       | 15 +++++++
+ 11 files changed, 129 insertions(+), 17 deletions(-)
+ create mode 100644 gas/testsuite/gas/microblaze/local-syms.d
+ create mode 100644 gas/testsuite/gas/microblaze/local-syms.exp
+ create mode 100644 gas/testsuite/gas/microblaze/local-syms.s
+ create mode 100644 ld/testsuite/ld-microblaze/local-syms.d
+
+diff --git a/bfd/elf32-microblaze.c b/bfd/elf32-microblaze.c
+index 2d332b4a3b9..e8e90969b7e 100644
+--- a/bfd/elf32-microblaze.c
++++ b/bfd/elf32-microblaze.c
+@@ -1120,6 +1120,32 @@ microblaze_elf_is_local_label_name (bfd *abfd, const char *name)
+   return _bfd_elf_is_local_label_name (abfd, name);
+ }
+ 
++/* Treat local labels as special symbols, so that nm and objdump omit
++   them.  gas keeps them in the symbol table when a relocation needs
++   them, as for the difference of two code labels.  From
++   riscv_elf_is_target_special_symbol.  */
++
++static bool
++microblaze_elf_is_target_special_symbol (bfd *abfd, asymbol *sym)
++{
++  return (sym->name[0] == '\0'
++	  || microblaze_elf_is_local_label_name (abfd, sym->name));
++}
++
++/* Do not choose a local label as a function name.  From
++   riscv_maybe_function_sym.  */
++
++static bfd_size_type
++microblaze_elf_maybe_function_sym (const asymbol *sym, asection *sec,
++				   bfd_vma *code_off)
++{
++  if ((sym->flags & BSF_LOCAL) != 0
++      && microblaze_elf_is_local_label_name (sec->owner, sym->name))
++    return 0;
++
++  return _bfd_elf_maybe_function_sym (sym, sec, code_off);
++}
++
+ /* Support for core dump NOTE sections.  */
+ 
+ static bool
+@@ -4252,12 +4278,15 @@ microblaze_elf_add_symbol_hook (bfd *abfd,
+ 
+ #define bfd_elf32_bfd_reloc_type_lookup		microblaze_elf_reloc_type_lookup
+ #define bfd_elf32_bfd_is_local_label_name	microblaze_elf_is_local_label_name
++#define bfd_elf32_bfd_is_target_special_symbol \
++  microblaze_elf_is_target_special_symbol
+ #define bfd_elf32_new_section_hook		microblaze_elf_new_section_hook
+ #define elf_backend_relocate_section		microblaze_elf_relocate_section
+ #define bfd_elf32_bfd_relax_section		microblaze_elf_relax_section
+ #define bfd_elf32_bfd_merge_private_bfd_data	_bfd_generic_verify_endian_match
+ #define bfd_elf32_bfd_reloc_name_lookup		microblaze_elf_reloc_name_lookup
+ 
++#define elf_backend_maybe_function_sym	microblaze_elf_maybe_function_sym
+ #define elf_backend_gc_mark_hook		microblaze_elf_gc_mark_hook
+ #define elf_backend_check_relocs		microblaze_elf_check_relocs
+ #define elf_backend_copy_indirect_symbol	microblaze_elf_copy_indirect_symbol
+diff --git a/binutils/readelf.c b/binutils/readelf.c
+index 920f75a062a..8db4dc8bcf0 100644
+--- a/binutils/readelf.c
++++ b/binutils/readelf.c
+@@ -16604,8 +16604,10 @@ apply_relocations (Filedata *filedata,
+ 	    }
+ 
+ 	  addend = 0;
++	  /* A subtracting relocation subtracts S + A, and so subtracts
++	     its addend.  */
+ 	  if (is_rela)
+-	    addend += rp->r_addend;
++	    addend += reloc_subtract ? -rp->r_addend : rp->r_addend;
+ 	  /* R_XTENSA_32, R_PJ_DATA_DIR32 and R_D30V_32_NORMAL are
+ 	     partial_inplace.  */
+ 	  if (!is_rela
+diff --git a/gas/config/tc-microblaze.c b/gas/config/tc-microblaze.c
+index b4cd0d8e9ca..e8682a407ee 100644
+--- a/gas/config/tc-microblaze.c
++++ b/gas/config/tc-microblaze.c
+@@ -2039,6 +2039,44 @@ md_convert_frag (bfd * abfd ATTRIBUTE_UNUSED,
+     }
+ }
+ 
++/* FIXP is the SUB half of a pair of relocations, which md_apply_fix
++   or microblaze_cfa_fix made after adjust_reloc_syms had run.  Make it
++   against the section symbol plus an offset, as adjust_reloc_syms did
++   for the ADD half, so that a local label such as gas's fake label or a
++   compiler's $L label does not reach the symbol table.  The linker
++   corrects the addend of either half when relaxation deletes code.  */
++
++static void
++microblaze_adjust_sub_sym (fixS *fixP)
++{
++  symbolS *sym = fixP->fx_addsy;
++  segT symsec;
++
++  resolve_symbol_value (sym);
++  if (S_FORCE_RELOC (sym, 1) || symbol_section_p (sym))
++    return;
++
++  symsec = S_GET_SEGMENT (sym);
++  if (bfd_is_abs_section (symsec)
++      || (symsec->flags & (SEC_MERGE | SEC_THREAD_LOCAL)) != 0)
++    return;
++
++  /* As adjust_reloc_syms, leave non-local symbols in linkonce sections
++     alone.  */
++  if (!S_IS_LOCAL (sym)
++      && ((symsec->flags & SEC_LINK_ONCE) != 0
++	  || startswith (segment_name (symsec), ".gnu.linkonce")))
++    return;
++
++  if (flag_reloc_section_sym == reloc_section_sym_none
++      || (flag_reloc_section_sym == reloc_section_sym_internal
++	  && !bfd_is_local_label (stdoutput, symbol_get_bfdsym (sym))))
++    return;
++
++  fixP->fx_offset += S_GET_VALUE (sym);
++  fixP->fx_addsy = section_symbol (symsec);
++}
++
+ /* Applies the desired value to the specified location.
+    Also sets up addends for 'rela' type relocations.  */
+ /* Turn a BFD_RELOC_MICROBLAZE_CFA fixup, which microblaze_pre_output_hook
+@@ -2064,6 +2102,7 @@ microblaze_cfa_fix (fixS *fixP)
+   fixP->fx_subsy = NULL;
+   fixP->fx_done = 0;
+   fixP->fx_next->fx_done = 0;
++  microblaze_adjust_sub_sym (fixP->fx_next);
+ 
+   /* Load the byte to get the subtype.  */
+   subtype = bfd_get_8 (NULL, &((fragS *) (fixP->fx_frag->fr_opcode))->fr_literal[fixP->fx_where]);
+@@ -2374,6 +2413,7 @@ md_apply_fix (fixS *   fixP,
+       fixP->fx_next->fx_subsy = NULL;
+       fixP->fx_next->fx_offset = 0;
+       fixP->fx_next->fx_r_type = sub;
++      microblaze_adjust_sub_sym (fixP->fx_next);
+       fixP->fx_subsy = NULL;
+       fixP->fx_r_type = add;
+       fixP->fx_done = 0;
+diff --git a/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.d b/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.d
+index 2f377e52bde..5cd6f45facf 100644
+--- a/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.d
++++ b/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.d
+@@ -3,7 +3,8 @@
+ #source: dwarf2-fixed-advance.s
+ 
+ # Each advance is a DW_LNS_fixed_advance_pc operand with an ADD16
+-# against the new address and a SUB16 against the old one.
++# against the new address and a SUB16 against the old one, both
++# section-relative so that no local label reaches the symbol table.
+ 
+ .*: +file format .*
+ 
+@@ -11,8 +12,8 @@ RELOCATION RECORDS FOR \[\.debug_line\]:
+ OFFSET +TYPE +VALUE
+ [0-9a-f]+ R_MICROBLAZE_32 +\.text
+ [0-9a-f]+ R_MICROBLAZE_ADD16 +\.text\+0x0+8
+-[0-9a-f]+ R_MICROBLAZE_SUB16 +.*
++[0-9a-f]+ R_MICROBLAZE_SUB16 +\.text$
+ [0-9a-f]+ R_MICROBLAZE_ADD16 +\.text\+0x0+10
+-[0-9a-f]+ R_MICROBLAZE_SUB16 +.*
++[0-9a-f]+ R_MICROBLAZE_SUB16 +\.text\+0x0+8
+ [0-9a-f]+ R_MICROBLAZE_ADD16 +\.text\+0x0+18
+-[0-9a-f]+ R_MICROBLAZE_SUB16 +.*
++[0-9a-f]+ R_MICROBLAZE_SUB16 +\.text\+0x0+10
+diff --git a/gas/testsuite/gas/microblaze/local-syms.d b/gas/testsuite/gas/microblaze/local-syms.d
+new file mode 100644
+index 00000000000..ee12e8886ce
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/local-syms.d
+@@ -0,0 +1,6 @@
++#as: --reloc-section-sym=none
++#nm: --defined-only
++#name: MicroBlaze nm omits local labels
++#source: local-syms.s
++
++0+c t f
+diff --git a/gas/testsuite/gas/microblaze/local-syms.exp b/gas/testsuite/gas/microblaze/local-syms.exp
+new file mode 100644
+index 00000000000..4f47987e26a
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/local-syms.exp
+@@ -0,0 +1,5 @@
++# Local labels in the MicroBlaze symbol table.
++
++if [istarget microblaze*-*-*] {
++    run_dump_test "local-syms"
++}
+diff --git a/gas/testsuite/gas/microblaze/local-syms.s b/gas/testsuite/gas/microblaze/local-syms.s
+new file mode 100644
+index 00000000000..caad48047d7
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/local-syms.s
+@@ -0,0 +1,14 @@
++# Labels that gas keeps in the symbol table only because relocations
++# name them, as --reloc-section-sym=none forces here.  MicroBlaze local
++# labels start with $L or L., or with .L as on other ELF targets, and
++# 1f becomes .L1^B1.  nm omits them all and lists only f.
++
++	.text
++$L1:	nop
++L.2:	nop
++.L3:	nop
++f:	nop
++	.data
++	.4byte	$L1, L.2, .L3, f, 1f
++	.text
++1:	nop
+diff --git a/gas/testsuite/gas/microblaze/reloc_diff.d b/gas/testsuite/gas/microblaze/reloc_diff.d
+index 69a8ac4a076..b408f2caac8 100644
+--- a/gas/testsuite/gas/microblaze/reloc_diff.d
++++ b/gas/testsuite/gas/microblaze/reloc_diff.d
+@@ -7,13 +7,13 @@
+ RELOCATION RECORDS FOR \[\.data\]:
+ OFFSET +TYPE +VALUE
+ 0+0004 R_MICROBLAZE_ADD32 +\.text\+0x0+0014
+-0+0004 R_MICROBLAZE_SUB32 +\.L0
++0+0004 R_MICROBLAZE_SUB32 +\.text$
+ 0+0008 R_MICROBLAZE_ADD16 +\.text\+0x0+0014
+-0+0008 R_MICROBLAZE_SUB16 +\.L1
++0+0008 R_MICROBLAZE_SUB16 +\.text\+0x0+4
+ 0+000a R_MICROBLAZE_ADD8 +\.text\+0x0+0014
+-0+000a R_MICROBLAZE_SUB8 +\.L1
++0+000a R_MICROBLAZE_SUB8 +\.text\+0x0+4
+ 0+000b R_MICROBLAZE_ADD32 +\.text\+0x0+0018
+-0+000b R_MICROBLAZE_SUB32 +\.L2
++0+000b R_MICROBLAZE_SUB32 +\.text\+0x0+14
+ 
+ 
+ Contents of section \.data:
+diff --git a/gas/testsuite/gas/microblaze/reloc_diff_code.d b/gas/testsuite/gas/microblaze/reloc_diff_code.d
+index c3660ed2ed2..d69a21c789b 100644
+--- a/gas/testsuite/gas/microblaze/reloc_diff_code.d
++++ b/gas/testsuite/gas/microblaze/reloc_diff_code.d
+@@ -7,13 +7,13 @@
+ RELOCATION RECORDS FOR \[\.text\]:
+ OFFSET +TYPE +VALUE
+ 0+001c R_MICROBLAZE_ADD32 +\.text\+0x0+0014
+-0+001c R_MICROBLAZE_SUB32 +\.L0
++0+001c R_MICROBLAZE_SUB32 +\.text
+ 0+0020 R_MICROBLAZE_ADD16 +\.text\+0x0+0014
+-0+0020 R_MICROBLAZE_SUB16 +\.L1
++0+0020 R_MICROBLAZE_SUB16 +\.text\+0x0+0004
+ 0+0022 R_MICROBLAZE_ADD8 +\.text\+0x0+0014
+-0+0022 R_MICROBLAZE_SUB8 +\.L1
++0+0022 R_MICROBLAZE_SUB8 +\.text\+0x0+0004
+ 0+0024 R_MICROBLAZE_ADD32 +\.text
+-0+0024 R_MICROBLAZE_SUB32 +.*
++0+0024 R_MICROBLAZE_SUB32 +\.text\+0x0+0024
+ 0+0008 R_MICROBLAZE_64_PCREL +ext
+ 
+ 
+diff --git a/gas/testsuite/gas/microblaze/reloc_diff_far.d b/gas/testsuite/gas/microblaze/reloc_diff_far.d
+index 3e1f508edc2..987b80268a0 100644
+--- a/gas/testsuite/gas/microblaze/reloc_diff_far.d
++++ b/gas/testsuite/gas/microblaze/reloc_diff_far.d
+@@ -7,15 +7,15 @@
+ RELOCATION RECORDS FOR \[\.data\]:
+ OFFSET +TYPE +VALUE
+ 0+0000 R_MICROBLAZE_ADD8 +\.text\+0x0+10010
+-0+0000 R_MICROBLAZE_SUB8 +a
++0+0000 R_MICROBLAZE_SUB8 +\.text\+0x0+10000
+ 0+0001 R_MICROBLAZE_ADD16 +\.text\+0x0+10010
+-0+0001 R_MICROBLAZE_SUB16 +a
++0+0001 R_MICROBLAZE_SUB16 +\.text\+0x0+10000
+ 
+ 
+ RELOCATION RECORDS FOR \[\.eh_frame\]:
+ OFFSET +TYPE +VALUE
+ [0-9a-f]+ R_MICROBLAZE_32_PCREL +\.text\+0x0+10000
+ [0-9a-f]+ R_MICROBLAZE_ADD32 +\.text\+0x0+10018
+-[0-9a-f]+ R_MICROBLAZE_SUB32 +.*
++[0-9a-f]+ R_MICROBLAZE_SUB32 +\.text\+0x0+10000
+ [0-9a-f]+ R_MICROBLAZE_SET6 +\.text\+0x0+10018
+-[0-9a-f]+ R_MICROBLAZE_SUB6 +.*
++[0-9a-f]+ R_MICROBLAZE_SUB6 +\.text\+0x0+10004
+diff --git a/ld/testsuite/ld-microblaze/local-syms.d b/ld/testsuite/ld-microblaze/local-syms.d
+new file mode 100644
+index 00000000000..34b0f99ba15
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/local-syms.d
+@@ -0,0 +1,15 @@
++#source: relax-cfi.s
++#as: -EL -g
++#ld: -EL -relax -T $srcdir/$subdir/relax-diff.ld
++#readelf: -sW
++#name: MicroBlaze relaxation with -g keeps local labels out of the symbol table
++
++# The CFA and line advances and the DWARF lengths are pairs of ADD and
++# SUB relocations.  Each SUB was against one of the assembler's L0^A
++# labels, which then reached the executable: 27 symbols instead of 12.
++
++Symbol table '\.symtab' contains 12 entries:
++#...
++ +[0-9]+: 0+ +0 FILE +LOCAL +DEFAULT +ABS .*
++ +[0-9]+: 90000024 +0 NOTYPE +LOCAL +DEFAULT +1 far
++ +[0-9]+: 90000000 +36 FUNC +GLOBAL +DEFAULT +1 _start
+-- 
+2.39.5 (Apple Git-154)
+

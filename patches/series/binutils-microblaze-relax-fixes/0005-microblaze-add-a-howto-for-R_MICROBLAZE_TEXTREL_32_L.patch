@@ -1,0 +1,144 @@
+From 4d984c6f564a1b96d25649a4b521411ac4c39c6a Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 01:04:36 -0500
+Subject: [PATCH 5/9] microblaze: add a howto for R_MICROBLAZE_TEXTREL_32_LO
+
+When the offset of an R_MICROBLAZE_TEXTREL_64 from the start of .text
+fits in 16 bits, microblaze_elf_relax_section deletes the IMM and turns
+the relocation into R_MICROBLAZE_TEXTREL_32_LO.  relocate_section
+knows how to apply that type, but it has no entry in the howto table,
+so the link fails before getting there:
+
+  unsupported relocation type 0x20
+  final link failed
+
+A single "addik r3, r20, var@TXTREL" linked with --relax shows it.
+microblaze-elf GCC passes -relax to the linker, so -fPIC
+-mpic-data-is-text-relative code hits this.
+
+Add a howto modelled on R_MICROBLAZE_TEXTREL_64's.  relocate_section
+no longer needs to guard against a missing howto for this type before
+RELOC_AGAINST_DISCARDED_SECTION; types without one are rejected
+earlier.
+
+bfd/
+	* elf32-microblaze.c (microblaze_elf_howto_raw): Add
+	R_MICROBLAZE_TEXTREL_32_LO.
+	(microblaze_elf_relocate_section): Don't test howto for NULL
+	before RELOC_AGAINST_DISCARDED_SECTION.
+
+ld/
+	* testsuite/ld-microblaze/relax-textrel.s: New file.
+	* testsuite/ld-microblaze/relax-textrel.ld: New file.
+	* testsuite/ld-microblaze/relax-textrel.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ bfd/elf32-microblaze.c                      | 21 +++++++++++++++++----
+ ld/testsuite/ld-microblaze/relax-textrel.d  | 15 +++++++++++++++
+ ld/testsuite/ld-microblaze/relax-textrel.ld | 10 ++++++++++
+ ld/testsuite/ld-microblaze/relax-textrel.s  | 14 ++++++++++++++
+ 4 files changed, 56 insertions(+), 4 deletions(-)
+ create mode 100644 ld/testsuite/ld-microblaze/relax-textrel.d
+ create mode 100644 ld/testsuite/ld-microblaze/relax-textrel.ld
+ create mode 100644 ld/testsuite/ld-microblaze/relax-textrel.s
+
+diff --git a/bfd/elf32-microblaze.c b/bfd/elf32-microblaze.c
+index 780ef6b5334..9ae27a03cd5 100644
+--- a/bfd/elf32-microblaze.c
++++ b/bfd/elf32-microblaze.c
+@@ -445,6 +445,22 @@ static reloc_howto_type microblaze_elf_howto_raw[] =
+ 	  0x0000ffff,		/* Dest Mask.  */
+ 	  false),		/* PC relative offset?  */
+ 
++   /* The low half of a TEXTREL relocation, which is what relaxation
++      turns R_MICROBLAZE_TEXTREL_64 into when it deletes the IMM.  */
++   HOWTO (R_MICROBLAZE_TEXTREL_32_LO,	/* Type.  */
++	  0,			/* Rightshift.  */
++	  4,			/* Size.  */
++	  16,			/* Bitsize.  */
++	  false,		/* PC_relative.  */
++	  0,			/* Bitpos.  */
++	  complain_overflow_dont, /* Complain on overflow.  */
++	  bfd_elf_generic_reloc,/* Special Function.  */
++	  "R_MICROBLAZE_TEXTREL_32_LO",/* Name.  */
++	  false,		/* Partial Inplace.  */
++	  0,			/* Source Mask.  */
++	  0x0000ffff,		/* Dest Mask.  */
++	  false),		/* PC relative offset?  */
++
+    /* A 64 bit PLT relocation.  Table-entry not really used.  */
+    HOWTO (R_MICROBLAZE_PLT_64,  /* Type.  */
+ 	  0,			/* Rightshift.  */
+@@ -1462,10 +1478,7 @@ microblaze_elf_relocate_section (struct bfd_link_info *info,
+ 	    sym_sec = hd->root.u.def.section;
+ 	}
+ 
+-      /* howto is NULL for R_MICROBLAZE_TEXTREL_32_LO, which has no entry
+-	 in microblaze_elf_howto_raw, and _bfd_clear_contents reads
+-	 howto->size.  elf32-ppc.c guards its howto pointers the same way.  */
+-      if (sym_sec != NULL && discarded_section (sym_sec) && howto != NULL)
++      if (sym_sec != NULL && discarded_section (sym_sec))
+ 	RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
+ 					 rel, 1, relend, R_MICROBLAZE_NONE,
+ 					 howto, 0, contents);
+diff --git a/ld/testsuite/ld-microblaze/relax-textrel.d b/ld/testsuite/ld-microblaze/relax-textrel.d
+new file mode 100644
+index 00000000000..8cd672965e5
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-textrel.d
+@@ -0,0 +1,15 @@
++#source: relax-textrel.s
++#ld: -relax -q -T $srcdir/$subdir/relax-textrel.ld
++#objdump: -dr
++#name: MicroBlaze relaxation of R_MICROBLAZE_TEXTREL_64
++
++# var is 0x100 past the start of .text.
++
++.*: +file format .*
++
++Disassembly of section \.text:
++
++0+1000 <_start>:
++    1000:	30740100 	addik	r3, r20, 256
++			1000: R_MICROBLAZE_TEXTREL_32_LO	\.data
++#pass
+diff --git a/ld/testsuite/ld-microblaze/relax-textrel.ld b/ld/testsuite/ld-microblaze/relax-textrel.ld
+new file mode 100644
+index 00000000000..4c4789c3b02
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-textrel.ld
+@@ -0,0 +1,10 @@
++/* Fixed layout so the addresses in the expected output are deterministic.  */
++ENTRY(_start)
++SECTIONS
++{
++  . = 0x1000;
++  .text : { *(.text) }
++  . = 0x1100;
++  .data : { *(.data) }
++  /DISCARD/ : { *(.comment) *(.note*) }
++}
+diff --git a/ld/testsuite/ld-microblaze/relax-textrel.s b/ld/testsuite/ld-microblaze/relax-textrel.s
+new file mode 100644
+index 00000000000..92a379c3f70
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-textrel.s
+@@ -0,0 +1,14 @@
++/* -mpic-data-is-text-relative code addresses data relative to the start
++   of .text.  Relaxation deletes the IMM of an R_MICROBLAZE_TEXTREL_64
++   whose offset fits in 16 bits and turns the relocation into
++   R_MICROBLAZE_TEXTREL_32_LO, which had no howto, so the link failed
++   with "unsupported relocation type 0x20".  */
++
++	.text
++	.globl	_start
++_start:
++	addik	r3, r20, var@TXTREL
++	bri	0
++
++	.data
++var:	.long	1
+-- 
+2.39.5 (Apple Git-154)
+

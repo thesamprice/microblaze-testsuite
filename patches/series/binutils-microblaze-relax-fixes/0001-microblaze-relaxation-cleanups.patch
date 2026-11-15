@@ -1,0 +1,122 @@
+From 5277c6d8bfe25c2832932da6a9bbfb2c9d5d5315 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 00:52:22 -0500
+Subject: [PATCH 1/9] microblaze: relaxation cleanups
+
+A few small problems in microblaze_elf_relax_section and the howto
+table, found by reading the code:
+
+- The section being relaxed was not tested for SEC_HAS_CONTENTS, as
+  3a574cce26e did for most other targets.  Only fuzzed input can have
+  a code section with relocations but no contents.
+
+- Each pass allocated a new relaxation table, but the previous pass's
+  table was freed only when it was empty, so every pass that deleted
+  something leaked one.  The table describes the deletions of a single
+  pass and nothing reads it afterwards, so free it at the end of every
+  pass.
+
+- R_MICROBLAZE_32_NONE describes a 32-bit word but had size 2, left
+  over from the old size encoding, so RELOC_AGAINST_DISCARDED_SECTION
+  would clear only half of it.
+
+- The R_MICROBLAZE_32_SYM_OP_SYM arm in the loop over other sections
+  sat inside a test that admits only other relocation types, so it
+  could never run.  relocate_section ignores the addend of that
+  relocation in any case.  Remove it.
+
+bfd/
+	* elf32-microblaze.c (microblaze_elf_howto_raw): Make the size of
+	R_MICROBLAZE_32_NONE 4.
+	(microblaze_elf_relax_section): Skip sections without contents.
+	Free the relaxation table at the end of every pass.  Remove the
+	unreachable R_MICROBLAZE_32_SYM_OP_SYM case.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ bfd/elf32-microblaze.c | 48 ++++++------------------------------------
+ 1 file changed, 7 insertions(+), 41 deletions(-)
+
+diff --git a/bfd/elf32-microblaze.c b/bfd/elf32-microblaze.c
+index 66a1c8e1fa0..e7f2a4f7bd6 100644
+--- a/bfd/elf32-microblaze.c
++++ b/bfd/elf32-microblaze.c
+@@ -313,7 +313,7 @@ static reloc_howto_type microblaze_elf_howto_raw[] =
+    /* This reloc does nothing.	Used for relaxation.  */
+    HOWTO (R_MICROBLAZE_32_NONE,	/* Type.  */
+ 	0,			/* Rightshift.  */
+-	2,			/* Size (0 = byte, 1 = short, 2 = long).  */
++	4,			/* Size.  */
+ 	32,			/* Bitsize.  */
+ 	true,			/* PC_relative.  */
+ 	0,			/* Bitpos.  */
+@@ -2321,6 +2321,7 @@ microblaze_elf_relax_section (bfd *abfd,
+       || (sec->flags & SEC_RELOC) == 0
+       || (sec->flags & SEC_CODE) == 0
+       || sec->reloc_count == 0
++      || (sec->flags & SEC_HAS_CONTENTS) == 0
+       || (sdata = microblaze_elf_section_data (sec)) == NULL)
+     return true;
+ 
+@@ -2604,38 +2605,6 @@ microblaze_elf_relax_section (bfd *abfd,
+ 			}
+ 		      irelscan->r_addend -= calc_fixup (irelscan->r_addend, 0, sec);
+ 		    }
+-		  else if (ELF32_R_TYPE (irelscan->r_info) == (int) R_MICROBLAZE_32_SYM_OP_SYM)
+-		    {
+-		      isym = isymbuf + ELF32_R_SYM (irelscan->r_info);
+-
+-		      /* Look at the reloc only if the value has been resolved.  */
+-		      if (ocontents == NULL)
+-			{
+-			  if (elf_section_data (o)->this_hdr.contents != NULL)
+-			    ocontents = elf_section_data (o)->this_hdr.contents;
+-			  else
+-			    {
+-			      /* We always cache the section contents.
+-				 Perhaps, if info->keep_memory is FALSE, we
+-				 should free them, if we are permitted to.  */
+-
+-			      if (o->rawsize == 0)
+-				o->rawsize = o->size;
+-			      ocontents = (bfd_byte *) bfd_malloc (o->rawsize);
+-			      if (ocontents == NULL)
+-				goto error_return;
+-			      if (!bfd_get_section_contents (abfd, o, ocontents,
+-							     (file_ptr) 0,
+-							     o->rawsize))
+-				goto error_return;
+-			      elf_section_data (o)->this_hdr.contents = ocontents;
+-			    }
+-			}
+-		      irelscan->r_addend -= calc_fixup (irelscan->r_addend
+-							+ isym->st_value,
+-							0,
+-							sec);
+-		    }
+ 		}
+ 	      else if ((ELF32_R_TYPE (irelscan->r_info) == (int) R_MICROBLAZE_32_PCREL_LO)
+ 		       || (ELF32_R_TYPE (irelscan->r_info)
+@@ -2876,14 +2845,11 @@ microblaze_elf_relax_section (bfd *abfd,
+   if (elf_section_data (sec)->relocs != internal_relocs)
+     free (internal_relocs);
+ 
+-  if (sdata->relax_count == 0)
+-    {
+-      *again = false;
+-      free (sdata->relax);
+-      sdata->relax = NULL;
+-    }
+-  else
+-    *again = true;
++  /* The table describes this pass's deletions only; the next pass, if
++     any, builds a new one.  */
++  *again = sdata->relax_count != 0;
++  free (sdata->relax);
++  sdata->relax = NULL;
+   return true;
+ 
+  error_return:
+-- 
+2.39.5 (Apple Git-154)
+

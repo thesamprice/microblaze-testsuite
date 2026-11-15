@@ -1,0 +1,156 @@
+From 8ecf75c687fb472fc1ea8746b23c155fa595b575 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 01:10:56 -0500
+Subject: [PATCH 2/9] gas: microblaze: reject a symbol in a shift, mbar or
+ bit-field immediate
+
+For the immediate of a shift by a constant (bslli, bsrai, bsrli), of
+mbar, and the width or shift of bsefi and bsifi, md_assemble warned
+when the operand was a symbol and then allocated no room for the
+instruction, so md_number_to_chars wrote through a null pointer:
+
+	bslli r3, r4, foo
+	-> Warning: Symbol used as immediate for shift instruction
+	   Internal error (Segmentation fault: 11).
+
+There is no relocation for these fields.  Make the warnings errors and
+allocate the instruction word in every case.
+
+gas/
+	* config/tc-microblaze.c (md_assemble): Report a symbol in an
+	IMM5, IMMW/IMMS or mbar immediate as an error, and always
+	allocate the instruction.
+	* testsuite/gas/microblaze/errors.exp: New file.
+	* testsuite/gas/microblaze/imm-sym-err.d: New test.
+	* testsuite/gas/microblaze/imm-sym-err.l: New file.
+	* testsuite/gas/microblaze/imm-sym-err.s: New file.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ gas/config/tc-microblaze.c                 | 29 +++++++++-------------
+ gas/testsuite/gas/microblaze/errors.exp    |  5 ++++
+ gas/testsuite/gas/microblaze/imm-sym-err.d |  4 +++
+ gas/testsuite/gas/microblaze/imm-sym-err.l |  6 +++++
+ gas/testsuite/gas/microblaze/imm-sym-err.s |  8 ++++++
+ 5 files changed, 35 insertions(+), 17 deletions(-)
+ create mode 100644 gas/testsuite/gas/microblaze/errors.exp
+ create mode 100644 gas/testsuite/gas/microblaze/imm-sym-err.d
+ create mode 100644 gas/testsuite/gas/microblaze/imm-sym-err.l
+ create mode 100644 gas/testsuite/gas/microblaze/imm-sym-err.s
+
+diff --git a/gas/config/tc-microblaze.c b/gas/config/tc-microblaze.c
+index 2721428ab39..6039cf68de7 100644
+--- a/gas/config/tc-microblaze.c
++++ b/gas/config/tc-microblaze.c
+@@ -1153,12 +1153,10 @@ md_assemble (char * str)
+         as_fatal (_("Cannot use special register with this instruction"));
+ 
+       if (exp.X_op != O_constant)
+-        as_warn (_("Symbol used as immediate for shift instruction"));
++	as_bad (_("Symbol used as immediate for shift instruction"));
+       else
+-	{
+-          output = frag_more (isize);
+-          immed = exp.X_add_number;
+-        }
++	immed = exp.X_add_number;
++      output = frag_more (isize);
+ 
+       if (immed != (immed % 32))
+ 	{
+@@ -1201,7 +1199,7 @@ md_assemble (char * str)
+ 
+       if (exp.X_op != O_constant)
+ 	{
+-	  as_warn (_(
++	  as_bad (_(
+ 	  "Symbol used as immediate width value for bit field instruction"));
+ 	  immed = 1;
+ 	}
+@@ -1219,15 +1217,13 @@ md_assemble (char * str)
+ 
+       if (exp.X_op != O_constant)
+ 	{
+-	  as_warn (_(
++	  as_bad (_(
+ 	  "Symbol used as immediate shift value for bit field instruction"));
+ 	  immed2 = 0;
+ 	}
+       else
+-	{
+-	  output = frag_more (isize);
+-	  immed2 = exp.X_add_number;
+-	}
++	immed2 = exp.X_add_number;
++      output = frag_more (isize);
+ 
+       if (immed2 != (immed2 % 32))
+ 	{
+@@ -1797,12 +1793,11 @@ md_assemble (char * str)
+         op_end = parse_imm (op_end + 1, & exp, MIN_IMM5, MAX_IMM5);
+       else
+         as_fatal(_("Error in statement syntax"));
+-      if (exp.X_op != O_constant) {
+-        as_warn(_("Symbol used as immediate for mbar instruction"));
+-      } else {
+-        output = frag_more (isize);
+-        immed = exp.X_add_number;
+-      }
++      if (exp.X_op != O_constant)
++	as_bad (_("Symbol used as immediate for mbar instruction"));
++      else
++	immed = exp.X_add_number;
++      output = frag_more (isize);
+       if (immed != (immed % 32)) {
+         as_warn(_("Immediate value for mbar > 32. using <value %% 32>"));
+         immed = immed % 32;
+diff --git a/gas/testsuite/gas/microblaze/errors.exp b/gas/testsuite/gas/microblaze/errors.exp
+new file mode 100644
+index 00000000000..d004b186d37
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/errors.exp
+@@ -0,0 +1,5 @@
++# Diagnostics for invalid MicroBlaze operands.
++
++if [istarget microblaze*-*-*] {
++    run_dump_test "imm-sym-err"
++}
+diff --git a/gas/testsuite/gas/microblaze/imm-sym-err.d b/gas/testsuite/gas/microblaze/imm-sym-err.d
+new file mode 100644
+index 00000000000..a35424c2e41
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/imm-sym-err.d
+@@ -0,0 +1,4 @@
++#as:
++#source: imm-sym-err.s
++#error_output: imm-sym-err.l
++#name: MicroBlaze symbol in a shift, mbar or bit-field immediate
+diff --git a/gas/testsuite/gas/microblaze/imm-sym-err.l b/gas/testsuite/gas/microblaze/imm-sym-err.l
+new file mode 100644
+index 00000000000..ee9ef6eddfe
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/imm-sym-err.l
+@@ -0,0 +1,6 @@
++.*: Assembler messages:
++.*:4: Error: Symbol used as immediate for shift instruction
++.*:5: Error: Symbol used as immediate for mbar instruction
++.*:6: Error: Symbol used as immediate shift value for bit field instruction
++.*:7: Error: Symbol used as immediate width value for bit field instruction
++.*:8: Error: Symbol used as immediate shift value for bit field instruction
+diff --git a/gas/testsuite/gas/microblaze/imm-sym-err.s b/gas/testsuite/gas/microblaze/imm-sym-err.s
+new file mode 100644
+index 00000000000..8c6c8ad761a
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/imm-sym-err.s
+@@ -0,0 +1,8 @@
++# A symbol cannot be used as a shift, mbar or bit-field immediate.
++
++	.text
++	bslli	r3, r4, foo
++	mbar	foo
++	bsefi	r3, r4, 5, foo
++	bsefi	r3, r4, foo, 5
++	bsifi	r3, r4, 5, foo
+-- 
+2.39.5 (Apple Git-154)
+

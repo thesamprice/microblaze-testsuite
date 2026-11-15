@@ -1,0 +1,203 @@
+From a6a2db4b189f6e7e6fd8c6c5899b67ab7c7b8597 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 01:11:06 -0500
+Subject: [PATCH 6/9] ld: microblaze: size .rela.got for the GOT relocations
+ actually emitted
+
+allocate_dynrelocs reserved one dynamic relocation per GOT word of
+every global symbol, unconditionally.  relocate_section and
+finish_dynamic_symbol emit relocations only in dynamic links, and not
+for every symbol there either, so the unused slots stayed
+R_MICROBLAZE_NONE.  A static microblaze-elf link of an object using
+gvar@GOT, lvar@GOT, tvar@TLSGD and ltvar@TLSLDM gets a .rela.dyn of
+three R_MICROBLAZE_NONE entries; a shared library gets one for the GOT
+entry of a hidden undefined weak symbol, and a dynamic executable one
+for each hidden symbol's entry.
+
+Reserve relocations under the conditions that emit them, as RISC-V and
+x86 do with WILL_CALL_FINISH_DYNAMIC_SYMBOL: for a TLS GD entry, the
+two relocations relocate_section emits when it needs relocations; for
+an ordinary entry, the one finish_dynamic_symbol emits, when
+elf_link_output_extsym calls it.  A TLS LD entry in the symbol's own
+GOT slot is never used, since relocate_section uses the module's
+tlsld_got entry, and gets none.  Local symbols were already sized only
+for -shared and -pie and are unchanged.
+
+The dynamic relocations themselves are unchanged in the cases tried:
+static microblaze-elf and microblaze-linux links now have none, and a
+microblaze-linux dynamic executable and shared library keep the same
+GLOB_DAT, REL and TLSDTPMOD32/TLSDTPREL32 relocations without the
+R_MICROBLAZE_NONE ones.
+
+bfd/
+	* elf32-microblaze.c (allocate_dynrelocs): Reserve dynamic
+	relocations for global GOT entries only when they will be
+	emitted.
+
+ld/
+	* testsuite/ld-microblaze/got-static.s: New file.
+	* testsuite/ld-microblaze/got-static.d: New test.
+	* testsuite/ld-microblaze/got-shared.s: New file.
+	* testsuite/ld-microblaze/got-shared.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ bfd/elf32-microblaze.c                  | 34 ++++++++++++++++++++++++-
+ ld/testsuite/ld-microblaze/got-shared.d | 12 +++++++++
+ ld/testsuite/ld-microblaze/got-shared.s | 27 ++++++++++++++++++++
+ ld/testsuite/ld-microblaze/got-static.d |  6 +++++
+ ld/testsuite/ld-microblaze/got-static.s | 28 ++++++++++++++++++++
+ 5 files changed, 106 insertions(+), 1 deletion(-)
+ create mode 100644 ld/testsuite/ld-microblaze/got-shared.d
+ create mode 100644 ld/testsuite/ld-microblaze/got-shared.s
+ create mode 100644 ld/testsuite/ld-microblaze/got-static.d
+ create mode 100644 ld/testsuite/ld-microblaze/got-static.s
+
+diff --git a/bfd/elf32-microblaze.c b/bfd/elf32-microblaze.c
+index 9ae27a03cd5..93866e7c924 100644
+--- a/bfd/elf32-microblaze.c
++++ b/bfd/elf32-microblaze.c
+@@ -3390,10 +3390,42 @@ allocate_dynrelocs (struct elf_link_hash_entry *h, void * dat)
+ 	}
+       else
+ 	{
++	  bool dyn = htab->elf.dynamic_sections_created;
++	  bool pic = bfd_link_pic (info);
++	  unsigned int nrelocs = 0;
++
+ 	  s = htab->elf.sgot;
+ 	  h->got.offset = s->size;
+ 	  s->size += need;
+-	  htab->elf.srelgot->size += need * (sizeof (Elf32_External_Rela) / 4);
++
++	  /* Reserve a dynamic relocation only for the GOT words that will
++	     get one; static links get none.  This has to match what
++	     relocate_section and finish_dynamic_symbol emit.  A TLS LD
++	     entry here is never used: relocate_section uses tlsld_got.  */
++	  if ((eh->tls_mask & TLS_TLS) != 0)
++	    {
++	      if ((eh->tls_mask & TLS_GD) != 0)
++		{
++		  bool indx = (WILL_CALL_FINISH_DYNAMIC_SYMBOL (dyn, pic, h)
++			       && (!pic || !SYMBOL_REFERENCES_LOCAL (info, h)));
++
++		  /* The module ID and the offset.  */
++		  if ((pic || indx)
++		      && ((ELF_ST_VISIBILITY (h->other) == STV_DEFAULT
++			   && !UNDEFWEAK_NO_DYNAMIC_RELOC (info, h))
++			  || h->root.type != bfd_link_hash_undefweak))
++		    nrelocs += 2;
++		}
++	    }
++	  /* elf_link_output_extsym calls finish_dynamic_symbol under
++	     this condition, and it emits one relocation for the entry.  */
++	  else if (WILL_CALL_FINISH_DYNAMIC_SYMBOL (dyn, pic, h)
++		   && !(h->forced_local
++			&& h->root.type == bfd_link_hash_undefweak
++			&& ELF_ST_VISIBILITY (h->other) != STV_DEFAULT))
++	    nrelocs += 1;
++
++	  htab->elf.srelgot->size += nrelocs * sizeof (Elf32_External_Rela);
+ 	}
+     }
+   else
+diff --git a/ld/testsuite/ld-microblaze/got-shared.d b/ld/testsuite/ld-microblaze/got-shared.d
+new file mode 100644
+index 00000000000..40a46234719
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/got-shared.d
+@@ -0,0 +1,12 @@
++#source: got-shared.s
++#target: microblaze*-linux*
++#ld: -shared
++#readelf: -r
++#name: MicroBlaze shared library GOT relocations
++
++Relocation section '\.rela\.dyn' at offset 0x[0-9a-f]+ contains 4 entries:
++ Offset     Info    Type            Sym\.Value  Sym\. Name \+ Addend
++[0-9a-f]+  00000010 R_MICROBLAZE_REL             [0-9a-f]+
++[0-9a-f]+  [0-9a-f]+19 R_MICROBLAZE_TLSD 00000000   tvar \+ 0
++[0-9a-f]+  [0-9a-f]+1a R_MICROBLAZE_TLSD 00000000   tvar \+ 0
++[0-9a-f]+  [0-9a-f]+12 R_MICROBLAZE_GLOB [0-9a-f]+   gvar \+ 0
+diff --git a/ld/testsuite/ld-microblaze/got-shared.s b/ld/testsuite/ld-microblaze/got-shared.s
+new file mode 100644
+index 00000000000..e5819b6b1fc
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/got-shared.s
+@@ -0,0 +1,27 @@
++/* In a shared library, the GOT entry of a hidden undefined weak symbol
++   resolves to zero and gets no dynamic relocation, but
++   allocate_dynrelocs reserved one for it, which was left as an
++   R_MICROBLAZE_NONE.  */
++
++	.text
++	.globl	f
++f:
++	lwi	r3, r20, gvar@GOT
++	lwi	r3, r20, hvar@GOT
++	lwi	r3, r20, hwvar@GOT
++	addik	r5, r20, tvar@TLSGD
++	rtsd	r15, 8
++	nop
++
++	.data
++	.globl	gvar
++gvar:	.long	1
++	.globl	hvar
++	.hidden	hvar
++hvar:	.long	2
++	.weak	hwvar
++	.hidden	hwvar
++
++	.section .tdata,"awT",@progbits
++	.globl	tvar
++tvar:	.long	3
+diff --git a/ld/testsuite/ld-microblaze/got-static.d b/ld/testsuite/ld-microblaze/got-static.d
+new file mode 100644
+index 00000000000..ae5aca61259
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/got-static.d
+@@ -0,0 +1,6 @@
++#source: got-static.s
++#ld: -static
++#readelf: -r
++#name: MicroBlaze static link with GOT entries has no dynamic relocations
++
++There are no relocations in this file\.
+diff --git a/ld/testsuite/ld-microblaze/got-static.s b/ld/testsuite/ld-microblaze/got-static.s
+new file mode 100644
+index 00000000000..c9556e0ce07
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/got-static.s
+@@ -0,0 +1,28 @@
++/* GOT and TLS GOT entries in a static link need no dynamic relocations,
++   but allocate_dynrelocs reserved .rela.dyn space for the entry of
++   every global symbol, which was left as R_MICROBLAZE_NONE padding.  */
++
++	.text
++	.globl	_start
++_start:
++	lwi	r3, r20, gvar@GOT
++	lwi	r3, r20, lvar@GOT
++	addik	r5, r20, tvar@TLSGD
++	addik	r5, r20, ltvar@TLSLDM
++	lwi	r3, r20, wvar@GOT
++	lwi	r3, r20, hvar@GOT
++	bri	0
++
++	.data
++	.globl	gvar
++gvar:	.long	1
++lvar:	.long	2
++	.globl	hvar
++	.hidden	hvar
++hvar:	.long	3
++	.weak	wvar
++
++	.section .tdata,"awT",@progbits
++	.globl	tvar
++tvar:	.long	3
++ltvar:	.long	4
+-- 
+2.39.5 (Apple Git-154)
+

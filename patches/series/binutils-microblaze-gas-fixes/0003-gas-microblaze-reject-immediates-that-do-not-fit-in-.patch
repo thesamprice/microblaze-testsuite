@@ -1,0 +1,150 @@
+From ad9fbc9bb2cea87d753d0698f25d1832f9b337c9 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 01:12:51 -0500
+Subject: [PATCH 3/9] gas: microblaze: reject immediates that do not fit in 32
+ bits
+
+parse_imm range-checks a constant operand as (int) e->X_add_number,
+which on a 64-bit offsetT throws away the high bits first (since
+2677a57064a), so
+
+	addik r3, r4, 0x100000005
+	addik r3, r4, -0x100000000
+
+assembled as "addik r3, r4, 5" and "addik r3, r4, 0" with no
+diagnostic.
+
+Report an error for a value outside -0x80000000 .. 0xffffffff before
+the existing checks, which then see a value that fits in an int.
+
+gas/
+	* config/tc-microblaze.c (parse_imm): Reject a constant that does
+	not fit in 32 bits.
+	* testsuite/gas/microblaze/imm-range-err.d: New test.
+	* testsuite/gas/microblaze/imm-range-err.l: New file.
+	* testsuite/gas/microblaze/imm-range-err.s: New file.
+	* testsuite/gas/microblaze/imm-range.d: New test.
+	* testsuite/gas/microblaze/imm-range.s: New file.
+	* testsuite/gas/microblaze/errors.exp: Run them.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ gas/config/tc-microblaze.c                   |  9 +++++++++
+ gas/testsuite/gas/microblaze/errors.exp      |  2 ++
+ gas/testsuite/gas/microblaze/imm-range-err.d |  4 ++++
+ gas/testsuite/gas/microblaze/imm-range-err.l |  5 +++++
+ gas/testsuite/gas/microblaze/imm-range-err.s |  8 ++++++++
+ gas/testsuite/gas/microblaze/imm-range.d     | 17 +++++++++++++++++
+ gas/testsuite/gas/microblaze/imm-range.s     |  7 +++++++
+ 7 files changed, 52 insertions(+)
+ create mode 100644 gas/testsuite/gas/microblaze/imm-range-err.d
+ create mode 100644 gas/testsuite/gas/microblaze/imm-range-err.l
+ create mode 100644 gas/testsuite/gas/microblaze/imm-range-err.s
+ create mode 100644 gas/testsuite/gas/microblaze/imm-range.d
+ create mode 100644 gas/testsuite/gas/microblaze/imm-range.s
+
+diff --git a/gas/config/tc-microblaze.c b/gas/config/tc-microblaze.c
+index 6039cf68de7..31545517f84 100644
+--- a/gas/config/tc-microblaze.c
++++ b/gas/config/tc-microblaze.c
+@@ -748,6 +748,15 @@ parse_imm (char * s, expressionS * e, offsetT min, offsetT max)
+     as_fatal (_("operand must be a constant or a label"));
+   else if (e->X_op == O_constant)
+     {
++      /* The checks below look at the low 32 bits only.  */
++      if (e->X_add_number < -(offsetT) 0x80000000
++	  || e->X_add_number > (offsetT) 0xffffffff)
++	{
++	  as_bad (_("operand %" PRId64 " does not fit in 32 bits"),
++		  (int64_t) e->X_add_number);
++	  e->X_add_number = 0;
++	}
++
+       /* Special case: sign extend negative 32-bit values to offsetT size.  */
+       if ((e->X_add_number >> 31) == 1)
+ 	e->X_add_number |= -((addressT) (1U << 31));
+diff --git a/gas/testsuite/gas/microblaze/errors.exp b/gas/testsuite/gas/microblaze/errors.exp
+index d004b186d37..0ad8efd06db 100644
+--- a/gas/testsuite/gas/microblaze/errors.exp
++++ b/gas/testsuite/gas/microblaze/errors.exp
+@@ -2,4 +2,6 @@
+ 
+ if [istarget microblaze*-*-*] {
+     run_dump_test "imm-sym-err"
++    run_dump_test "imm-range-err"
++    run_dump_test "imm-range"
+ }
+diff --git a/gas/testsuite/gas/microblaze/imm-range-err.d b/gas/testsuite/gas/microblaze/imm-range-err.d
+new file mode 100644
+index 00000000000..89cd347b17d
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/imm-range-err.d
+@@ -0,0 +1,4 @@
++#as:
++#source: imm-range-err.s
++#error_output: imm-range-err.l
++#name: MicroBlaze immediate wider than 32 bits
+diff --git a/gas/testsuite/gas/microblaze/imm-range-err.l b/gas/testsuite/gas/microblaze/imm-range-err.l
+new file mode 100644
+index 00000000000..1cea851a597
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/imm-range-err.l
+@@ -0,0 +1,5 @@
++.*: Assembler messages:
++.*:5: Error: operand 4294967301 does not fit in 32 bits
++.*:6: Error: operand -4294967296 does not fit in 32 bits
++.*:7: Error: operand -2147483649 does not fit in 32 bits
++.*:8: Error: operand 4294967296 does not fit in 32 bits
+diff --git a/gas/testsuite/gas/microblaze/imm-range-err.s b/gas/testsuite/gas/microblaze/imm-range-err.s
+new file mode 100644
+index 00000000000..e693ae822b9
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/imm-range-err.s
+@@ -0,0 +1,8 @@
++# An immediate that does not fit in 32 bits, signed or unsigned, is an
++# error; it was silently truncated.
++
++	.text
++	addik	r3, r4, 0x100000005
++	addik	r3, r4, -0x100000000
++	addik	r3, r4, -0x80000001
++	bri	0x100000000
+diff --git a/gas/testsuite/gas/microblaze/imm-range.d b/gas/testsuite/gas/microblaze/imm-range.d
+new file mode 100644
+index 00000000000..b841248f53f
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/imm-range.d
+@@ -0,0 +1,17 @@
++#objdump: -d
++#name: MicroBlaze 32-bit immediate limits
++#source: imm-range.s
++
++.*: +file format .*
++
++
++Disassembly of section \.text:
++
++0+ <\.text>:
++ +0:	3064ffff 	addik	r3, r4, -1
++ +4:	b0008000 	imm	-32768
++ +8:	30640000 	addik	r3, r4, 0
++ +c:	b0007fff 	imm	32767
++ +10:	3064ffff 	addik	r3, r4, -1
++ +14:	b0008000 	imm	-32768
++ +18:	30640000 	addik	r3, r4, 0
+diff --git a/gas/testsuite/gas/microblaze/imm-range.s b/gas/testsuite/gas/microblaze/imm-range.s
+new file mode 100644
+index 00000000000..8b0a37b976d
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/imm-range.s
+@@ -0,0 +1,7 @@
++# The limits of a 32-bit immediate, signed and unsigned.
++
++	.text
++	addik	r3, r4, 0xffffffff
++	addik	r3, r4, -0x80000000
++	addik	r3, r4, 0x7fffffff
++	addik	r3, r4, 0x80000000
+-- 
+2.39.5 (Apple Git-154)
+

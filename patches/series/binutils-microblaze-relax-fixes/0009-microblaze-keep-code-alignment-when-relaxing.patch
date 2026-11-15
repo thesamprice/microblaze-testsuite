@@ -1,0 +1,758 @@
+From f738f888bc8839e3ff896efa0cc8abf5dfa47cf9 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 01:42:53 -0500
+Subject: [PATCH 9/9] microblaze: keep code alignment when relaxing
+
+Linker relaxation deletes IMM instructions, and everything after a
+deleted IMM in the section moves down by 4 bytes.  Nothing kept track
+of alignment padding, and the assembler emitted no relocation for it,
+so labels after ".balign 16" or ".p2align 4", and functions compiled
+with -falign-functions, lost their alignment.  In the reproducer, a
+call to another section followed by ".balign 16" puts aligned16 at
+0x100c instead of 0x1010; in a C program built with -O2
+-falign-functions=32 three of four functions came out misaligned.
+
+Mark alignment padding in code with a new relocation,
+R_MICROBLAZE_ALIGN, as RISC-V and LoongArch do with R_RISCV_ALIGN and
+R_LARCH_ALIGN.  Its offset is the start of the padding, and its addend
+holds the size of the padding and the base-2 logarithm of the
+alignment.  Unlike those targets, the assembler keeps emitting just the
+padding the alignment needs, not the worst case, so a link without
+relaxation is unchanged and needs nothing from the linker.  The
+assembler marks only alignments above 4 bytes, since relaxation deletes
+whole instructions; it marks padding skipped because of a .balign
+maximum with a size of 0, and the linker leaves that alone.
+
+When relaxation deletes D bytes before an alignment point with PAD bytes
+of padding, the target stays aligned if the padding shrinks to
+(PAD + D) mod ALIGN bytes.  When that is more than PAD, padding would
+have to be inserted.  Rather than grow sections, relaxation then keeps
+IMMs before the point, latest first, until no padding needs to grow; it
+deletes the padding it can.  Keeping every IMM before a point makes D
+zero, so this always succeeds, and since relaxation still only
+deletes, no address and no distance increases, which the range checks
+of earlier passes rely on.  The candidate IMMs of a pass are now
+collected first and the deletions chosen afterwards, in a new function,
+microblaze_elf_choose_deletions, and the relaxation table can now hold
+deletions of any multiple of 4 bytes.
+
+R_MICROBLAZE_ALIGN is 46, the next free number.  An older linker
+rejects it, so objects with code alignment from the new assembler need
+the new linker.
+
+With this change the C program above, linked with --relax and run under
+QEMU, reports all functions 32-byte aligned and computes the same
+result as with --no-relax; its .text is the same size as with the old
+linker.
+
+bfd/
+	* reloc.c (BFD_RELOC_MICROBLAZE_ALIGN): New.
+	* bfd-in2.h: Regenerate.
+	* libbfd.h: Regenerate.
+	* elf32-microblaze.c (microblaze_elf_howto_raw): Add
+	R_MICROBLAZE_ALIGN.
+	(microblaze_elf_reloc_type_lookup): Map BFD_RELOC_MICROBLAZE_ALIGN.
+	(microblaze_elf_relocate_section): Ignore R_MICROBLAZE_ALIGN.
+	(struct microblaze_align, microblaze_rel_ptr_cmp)
+	(microblaze_align_cmp, microblaze_relax_table_cmp)
+	(microblaze_elf_choose_deletions): New.
+	(microblaze_elf_relax_section): Collect candidate IMMs and
+	alignment points, and choose the deletions with
+	microblaze_elf_choose_deletions.
+
+gas/
+	* config/tc-microblaze.h (TC_FIX_TYPE, TC_INIT_FIX_DATA)
+	(md_do_align): Define.
+	* config/tc-microblaze.c (microblaze_frag_align_code): New.
+	(md_apply_fix): Complete BFD_RELOC_MICROBLAZE_ALIGN.
+	(tc_gen_reloc): Pass it through.
+	* testsuite/gas/microblaze/reloc_align.s: New file.
+	* testsuite/gas/microblaze/reloc_align.d: New test.
+	* testsuite/gas/microblaze/reloc_align.exp: New file.
+
+include/
+	* elf/microblaze.h (R_MICROBLAZE_ALIGN): New.
+
+ld/
+	* testsuite/ld-microblaze/relax-align.s: New file.
+	* testsuite/ld-microblaze/relax-align.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ bfd/bfd-in2.h                                |   4 +
+ bfd/elf32-microblaze.c                       | 277 +++++++++++++++++--
+ bfd/libbfd.h                                 |   1 +
+ bfd/reloc.c                                  |   5 +
+ gas/config/tc-microblaze.c                   |  49 ++++
+ gas/config/tc-microblaze.h                   |  13 +
+ gas/testsuite/gas/microblaze/reloc_align.d   |  12 +
+ gas/testsuite/gas/microblaze/reloc_align.exp |   5 +
+ gas/testsuite/gas/microblaze/reloc_align.s   |  20 ++
+ include/elf/microblaze.h                     |   6 +
+ ld/testsuite/ld-microblaze/relax-align.d     |  38 +++
+ ld/testsuite/ld-microblaze/relax-align.s     |  40 +++
+ 12 files changed, 444 insertions(+), 26 deletions(-)
+ create mode 100644 gas/testsuite/gas/microblaze/reloc_align.d
+ create mode 100644 gas/testsuite/gas/microblaze/reloc_align.exp
+ create mode 100644 gas/testsuite/gas/microblaze/reloc_align.s
+ create mode 100644 ld/testsuite/ld-microblaze/relax-align.d
+ create mode 100644 ld/testsuite/ld-microblaze/relax-align.s
+
+diff --git a/bfd/bfd-in2.h b/bfd/bfd-in2.h
+index 363b1986b3e..cefbe17dab8 100644
+--- a/bfd/bfd-in2.h
++++ b/bfd/bfd-in2.h
+@@ -6391,6 +6391,10 @@ enum bfd_reloc_code_real
+      DW_CFA_advance_loc, which becomes a pair of the relocations above.  */
+   BFD_RELOC_MICROBLAZE_CFA,
+ 
++  /* MicroBlaze relocation marking alignment padding in a code section, so
++     that linker relaxation can keep the alignment.  */
++  BFD_RELOC_MICROBLAZE_ALIGN,
++
+   /* KVX pseudo relocation code to mark the start of the KVX relocation
+      enumerators.  N.B. the order of the enumerators is important as
+      several tables in the KVX bfd backend are indexed by these
+diff --git a/bfd/elf32-microblaze.c b/bfd/elf32-microblaze.c
+index 2b05f5ebe5f..2d332b4a3b9 100644
+--- a/bfd/elf32-microblaze.c
++++ b/bfd/elf32-microblaze.c
+@@ -842,6 +842,22 @@ static reloc_howto_type microblaze_elf_howto_raw[] =
+ 	 0,			/* dst_mask */
+ 	 false),		/* pcrel_offset */
+ 
++   /* Alignment padding in a code section, for relaxation.  It changes
++      nothing in place.  */
++   HOWTO (R_MICROBLAZE_ALIGN,
++	 0,			/* rightshift */
++	 0,			/* size */
++	 0,			/* bitsize */
++	 false,			/* pc_relative */
++	 0,			/* bitpos */
++	 complain_overflow_dont, /* complain_on_overflow */
++	 microblaze_elf_ignore_reloc, /* special_function */
++	 "R_MICROBLAZE_ALIGN",	/* name */
++	 false,			/* partial_inplace */
++	 0,			/* src_mask */
++	 0,			/* dst_mask */
++	 false),		/* pcrel_offset */
++
+ };
+ 
+ #ifndef NUM_ELEM
+@@ -996,6 +1012,9 @@ microblaze_elf_reloc_type_lookup (bfd * abfd ATTRIBUTE_UNUSED,
+     case BFD_RELOC_MICROBLAZE_SUB_ULEB128:
+       microblaze_reloc = R_MICROBLAZE_SUB_ULEB128;
+       break;
++    case BFD_RELOC_MICROBLAZE_ALIGN:
++      microblaze_reloc = R_MICROBLAZE_ALIGN;
++      break;
+     default:
+       return (reloc_howto_type *) NULL;
+     }
+@@ -1669,6 +1688,7 @@ microblaze_elf_relocate_section (struct bfd_link_info *info,
+ 	      break;
+ 
+ 	    case (int) R_MICROBLAZE_32_SYM_OP_SYM:
++	    case (int) R_MICROBLAZE_ALIGN:
+ 	      break; /* Do nothing.  */
+ 
+ 	    case (int) R_MICROBLAZE_ADD8:
+@@ -2332,6 +2352,199 @@ microblaze_get_cached_contents (bfd *abfd, asection *o, bfd_byte **contents)
+   return true;
+ }
+ 
++/* An R_MICROBLAZE_ALIGN: PAD bytes of padding at REL->r_offset, up to a
++   2**POWER boundary.  NEWPAD is the padding after this pass.  */
++
++struct microblaze_align
++{
++  Elf_Internal_Rela *rel;
++  bfd_vma pad;
++  bfd_vma newpad;
++  unsigned int power;
++};
++
++static int
++microblaze_rel_ptr_cmp (const void *a, const void *b)
++{
++  const Elf_Internal_Rela *ra = *(const Elf_Internal_Rela *const *) a;
++  const Elf_Internal_Rela *rb = *(const Elf_Internal_Rela *const *) b;
++
++  return ra->r_offset < rb->r_offset ? -1 : ra->r_offset > rb->r_offset;
++}
++
++static int
++microblaze_align_cmp (const void *a, const void *b)
++{
++  const struct microblaze_align *aa = a;
++  const struct microblaze_align *ab = b;
++
++  return microblaze_rel_ptr_cmp (&aa->rel, &ab->rel);
++}
++
++static int
++microblaze_relax_table_cmp (const void *a, const void *b)
++{
++  const struct relax_table *ta = a;
++  const struct relax_table *tb = b;
++
++  return ta->addr < tb->addr ? -1 : ta->addr > tb->addr;
++}
++
++/* Decide what this pass of relaxation deletes from a section: the IMMs
++   of the NCAND relocations in CANDS, whose values fit in 16 bits, and
++   padding at the NALIGN alignment points in ALIGNS.  Fill in SDATA's
++   relaxation table, rewrite the type of each relocation whose IMM goes,
++   and update the padding recorded in each R_MICROBLAZE_ALIGN.
++
++   Deleting D bytes before an alignment point with PAD bytes of padding
++   keeps its target aligned if the padding shrinks to (PAD + D) mod
++   2**POWER bytes.  That is no more than PAD only for some D; when it is
++   more, padding would have to be inserted.  Instead, keep IMMs before
++   the point, latest first, until it is not.  Keeping all of them makes
++   D zero, so this always succeeds.  Only ever deleting means that no
++   address increases, so no distance does either, and an IMM deleted in
++   an earlier pass is never needed again.  */
++
++static bool
++microblaze_elf_choose_deletions (struct _microblaze_elf_section_data *sdata,
++				 Elf_Internal_Rela **cands, size_t ncand,
++				 struct microblaze_align *aligns, size_t nalign)
++{
++  bool *keep = NULL;
++  size_t *start_cand = NULL;
++  bfd_vma *start_del = NULL;
++  size_t i, j, c;
++  bfd_vma del;
++
++  if (ncand == 0)
++    return true;
++
++  qsort (cands, ncand, sizeof (*cands), microblaze_rel_ptr_cmp);
++  if (nalign != 0)
++    {
++      qsort (aligns, nalign, sizeof (*aligns), microblaze_align_cmp);
++
++      keep = bfd_malloc (ncand * sizeof (*keep));
++      start_cand = bfd_malloc (nalign * sizeof (*start_cand));
++      start_del = bfd_malloc (nalign * sizeof (*start_del));
++      if (keep == NULL || start_cand == NULL || start_del == NULL)
++	{
++	  free (keep);
++	  free (start_cand);
++	  free (start_del);
++	  return false;
++	}
++      for (c = 0; c < ncand; c++)
++	keep[c] = true;
++
++      /* Walk the alignment points in order, counting in DEL the bytes
++	 deleted before the current one.  START_CAND and START_DEL hold
++	 the state on reaching each point, so that the walk can resume
++	 at the first point after an IMM it decides to keep.  */
++      j = 0;
++      c = 0;
++      del = 0;
++      while (j < nalign)
++	{
++	  bfd_vma mask = ((bfd_vma) 1 << aligns[j].power) - 1;
++	  bfd_vma newpad;
++
++	  start_cand[j] = c;
++	  start_del[j] = del;
++	  for (; c < ncand && cands[c]->r_offset < aligns[j].rel->r_offset; c++)
++	    if (keep[c])
++	      del += INST_WORD_SIZE;
++
++	  newpad = (aligns[j].pad + del) & mask;
++	  if (newpad <= aligns[j].pad)
++	    {
++	      aligns[j].newpad = newpad;
++	      del += aligns[j].pad - newpad;
++	      j++;
++	      continue;
++	    }
++
++	  /* Keep the last IMM before this point that was to go, and go
++	     back to the first point after it.  */
++	  while (c > 0 && !keep[c - 1])
++	    c--;
++	  if (c == 0)
++	    {
++	      /* Cannot happen: with nothing deleted before it, no point
++		 needs padding inserted.  Delete nothing.  */
++	      BFD_ASSERT (false);
++	      for (c = 0; c < ncand; c++)
++		keep[c] = false;
++	      for (j = 0; j < nalign; j++)
++		aligns[j].newpad = aligns[j].pad;
++	      break;
++	    }
++	  keep[c - 1] = false;
++	  while (j > 0
++		 && aligns[j - 1].rel->r_offset > cands[c - 1]->r_offset)
++	    j--;
++	  c = start_cand[j];
++	  del = start_del[j];
++	}
++    }
++
++  /* Build the table.  */
++  sdata->relax_count = 0;
++  for (c = 0; c < ncand; c++)
++    {
++      Elf_Internal_Rela *irel = cands[c];
++
++      if (keep != NULL && !keep[c])
++	continue;
++
++      sdata->relax[sdata->relax_count].addr = irel->r_offset;
++      sdata->relax[sdata->relax_count].size = INST_WORD_SIZE;
++      sdata->relax_count++;
++
++      /* Rewrite relocation type.  */
++      switch ((enum elf_microblaze_reloc_type) ELF32_R_TYPE (irel->r_info))
++	{
++	case R_MICROBLAZE_64_PCREL:
++	  irel->r_info = ELF32_R_INFO (ELF32_R_SYM (irel->r_info),
++				       (int) R_MICROBLAZE_32_PCREL_LO);
++	  break;
++	case R_MICROBLAZE_64:
++	  irel->r_info = ELF32_R_INFO (ELF32_R_SYM (irel->r_info),
++				       (int) R_MICROBLAZE_32_LO);
++	  break;
++	case R_MICROBLAZE_TEXTREL_64:
++	  irel->r_info = ELF32_R_INFO (ELF32_R_SYM (irel->r_info),
++				       (int) R_MICROBLAZE_TEXTREL_32_LO);
++	  break;
++	default:
++	  /* Cannot happen.  */
++	  BFD_ASSERT (false);
++	}
++    }
++
++  if (sdata->relax_count != 0)
++    for (i = 0; i < nalign; i++)
++      {
++	struct microblaze_align *a = &aligns[i];
++
++	if (a->newpad < a->pad)
++	  {
++	    sdata->relax[sdata->relax_count].addr = a->rel->r_offset + a->newpad;
++	    sdata->relax[sdata->relax_count].size = a->pad - a->newpad;
++	    sdata->relax_count++;
++	    a->rel->r_addend = (a->newpad << 8) | a->power;
++	  }
++      }
++
++  qsort (sdata->relax, sdata->relax_count, sizeof (*sdata->relax),
++	 microblaze_relax_table_cmp);
++
++  free (keep);
++  free (start_cand);
++  free (start_del);
++  return true;
++}
++
+ static bool
+ microblaze_elf_relax_section (bfd *abfd,
+ 			      asection *sec,
+@@ -2352,6 +2565,9 @@ microblaze_elf_relax_section (bfd *abfd,
+   size_t offset;
+   bfd_vma src, dest;
+   struct _microblaze_elf_section_data *sdata;
++  Elf_Internal_Rela **cands = NULL;
++  struct microblaze_align *aligns = NULL;
++  size_t ncand = 0, nalign = 0;
+ 
+   /* We only do this once per section.  We may be able to delete some code
+      by running multiple passes, but it is not worth it.  */
+@@ -2395,12 +2611,38 @@ microblaze_elf_relax_section (bfd *abfd,
+   if (sdata->relax == NULL)
+     goto error_return;
+ 
++  cands = bfd_malloc (sec->reloc_count * sizeof (*cands));
++  aligns = bfd_malloc (sec->reloc_count * sizeof (*aligns));
++  if (cands == NULL || aligns == NULL)
++    goto error_return;
++
+   irelend = internal_relocs + sec->reloc_count;
+   for (irel = internal_relocs; irel < irelend; irel++)
+     {
+       bfd_vma symval;
+       asection *sym_sec;
+ 
++      if (ELF32_R_TYPE (irel->r_info) == (int) R_MICROBLAZE_ALIGN)
++	{
++	  unsigned int power = irel->r_addend & 0xff;
++	  bfd_vma pad = (bfd_vma) irel->r_addend >> 8;
++
++	  /* Deleting whole instructions keeps 4-byte alignment.  The
++	     assembler skips padding beyond a .balign maximum, and then
++	     the target is not aligned; leave it so.  */
++	  if (power > 2
++	      && power < 31
++	      && pad < ((bfd_vma) 1 << power)
++	      && ((irel->r_offset + pad) & (((bfd_vma) 1 << power) - 1)) == 0)
++	    {
++	      aligns[nalign].rel = irel;
++	      aligns[nalign].pad = pad;
++	      aligns[nalign].power = power;
++	      nalign++;
++	    }
++	  continue;
++	}
++
+       if ((ELF32_R_TYPE (irel->r_info) != (int) R_MICROBLAZE_64_PCREL)
+ 	  && (ELF32_R_TYPE (irel->r_info) != (int) R_MICROBLAZE_64)
+ 	  && (ELF32_R_TYPE (irel->r_info) != (int) R_MICROBLAZE_TEXTREL_64))
+@@ -2502,34 +2744,13 @@ microblaze_elf_relax_section (bfd *abfd,
+ 
+       if ((symval & 0xffff8000) == 0
+ 	  || (symval & 0xffff8000) == 0xffff8000)
+-	{
+-	  /* We can delete this instruction.  */
+-	  sdata->relax[sdata->relax_count].addr = irel->r_offset;
+-	  sdata->relax[sdata->relax_count].size = INST_WORD_SIZE;
+-	  sdata->relax_count++;
+-
+-	  /* Rewrite relocation type.  */
+-	  switch ((enum elf_microblaze_reloc_type) ELF32_R_TYPE (irel->r_info))
+-	    {
+-	    case R_MICROBLAZE_64_PCREL:
+-	      irel->r_info = ELF32_R_INFO (ELF32_R_SYM (irel->r_info),
+-					   (int) R_MICROBLAZE_32_PCREL_LO);
+-	      break;
+-	    case R_MICROBLAZE_64:
+-	      irel->r_info = ELF32_R_INFO (ELF32_R_SYM (irel->r_info),
+-					   (int) R_MICROBLAZE_32_LO);
+-	      break;
+-	    case R_MICROBLAZE_TEXTREL_64:
+-	      irel->r_info = ELF32_R_INFO (ELF32_R_SYM (irel->r_info),
+-					   (int) R_MICROBLAZE_TEXTREL_32_LO);
+-	      break;
+-	    default:
+-	      /* Cannot happen.  */
+-	      BFD_ASSERT (false);
+-	    }
+-	}
++	/* We can delete this instruction.  */
++	cands[ncand++] = irel;
+     } /* Loop through all relocations.  */
+ 
++  if (!microblaze_elf_choose_deletions (sdata, cands, ncand, aligns, nalign))
++    goto error_return;
++
+   /* Loop through the relocs again, and see if anything needs to change.  */
+   if (sdata->relax_count > 0)
+     {
+@@ -2820,6 +3041,8 @@ microblaze_elf_relax_section (bfd *abfd,
+   *again = sdata->relax_count != 0;
+   free (sdata->relax);
+   sdata->relax = NULL;
++  free (cands);
++  free (aligns);
+   return true;
+ 
+  error_return:
+@@ -2832,6 +3055,8 @@ microblaze_elf_relax_section (bfd *abfd,
+   free (sdata->relax);
+   sdata->relax = NULL;
+   sdata->relax_count = 0;
++  free (cands);
++  free (aligns);
+   return false;
+ }
+ 
+diff --git a/bfd/libbfd.h b/bfd/libbfd.h
+index d71ee16d466..45f3c5286e7 100644
+--- a/bfd/libbfd.h
++++ b/bfd/libbfd.h
+@@ -2864,6 +2864,7 @@ static const char *const bfd_reloc_code_real_names[] = { "@@uninitialized@@",
+   "BFD_RELOC_MICROBLAZE_SET_ULEB128",
+   "BFD_RELOC_MICROBLAZE_SUB_ULEB128",
+   "BFD_RELOC_MICROBLAZE_CFA",
++  "BFD_RELOC_MICROBLAZE_ALIGN",
+   "BFD_RELOC_KVX_RELOC_START",
+   "BFD_RELOC_KVX_NONE",
+   "BFD_RELOC_KVX_16",
+diff --git a/bfd/reloc.c b/bfd/reloc.c
+index 46b935c0e44..a3dd93dee75 100644
+--- a/bfd/reloc.c
++++ b/bfd/reloc.c
+@@ -6329,6 +6329,11 @@ ENUM
+ ENUMDOC
+   Used internally by the MicroBlaze assembler for the delta of a
+   DW_CFA_advance_loc, which becomes a pair of the relocations above.
++ENUM
++  BFD_RELOC_MICROBLAZE_ALIGN
++ENUMDOC
++  MicroBlaze relocation marking alignment padding in a code section, so
++  that linker relaxation can keep the alignment.
+ ENUM
+   BFD_RELOC_KVX_RELOC_START
+ ENUMDOC
+diff --git a/gas/config/tc-microblaze.c b/gas/config/tc-microblaze.c
+index 4825c7b8a13..b4cd0d8e9ca 100644
+--- a/gas/config/tc-microblaze.c
++++ b/gas/config/tc-microblaze.c
+@@ -2204,6 +2204,40 @@ microblaze_pre_output_hook (void)
+   subseg_set (seg, subseg);
+ }
+ 
++/* Called by do_align.  If padding to a 2**N boundary in a code section
++   is needed, make it here, and mark it with an R_MICROBLAZE_ALIGN at its
++   start, which md_apply_fix completes with the size of the padding.
++   Linker relaxation deletes whole instructions, so smaller alignments
++   need no mark.  Return whether the padding was made.  */
++
++bool
++microblaze_frag_align_code (unsigned int n, char *fill, unsigned int len,
++			    unsigned int max)
++{
++  fixS *fixP;
++
++  if (n <= 2
++      || need_pass_2
++      || now_seg == absolute_section
++      || !subseg_text_p (now_seg))
++    return false;
++
++  fixP = fix_new (frag_now, frag_now_fix (), 0, NULL, n, false,
++		  BFD_RELOC_MICROBLAZE_ALIGN);
++  fixP->fx_no_overflow = 1;
++
++  /* As do_align does.  */
++  if (fill == NULL)
++    frag_align_code (n, max);
++  else if (len <= 1)
++    frag_align (n, *fill, max);
++  else
++    frag_align_pattern (n, fill, len, max);
++
++  fixP->tc_fix_data = frag_now;
++  return true;
++}
++
+ void
+ md_apply_fix (fixS *   fixP,
+ 	      valueT * valp,
+@@ -2218,6 +2252,20 @@ md_apply_fix (fixS *   fixP,
+   struct op_code_struct * opcode1;
+   unsigned long inst1;
+ 
++  if (fixP->fx_r_type == BFD_RELOC_MICROBLAZE_ALIGN)
++    {
++      /* Frags have their final addresses now.  The addend holds the
++	 base-2 logarithm of the alignment, which microblaze_frag_align_code
++	 put in fx_offset, and the size of the padding.  */
++      valueT pad = (fixP->tc_fix_data->fr_address
++		    - (fixP->fx_frag->fr_address + fixP->fx_where));
++
++      fixP->fx_offset = (pad << 8) | (fixP->fx_offset & 0xff);
++      fixP->fx_addsy = section_symbol (absolute_section);
++      fixP->fx_done = 0;
++      return;
++    }
++
+   symname = fixP->fx_addsy ? S_GET_NAME (fixP->fx_addsy) : _("<unknown>");
+ 
+   /* fixP->fx_offset is supposed to be set up correctly for all
+@@ -2711,6 +2759,7 @@ tc_gen_reloc (asection * section ATTRIBUTE_UNUSED, fixS * fixp)
+     case BFD_RELOC_MICROBLAZE_SET6:
+     case BFD_RELOC_MICROBLAZE_SET_ULEB128:
+     case BFD_RELOC_MICROBLAZE_SUB_ULEB128:
++    case BFD_RELOC_MICROBLAZE_ALIGN:
+       code = fixp->fx_r_type;
+       break;
+ 
+diff --git a/gas/config/tc-microblaze.h b/gas/config/tc-microblaze.h
+index 4dd21724d23..a9502151e1f 100644
+--- a/gas/config/tc-microblaze.h
++++ b/gas/config/tc-microblaze.h
+@@ -81,6 +81,19 @@ extern bfd_reloc_code_real_type parse_cons_expression_microblaze
+ #define TC_VALIDATE_FIX_SUB(FIX, SEG) \
+   (md_register_arithmetic || (SEG) != reg_section)
+ 
++/* For an R_MICROBLAZE_ALIGN, the frag that starts at the end of the
++   padding.  */
++#define TC_FIX_TYPE struct frag *
++#define TC_INIT_FIX_DATA(FIX) ((FIX)->tc_fix_data = NULL)
++
++/* Mark alignment padding in code with an R_MICROBLAZE_ALIGN, so that
++   linker relaxation can keep the alignment.  */
++#define md_do_align(N, FILL, LEN, MAX, LABEL)			\
++  if (microblaze_frag_align_code (N, FILL, LEN, MAX))		\
++    goto LABEL;
++extern bool microblaze_frag_align_code (unsigned int, char *, unsigned int,
++					unsigned int);
++
+ #define tc_fix_adjustable(X)  tc_microblaze_fix_adjustable(X)
+ extern int tc_microblaze_fix_adjustable (struct fix *);
+ 
+diff --git a/gas/testsuite/gas/microblaze/reloc_align.d b/gas/testsuite/gas/microblaze/reloc_align.d
+new file mode 100644
+index 00000000000..ac46b834e8e
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/reloc_align.d
+@@ -0,0 +1,12 @@
++#objdump: -r
++#name: MicroBlaze alignment padding in code
++#source: reloc_align.s
++
++.*: +file format .*
++
++RELOCATION RECORDS FOR \[\.text\]:
++OFFSET +TYPE +VALUE
++0+0004 R_MICROBLAZE_ALIGN +\*ABS\*\+0x0+0c04
++0+0018 R_MICROBLAZE_ALIGN +\*ABS\*\+0x0+0003
++0+0018 R_MICROBLAZE_ALIGN +\*ABS\*\+0x0+0805
++0+0021 R_MICROBLAZE_ALIGN +\*ABS\*\+0x0+0004
+diff --git a/gas/testsuite/gas/microblaze/reloc_align.exp b/gas/testsuite/gas/microblaze/reloc_align.exp
+new file mode 100644
+index 00000000000..984213d4d1a
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/reloc_align.exp
+@@ -0,0 +1,5 @@
++# Alignment padding in code on MicroBlaze.
++
++if [istarget microblaze*-*-*] {
++    run_dump_test "reloc_align"
++}
+diff --git a/gas/testsuite/gas/microblaze/reloc_align.s b/gas/testsuite/gas/microblaze/reloc_align.s
+new file mode 100644
+index 00000000000..3eff5d01f20
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/reloc_align.s
+@@ -0,0 +1,20 @@
++# Alignment padding in code to more than 4 bytes is marked with
++# R_MICROBLAZE_ALIGN, whose addend holds the padding size in bits 8 and
++# up and the base-2 logarithm of the alignment in bits 0-7.  The last
++# .balign in .text needs more padding than its maximum and is skipped,
++# with a padding size of 0.
++
++	.text
++	nop
++	.balign	16
++	nop
++	.p2align 2
++	nop
++	.p2align 3
++	.balign	32, 0
++	.byte	1
++	.balign	16, , 4
++	nop
++	.data
++	.byte	1
++	.balign	16
+diff --git a/include/elf/microblaze.h b/include/elf/microblaze.h
+index b72d22555c1..b0ec9c5a3f0 100644
+--- a/include/elf/microblaze.h
++++ b/include/elf/microblaze.h
+@@ -77,6 +77,12 @@ START_RELOC_NUMBERS (elf_microblaze_reloc_type)
+   RELOC_NUMBER (R_MICROBLAZE_SET6, 43)
+   RELOC_NUMBER (R_MICROBLAZE_SET_ULEB128, 44)
+   RELOC_NUMBER (R_MICROBLAZE_SUB_ULEB128, 45)
++  /* Marks alignment padding in a code section, so that linker
++     relaxation can keep the alignment when it deletes code before it.
++     The offset is the start of the padding; bits 0-7 of the addend are
++     the base-2 logarithm of the alignment, and the rest the number of
++     padding bytes.  */
++  RELOC_NUMBER (R_MICROBLAZE_ALIGN, 46)
+ END_RELOC_NUMBERS (R_MICROBLAZE_max)
+ 
+ /* Global base address names.  */
+diff --git a/ld/testsuite/ld-microblaze/relax-align.d b/ld/testsuite/ld-microblaze/relax-align.d
+new file mode 100644
+index 00000000000..13d22e30743
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-align.d
+@@ -0,0 +1,38 @@
++#source: relax-align.s
++#ld: -relax -T $srcdir/$subdir/relax-diff.ld
++#objdump: -d
++#name: MicroBlaze relaxation keeps alignment inside a section
++
++.*: +file format .*
++
++Disassembly of section \.text:
++
++90000000 <_start>:
++90000000:	b0000000 	imm	0
++90000004:	b9f40044 	brlid	r15, 68
++90000008:	80000000 	or	r0, r0, r0
++9000000c:	00000000 	add	r0, r0, r0
++
++90000010 <aligned16>:
++90000010:	b9f40038 	brlid	r15, 56
++90000014:	80000000 	or	r0, r0, r0
++90000018:	b9f40030 	brlid	r15, 48
++9000001c:	80000000 	or	r0, r0, r0
++
++90000020 <b16>:
++90000020:	80000000 	or	r0, r0, r0
++90000024:	b9f40024 	brlid	r15, 36
++90000028:	80000000 	or	r0, r0, r0
++9000002c:	b9f4001c 	brlid	r15, 28
++90000030:	80000000 	or	r0, r0, r0
++90000034:	b9f40014 	brlid	r15, 20
++90000038:	80000000 	or	r0, r0, r0
++9000003c:	00000000 	add	r0, r0, r0
++
++90000040 <c16>:
++90000040:	80000000 	or	r0, r0, r0
++90000044:	00000030 	.long 0x0030
++
++90000048 <far>:
++90000048:	b60f0008 	rtsd	r15, 8
++9000004c:	80000000 	or	r0, r0, r0
+diff --git a/ld/testsuite/ld-microblaze/relax-align.s b/ld/testsuite/ld-microblaze/relax-align.s
+new file mode 100644
+index 00000000000..70d5ca77711
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-align.s
+@@ -0,0 +1,40 @@
++/* Alignment inside a relaxed section.  Relaxation deleted IMMs without
++   regard to it, so everything after a deleted IMM moved down by 4 and
++   lost its alignment: aligned16 ended up at 0x9000000c.
++
++   The assembler now marks the padding with R_MICROBLAZE_ALIGN.  An IMM
++   deleted before it has to be made up for by shrinking the padding; if
++   the padding is too small for that, the IMM stays.  */
++
++	.section .text.aaa,"ax",@progbits
++	.globl	_start
++_start:
++	/* 4 bytes of padding follow; deleting the IMM would need 8.  */
++	brlid	r15, far
++	nop
++	.balign	16
++aligned16:
++	/* Two IMMs go, and the 8 bytes of padding with them.  */
++	brlid	r15, far
++	nop
++	brlid	r15, far
++	nop
++	.balign	16
++b16:
++	nop
++	/* Three IMMs go, and 4 of the 8 bytes of padding.  */
++	brlid	r15, far
++	nop
++	brlid	r15, far
++	nop
++	brlid	r15, far
++	nop
++	.balign	16
++c16:
++	nop
++	.4byte	c16 - aligned16
++
++	.section .text.zz,"ax",@progbits
++far:
++	rtsd	r15, 8
++	nop
+-- 
+2.39.5 (Apple Git-154)
+

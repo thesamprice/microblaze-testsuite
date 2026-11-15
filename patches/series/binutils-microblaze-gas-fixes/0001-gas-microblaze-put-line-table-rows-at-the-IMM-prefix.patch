@@ -1,0 +1,146 @@
+From f69c1c9f147d752c797c3b4d4feafd6188fe0d7a Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 01:07:44 -0500
+Subject: [PATCH 1/9] gas: microblaze: put line table rows at the IMM prefix
+
+md_assemble called dwarf2_emit_insn (4) after emitting the whole
+instruction, so the row got the address of its last word.  For an
+instruction with an IMM prefix, whether a constant one or one in a
+relaxable frag, that is the second word: a breakpoint on the line goes
+between the imm and the instruction it extends, and the IMM is
+credited to the previous line.  With -g or .loc in hand-written
+assembly,
+
+	.loc 1 10 0
+	addik r3, r0, 0x12345678
+	.loc 1 11 0
+	lwi r4, r0, var
+	.loc 1 12 0
+	brlid r15, ext
+
+got rows at 0x4, 0xc and 0x14 instead of 0x0, 0x8 and 0x10.  GCC's
+own line tables, written with .loc ... view, are not affected.
+
+Call dwarf2_emit_insn (0) once the opcode is known, before anything is
+emitted, as i386, cr16 and loongarch do (see also 9fcc94b6115, which
+fixed the same problem for targets using frag_var).  When relaxation
+deletes the IMM, ld moves the row's section-relative address to the
+instruction that takes its place; the ld relax-line test still passes.
+
+gas/
+	* config/tc-microblaze.c (md_assemble): Call dwarf2_emit_insn
+	before emitting the instruction.
+	* testsuite/gas/microblaze/dwarf2-imm.d: New test.
+	* testsuite/gas/microblaze/dwarf2-imm.s: New file.
+	* testsuite/gas/microblaze/dwarf2-fixed-advance.exp: Run it.
+	* testsuite/gas/microblaze/dwarf2-fixed-advance.d: Expect the row
+	for line 2 at the IMM.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ gas/config/tc-microblaze.c                         | 10 ++++++----
+ .../gas/microblaze/dwarf2-fixed-advance.d          |  4 ++--
+ .../gas/microblaze/dwarf2-fixed-advance.exp        |  1 +
+ gas/testsuite/gas/microblaze/dwarf2-imm.d          | 14 ++++++++++++++
+ gas/testsuite/gas/microblaze/dwarf2-imm.s          | 14 ++++++++++++++
+ 5 files changed, 37 insertions(+), 6 deletions(-)
+ create mode 100644 gas/testsuite/gas/microblaze/dwarf2-imm.d
+ create mode 100644 gas/testsuite/gas/microblaze/dwarf2-imm.s
+
+diff --git a/gas/config/tc-microblaze.c b/gas/config/tc-microblaze.c
+index e8682a407ee..2721428ab39 100644
+--- a/gas/config/tc-microblaze.c
++++ b/gas/config/tc-microblaze.c
+@@ -948,6 +948,12 @@ md_assemble (char * str)
+       return;
+     }
+ 
++#ifdef OBJ_ELF
++  /* Give the line table row the address of the first word, which may
++     be an IMM prefix, before any of the instruction is emitted.  */
++  dwarf2_emit_insn (0);
++#endif
++
+   inst = opcode->bit_sequence;
+   isize = 4;
+ 
+@@ -1817,10 +1823,6 @@ md_assemble (char * str)
+     as_warn (_("ignoring operands: %s "), op_end);
+ 
+   md_number_to_chars (output, inst, INST_WORD_SIZE);
+-
+-#ifdef OBJ_ELF
+-  dwarf2_emit_insn (4);
+-#endif
+ }
+ 
+ symbolS *
+diff --git a/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.d b/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.d
+index 5cd6f45facf..ac03ed50504 100644
+--- a/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.d
++++ b/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.d
+@@ -11,9 +11,9 @@
+ RELOCATION RECORDS FOR \[\.debug_line\]:
+ OFFSET +TYPE +VALUE
+ [0-9a-f]+ R_MICROBLAZE_32 +\.text
+-[0-9a-f]+ R_MICROBLAZE_ADD16 +\.text\+0x0+8
++[0-9a-f]+ R_MICROBLAZE_ADD16 +\.text\+0x0+4
+ [0-9a-f]+ R_MICROBLAZE_SUB16 +\.text$
+ [0-9a-f]+ R_MICROBLAZE_ADD16 +\.text\+0x0+10
+-[0-9a-f]+ R_MICROBLAZE_SUB16 +\.text\+0x0+8
++[0-9a-f]+ R_MICROBLAZE_SUB16 +\.text\+0x0+4
+ [0-9a-f]+ R_MICROBLAZE_ADD16 +\.text\+0x0+18
+ [0-9a-f]+ R_MICROBLAZE_SUB16 +\.text\+0x0+10
+diff --git a/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.exp b/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.exp
+index 16bd140d9f3..5b8388eb49f 100644
+--- a/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.exp
++++ b/gas/testsuite/gas/microblaze/dwarf2-fixed-advance.exp
+@@ -2,4 +2,5 @@
+ 
+ if [istarget microblaze*-*-*] {
+     run_dump_test "dwarf2-fixed-advance"
++    run_dump_test "dwarf2-imm"
+ }
+diff --git a/gas/testsuite/gas/microblaze/dwarf2-imm.d b/gas/testsuite/gas/microblaze/dwarf2-imm.d
+new file mode 100644
+index 00000000000..75423df48bb
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/dwarf2-imm.d
+@@ -0,0 +1,14 @@
++#readelf: -wL
++#name: MicroBlaze line table rows at the IMM prefix
++#source: dwarf2-imm.s
++
++# The rows were at 0x4, 0xc and 0x14, the second word of each pair.
++
++Contents of the \.debug_line section:
++
++CU: x\.c:
++File name +Line number +Starting address +View +Stmt
++x\.c +10 +0 +x
++x\.c +11 +0x8 +1 +x
++x\.c +12 +0x10 +2 +x
++x\.c +- +0x1c
+diff --git a/gas/testsuite/gas/microblaze/dwarf2-imm.s b/gas/testsuite/gas/microblaze/dwarf2-imm.s
+new file mode 100644
+index 00000000000..b86a787a009
+--- /dev/null
++++ b/gas/testsuite/gas/microblaze/dwarf2-imm.s
+@@ -0,0 +1,14 @@
++# Each line table row is at the first word of its instruction, which is
++# an IMM prefix for a large constant, for a symbol that may be relaxed
++# and for a call.
++
++	.text
++	.file	1 "x.c"
++f:
++	.loc	1 10 0
++	addik	r3, r0, 0x12345678
++	.loc	1 11 0
++	lwi	r4, r0, var
++	.loc	1 12 0
++	brlid	r15, ext
++	nop
+-- 
+2.39.5 (Apple Git-154)
+

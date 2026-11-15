@@ -1,4 +1,4 @@
-From 423f5843bf0db281c5b27b5c4063816e7e37e570 Mon Sep 17 00:00:00 2001
+From 2d6b763cea026c31173fc516e9b2c0d7ff788297 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Fri, 13 Nov 2026 00:47:01 -0500
 Subject: [PATCH] microblaze: include elfos.h [PR target/101766]
@@ -30,6 +30,10 @@ for the 1678 gcc.c-torture/execute tests that compile as they are, at
 -O2, both byte orders, for microblaze-elf (also with -fPIC) and
 microblaze-rtems: only the two tests with such initializers,
 20010924-1.c and pr33382.c, differ.
+
+The .file directive names the source file, so isa/nofcmp.c's
+scan-assembler-not "fcmp" matched the file name; it now scans for
+"\tfcmp".
 
 Tested on microblaze-elf (big-endian) with gcc.target/microblaze,
 gcc.c-torture/execute and gcc.dg/ipa/symver1.c under QEMU.
@@ -63,6 +67,8 @@ gcc/ChangeLog:
 gcc/testsuite/ChangeLog:
 
 	PR target/101766
+	* gcc.target/microblaze/isa/nofcmp.c: Match fcmp only as an
+	instruction, not in the .file directive.
 	* gcc.target/microblaze/others/elf-size-flex.c: New test.
 	* gcc.target/microblaze/others/elf-symver.c: New test.
 ---
@@ -70,9 +76,10 @@ gcc/testsuite/ChangeLog:
  gcc/config/microblaze/microblaze-protos.h     |  2 -
  gcc/config/microblaze/microblaze.cc           | 14 ----
  gcc/config/microblaze/microblaze.h            | 72 ++++---------------
+ .../gcc.target/microblaze/isa/nofcmp.c        |  2 +-
  .../microblaze/others/elf-size-flex.c         | 11 +++
  .../gcc.target/microblaze/others/elf-symver.c | 22 ++++++
- 6 files changed, 50 insertions(+), 78 deletions(-)
+ 7 files changed, 51 insertions(+), 79 deletions(-)
  create mode 100644 gcc/testsuite/gcc.target/microblaze/others/elf-size-flex.c
  create mode 100644 gcc/testsuite/gcc.target/microblaze/others/elf-symver.c
 
@@ -312,6 +319,19 @@ index e27c38f70..9cb52a20a 100644
  #undef  ENDFILE_SPEC
  #define ENDFILE_SPEC "crtend.o%s crtn.o%s"
  
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/nofcmp.c b/gcc/testsuite/gcc.target/microblaze/isa/nofcmp.c
+index 86910fc34..a0b3623d6 100644
+--- a/gcc/testsuite/gcc.target/microblaze/isa/nofcmp.c
++++ b/gcc/testsuite/gcc.target/microblaze/isa/nofcmp.c
+@@ -4,7 +4,7 @@ volatile float f1, f2, f3;
+ 
+ void float_func () 
+ {
+-    /* { dg-final { scan-assembler-not "fcmp" } } */
++    /* { dg-final { scan-assembler-not "\tfcmp" } } */
+     if (f2 <= f3) 
+         print ("le");
+     else if (f2 == f3) 
 diff --git a/gcc/testsuite/gcc.target/microblaze/others/elf-size-flex.c b/gcc/testsuite/gcc.target/microblaze/others/elf-size-flex.c
 new file mode 100644
 index 000000000..9bdf7eda0

@@ -1,0 +1,38 @@
+microblaze: 64-bit add immediates, lwr/swr, and shift costs
+
+Three MicroBlaze code-quality patches.  They apply to master df809a029
+with the other MicroBlaze series listed in NOTES.md (not without them:
+the context in microblaze.cc and microblaze-protos.h differs).
+
+1/3 add 64-bit constants with addi and addic
+
+  adddi3's predicate and its immediate constraints had no constant in
+  common, so x + 1 went through a register pair: six instructions with
+  the moves.  Now addi for the low word and addic (or addc with r0) for
+  the high word.  Text of newlib's libc.a 419733 -> 419521 bytes,
+  libgcc.a 75624 -> 75524; 27 of 1645 test files smaller at -O2, none
+  larger.
+
+2/3 use lwr and swr for byte-reversed loads and stores
+
+  The only pattern for them took bswap:SI of an SFmode operand, which
+  no RTL has, so __builtin_bswap32 (*p) was lw and swapb.  New patterns
+  match bswap:SI of a word in memory and a store of it.  A 1024-word
+  byte-swap loop at -O2 -mcpu=v10.0: 6158 -> 5134 instructions under
+  QEMU.
+
+3/3 cost shifts by what they expand to without a barrel shifter
+
+  With a multiplier but no barrel shifter, every shift was costed as
+  one instruction, though only a left shift by a constant (muli) is.
+  x % 16 for signed x went from 35 instructions to 8 at -O2
+  -mno-xl-soft-mul; summing a[i] % 16 over 1000 elements takes 13015
+  instructions instead of 40014.  With the default options, text over
+  1646 test files goes from 3126036 to 3125312 bytes at -O2.
+
+Tested on microblaze-elf and microblazeel-elf, QEMU 10.2.4, newlib,
+execute.exp and microblaze.exp together: 25474 PASS, 4 FAIL before and
+25527 PASS, 4 FAIL after, on both, with no new failure.  microblaze.exp
+was also run with four other option sets, with no new failure.  The
+four FAILs are scan-assembler-not tests from earlier series that
+matched the .file directive, since fixed in those series.

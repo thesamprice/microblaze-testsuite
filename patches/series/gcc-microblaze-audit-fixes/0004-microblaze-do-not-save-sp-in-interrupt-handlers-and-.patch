@@ -1,0 +1,214 @@
+From 5c3357b82adbf7babb06b13569787775e6584e64 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 05:52:30 -0500
+Subject: [PATCH 4/8] microblaze: do not save sp in interrupt handlers, and
+ give their CFI r14
+
+interrupt_handler, fast_interrupt, break_handler and save_volatiles
+functions save every register df reports live, sp included, and record
+each save in the CFI.  The slot holds sp after the frame is allocated,
+so the CFI described the interrupted code's sp wrongly, and each
+interrupt spent a store and a load on it.  In a leaf handler sp becomes
+live only once the prologue uses it, so .frame and .mask, printed after
+that, counted one more word than the prologue allocated.  The small
+data anchors r2 and r13 were saved the same way, though they are only
+read.
+
+The return address column is r15, but these handlers return to the
+address in r14, or r16 for break_handler, and the CFI recorded the save
+of r15 as the return address.
+
+Never save sp, nor the fixed r2 and r13.  For the interrupt variants,
+describe the return address as being in r14 or r16 from the frame
+allocation on, and do not record the save of r15, which would override
+that.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.cc (microblaze_must_save_register):
+	Never save sp or the fixed small data anchors.
+	(microblaze_expand_prologue): For interrupt variants, add
+	REG_CFA_REGISTER for the return address in r14 or r16 to the frame
+	allocation, and do not mark the save of r15 frame related.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/break_handler_cfi.c: New test.
+	* gcc.target/microblaze/others/fast_interrupt_cfi.c: New test.
+	* gcc.target/microblaze/others/interrupt_handler_cfi.c: New test.
+	* gcc.target/microblaze/others/interrupt_handler_frame.c: New test.
+---
+ gcc/config/microblaze/microblaze.cc           | 26 ++++++++++++++++++-
+ .../microblaze/others/break_handler_cfi.c     | 22 ++++++++++++++++
+ .../microblaze/others/fast_interrupt_cfi.c    | 22 ++++++++++++++++
+ .../microblaze/others/interrupt_handler_cfi.c | 22 ++++++++++++++++
+ .../others/interrupt_handler_frame.c          | 17 ++++++++++++
+ 5 files changed, 108 insertions(+), 1 deletion(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/break_handler_cfi.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/fast_interrupt_cfi.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/interrupt_handler_cfi.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/interrupt_handler_frame.c
+
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index f1d81df8f..02490be23 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -2133,6 +2133,14 @@ microblaze_is_break_handler (void)
+ static int
+ microblaze_must_save_register (int regno)
+ {
++  /* The epilogue gives sp back its value, and the small data anchors
++     are only read: interrupt handlers and save_volatiles functions,
++     which save every register they use, need not save them.  */
++  if (regno == STACK_POINTER_REGNUM
++      || ((regno == MB_ABI_GPRO_REGNUM || regno == MB_ABI_GPRW_REGNUM)
++	  && fixed_regs[regno]))
++    return 0;
++
+   if (pic_offset_table_rtx &&
+       (regno == MB_ABI_PIC_ADDR_REGNUM) && df_regs_ever_live_p (regno))
+     return 1;
+@@ -3113,6 +3121,21 @@ microblaze_expand_prologue (void)
+       if (insn)
+ 	RTX_FRAME_RELATED_P (insn) = 1;
+ 
++      /* An interrupt or break handler returns to the address in r14 or
++	 r16, not r15: describe that register as the return address, and
++	 do not record the save of r15 below, which would override it.  */
++      if (insn && microblaze_is_interrupt_variant ())
++	{
++	  int ra = (break_handler ? MB_ABI_DEBUG_RETURN_ADDR_REGNUM
++		    : MB_ABI_INTR_RETURN_ADDR_REGNUM);
++	  add_reg_note (insn, REG_CFA_ADJUST_CFA,
++			gen_rtx_SET (stack_pointer_rtx,
++				     plus_constant (Pmode, stack_pointer_rtx,
++						    -fsiz)));
++	  add_reg_note (insn, REG_CFA_REGISTER,
++			gen_rtx_SET (gen_rtx_REG (SImode, ra), pc_rtx));
++	}
++
+       /* Handle SUB_RETURN_ADDR_REGNUM specially at first.  */
+       if (!crtl->is_leaf || interrupt_handler || break_handler)
+ 	{
+@@ -3126,7 +3149,8 @@ microblaze_expand_prologue (void)
+ 
+ 	  reg_rtx = gen_rtx_REG (SImode, MB_ABI_SUB_RETURN_ADDR_REGNUM);
+ 	  insn = emit_move_insn (mem_rtx, reg_rtx);
+-	  RTX_FRAME_RELATED_P (insn) = 1;
++	  if (!microblaze_is_interrupt_variant ())
++	    RTX_FRAME_RELATED_P (insn) = 1;
+ 	}
+ 
+       /* _save_ registers for prologue.  */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/break_handler_cfi.c b/gcc/testsuite/gcc.target/microblaze/others/break_handler_cfi.c
+new file mode 100644
+index 000000000..48d39ea88
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/break_handler_cfi.c
+@@ -0,0 +1,22 @@
++/* { dg-do compile } */
++/* { dg-options "-g -dA" } */
++
++/* A break handler saved and restored sp like any register it uses,
++   and its CFI said that the interrupted code's sp was in that slot.  It
++   also recorded the save of r15 as the return address, which is in r16
++   for a break.  */
++
++extern void g (void);
++
++void __attribute__ ((break_handler))
++h (void)
++{
++  g ();
++}
++
++/* { dg-final { scan-assembler-not {swi\tr1,r1} } } */
++/* { dg-final { scan-assembler-not {DW_CFA_offset, column 0x1\n} } } */
++/* { dg-final { scan-assembler-not {DW_CFA_offset, column 0xf\n} } } */
++/* { dg-final { scan-assembler {DW_CFA_register\n\t\.uleb128 0xf\n\t\.uleb128 0x10\n} } } */
++/* { dg-final { scan-assembler {swi\tr15,r1,0} } } */
++/* { dg-final { scan-assembler {rtbd\tr16,8} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/fast_interrupt_cfi.c b/gcc/testsuite/gcc.target/microblaze/others/fast_interrupt_cfi.c
+new file mode 100644
+index 000000000..6ca3bad9a
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/fast_interrupt_cfi.c
+@@ -0,0 +1,22 @@
++/* { dg-do compile } */
++/* { dg-options "-g -dA" } */
++
++/* A fast interrupt handler saved and restored sp like any register it uses,
++   and its CFI said that the interrupted code's sp was in that slot.  It
++   also recorded the save of r15 as the return address, which is in r14
++   for an interrupt.  */
++
++extern void g (void);
++
++void __attribute__ ((fast_interrupt))
++h (void)
++{
++  g ();
++}
++
++/* { dg-final { scan-assembler-not {swi\tr1,r1} } } */
++/* { dg-final { scan-assembler-not {DW_CFA_offset, column 0x1\n} } } */
++/* { dg-final { scan-assembler-not {DW_CFA_offset, column 0xf\n} } } */
++/* { dg-final { scan-assembler {DW_CFA_register\n\t\.uleb128 0xf\n\t\.uleb128 0xe\n} } } */
++/* { dg-final { scan-assembler {swi\tr15,r1,0} } } */
++/* { dg-final { scan-assembler {rtid\tr14,0} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/interrupt_handler_cfi.c b/gcc/testsuite/gcc.target/microblaze/others/interrupt_handler_cfi.c
+new file mode 100644
+index 000000000..c68a2daae
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/interrupt_handler_cfi.c
+@@ -0,0 +1,22 @@
++/* { dg-do compile } */
++/* { dg-options "-g -dA" } */
++
++/* An interrupt handler saved and restored sp like any register it uses,
++   and its CFI said that the interrupted code's sp was in that slot.  It
++   also recorded the save of r15 as the return address, which is in r14
++   for an interrupt.  */
++
++extern void g (void);
++
++void __attribute__ ((interrupt_handler))
++h (void)
++{
++  g ();
++}
++
++/* { dg-final { scan-assembler-not {swi\tr1,r1} } } */
++/* { dg-final { scan-assembler-not {DW_CFA_offset, column 0x1\n} } } */
++/* { dg-final { scan-assembler-not {DW_CFA_offset, column 0xf\n} } } */
++/* { dg-final { scan-assembler {DW_CFA_register\n\t\.uleb128 0xf\n\t\.uleb128 0xe\n} } } */
++/* { dg-final { scan-assembler {swi\tr15,r1,0} } } */
++/* { dg-final { scan-assembler {rtid\tr14,0} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/interrupt_handler_frame.c b/gcc/testsuite/gcc.target/microblaze/others/interrupt_handler_frame.c
+new file mode 100644
+index 000000000..79679747f
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/interrupt_handler_frame.c
+@@ -0,0 +1,17 @@
++/* { dg-do compile } */
++
++/* In a leaf interrupt handler sp is used only by the prologue, so it was
++   not yet live when the prologue allocated the frame but was by the time
++   .frame and .mask were printed, which counted a save of it: .frame said
++   one word more than the code allocated.  */
++
++int x, y;
++
++void __attribute__ ((interrupt_handler))
++h (void)
++{
++  x = y * 3 + x;
++}
++
++/* { dg-final { scan-assembler {\.frame\tr[0-9]+,([0-9]+),r15[^\n]*\n(?:[^\n]*\n)*?\taddik\tr1,r1,-\1\n} } } */
++/* { dg-final { scan-assembler-not {swi\tr1,r1} } } */
+-- 
+2.39.5 (Apple Git-154)
+

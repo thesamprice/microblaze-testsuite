@@ -1,0 +1,283 @@
+From 15c9d83fcc8c8d223ec4fe9e64ffdf66300d61da Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 01:55:38 -0500
+Subject: [PATCH 1/3] microblaze: add 64-bit constants with addi and addic
+
+adddi3's operand 2 has the predicate arith_operand32, which accepts a
+register or a constant from 0x80000000 to 0xffffffff, while its
+immediate alternatives have the constraints P (1 to 65535) and N
+(-65535 to -1).  No constant satisfies both, so the immediate
+alternatives were dead: x + 1 loaded 0 and 1 into a register pair and
+added it with add and addc, six instructions with the moves around
+them, and a constant the predicate did accept was reloaded into a pair
+all the same.
+
+Accept any CONST_INT and add it a word at a time: addi adds the low
+word and sets the carry, then addic adds the high word and the carry,
+or addc rD, rA, r0 when the high word is zero.  The assembler gives
+each word an imm prefix when it does not fit in 16 signed bits.  When
+the low word is zero there is no carry, and the high word is a plain
+addik.  The old N alternative also had a third instruction, an addi of
+-1, that addic makes unnecessary.  A one-word overlap of the
+destination and the source goes through r18, as in adddi3_carry,
+though with double words in even register pairs it cannot happen.
+Subtracting a constant reaches adddi3 as an addition of its negation.
+
+x + 1 is now addi and addc; x - 3 and x - 0x8000 are addi and addic of
+-1; x + 0x80000000 is imm, addi and addc; x + 0x100000000 is one addik.
+The text of newlib's libc.a, built by the compiler, shrinks from
+419733 to 419521 bytes and libgcc.a from 75624 to 75524.  Compiling
+gcc.c-torture/execute and gcc.target/microblaze, 1645 files, changes 27
+of them at -O2 and 26 at -Os, all smaller, by 916 and 884 bytes.  In
+loops the constant was usually already hoisted into registers, so the
+instruction counts of a 64-bit counting loop barely move (110030 to
+110022 for 10000 iterations).
+
+others/adddi3-imm-run.c adds 23 constants at the 16-bit, 32-bit and
+carry boundaries, and subtracts them, from 21 values including low
+words of 0xfffffffe and 0xffffffff, and compares each result with a
+register add.
+
+Tested on microblaze-elf and microblazeel-elf under QEMU:
+gcc.c-torture/execute.exp and gcc.target/microblaze, with no new
+failures.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.md (adddi3): Accept any CONST_INT
+	as operand 2, and output it with microblaze_output_adddi3_imm.
+	* config/microblaze/microblaze.cc (microblaze_split_dword_const):
+	New function.
+	(microblaze_output_adddi3_imm): New function.
+	(microblaze_adddi3_imm_length): New function.
+	* config/microblaze/microblaze-protos.h
+	(microblaze_output_adddi3_imm, microblaze_adddi3_imm_length):
+	Declare.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/isa/adddi3-imm.c: New test.
+	* gcc.target/microblaze/others/adddi3-imm-run.c: New test.
+---
+ gcc/config/microblaze/microblaze-protos.h     |  2 +
+ gcc/config/microblaze/microblaze.cc           | 60 +++++++++++++++++++
+ gcc/config/microblaze/microblaze.md           | 25 +++++---
+ .../gcc.target/microblaze/isa/adddi3-imm.c    | 22 +++++++
+ .../microblaze/others/adddi3-imm-run.c        | 49 +++++++++++++++
+ 5 files changed, 149 insertions(+), 9 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/adddi3-imm.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/adddi3-imm-run.c
+
+diff --git a/gcc/config/microblaze/microblaze-protos.h b/gcc/config/microblaze/microblaze-protos.h
+index 1e8f57c50..acee3333b 100644
+--- a/gcc/config/microblaze/microblaze-protos.h
++++ b/gcc/config/microblaze/microblaze-protos.h
+@@ -33,6 +33,8 @@ extern void microblaze_expand_epilogue (void);
+ extern void override_options (void);
+ extern int microblaze_expand_shift (rtx *);
+ extern bool microblaze_dword_overlap_p (rtx, bool, rtx, bool);
++extern const char *microblaze_output_adddi3_imm (rtx *);
++extern int microblaze_adddi3_imm_length (rtx *);
+ extern bool microblaze_expand_move (machine_mode, rtx *);
+ extern bool microblaze_expand_block_move (rtx, rtx, rtx, rtx);
+ extern bool microblaze_expand_strlen (rtx, rtx, rtx);
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index fe27f461b..63c7224e5 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -3603,6 +3603,66 @@ microblaze_dword_overlap_p (rtx dst, bool dst_high, rtx src, bool src_high)
+   return d == s;
+ }
+ 
++/* Split the DImode constant OP into its low and high words, each
++   sign-extended from 32 bits.  */
++static void
++microblaze_split_dword_const (rtx op, HOST_WIDE_INT *lo, HOST_WIDE_INT *hi)
++{
++  HOST_WIDE_INT v = INTVAL (op);
++  *lo = trunc_int_for_mode (v, SImode);
++  *hi = trunc_int_for_mode (v >> 32, SImode);
++}
++
++/* Return the assembler template for adddi3 with the constant
++   OPERANDS[2]: addi adds the low word and sets the carry, addic adds
++   the high word and the carry.  When the low word is zero there is no
++   carry and each word is a plain add.  */
++const char *
++microblaze_output_adddi3_imm (rtx *operands)
++{
++  HOST_WIDE_INT lo, hi;
++  microblaze_split_dword_const (operands[2], &lo, &hi);
++  operands[3] = GEN_INT (lo);
++  operands[4] = GEN_INT (hi);
++
++  if (lo == 0)
++    {
++      /* Write first the word that the other does not read.  */
++      if (microblaze_dword_overlap_p (operands[0], true, operands[1], false))
++	return "addk\t%L0,%L1,r0\n\taddik\t%M0,%M1,%4";
++      if (REGNO (operands[0]) == REGNO (operands[1]))
++	return "addik\t%M0,%M1,%4";
++      return "addik\t%M0,%M1,%4\n\taddk\t%L0,%L1,r0";
++    }
++
++  /* The low word is written before the high word is read.  */
++  if (microblaze_dword_overlap_p (operands[0], false, operands[1], true))
++    return (hi == 0
++	    ? "addi\tr18,%L1,%3\n\taddc\t%M0,%M1,r0\n\taddk\t%L0,r18,r0"
++	    : "addi\tr18,%L1,%3\n\taddic\t%M0,%M1,%4\n\taddk\t%L0,r18,r0");
++  return (hi == 0
++	  ? "addi\t%L0,%L1,%3\n\taddc\t%M0,%M1,r0"
++	  : "addi\t%L0,%L1,%3\n\taddic\t%M0,%M1,%4");
++}
++
++/* Return the length in bytes of microblaze_output_adddi3_imm's
++   instructions for OPERANDS.  A word that does not fit in 16 signed
++   bits costs an imm prefix.  */
++int
++microblaze_adddi3_imm_length (rtx *operands)
++{
++  HOST_WIDE_INT lo, hi;
++  microblaze_split_dword_const (operands[2], &lo, &hi);
++  int len = SMALL_OPERAND (hi) ? 4 : 8;
++
++  if (lo == 0)
++    return len + (REGNO (operands[0]) == REGNO (operands[1]) ? 0 : 4);
++  len += SMALL_OPERAND (lo) ? 4 : 8;
++  if (microblaze_dword_overlap_p (operands[0], false, operands[1], true))
++    len += 4;
++  return len;
++}
++
+ /* Return an RTX indicating where the return address to the
+    calling function can be found.  */
+ rtx
+diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
+index 790222ab0..9801ecaa5 100644
+--- a/gcc/config/microblaze/microblaze.md
++++ b/gcc/config/microblaze/microblaze.md
+@@ -495,20 +495,27 @@
+ 
+ ;; reg_DI_dest = reg_DI_src1 + DI_src2
+ 
+-;; Adding 2 DI operands in register or reg/imm
++;; Adding 2 DI operands in register or reg/imm.  A constant is added a
++;; word at a time: addi adds the low word and sets the carry, and addic
++;; adds the high word and the carry.  The assembler gives either an imm
++;; prefix when its word does not fit in 16 signed bits.
+ 
+ (define_insn "adddi3"
+-  [(set (match_operand:DI 0 "register_operand" "=d,d,d")
+-	(plus:DI (match_operand:DI 1 "register_operand" "%d,d,d")
+-		 (match_operand:DI 2 "arith_operand32" "d,P,N")))]
++  [(set (match_operand:DI 0 "register_operand" "=d,d")
++	(plus:DI (match_operand:DI 1 "register_operand" "%d,d")
++		 (match_operand:DI 2 "arith_operand" "d,n")))]
+   ""
+-  "@
+-  add\t%L0,%L1,%L2\;addc\t%M0,%M1,%M2
+-  addi\t%L0,%L1,%2\;addc\t%M0,%M1,r0
+-  addi\t%L0,%L1,%2\;addc\t%M0,%M1,r0\;addi\t%M0,%M0,-1"
++  {
++    if (which_alternative == 0)
++      return "add\t%L0,%L1,%L2\;addc\t%M0,%M1,%M2";
++    return microblaze_output_adddi3_imm (operands);
++  }
+   [(set_attr "type"	"darith")
+   (set_attr "mode"	"DI")
+-  (set_attr "length"	"8,8,12")])
++  (set (attr "length")
++	(if_then_else (eq_attr "alternative" "0")
++		      (const_int 8)
++		      (symbol_ref "microblaze_adddi3_imm_length (operands)")))])
+ 
+ ;;----------------------------------------------------------------
+ ;; Subtraction
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/adddi3-imm.c b/gcc/testsuite/gcc.target/microblaze/isa/adddi3-imm.c
+new file mode 100644
+index 000000000..0eb7df4ae
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/adddi3-imm.c
+@@ -0,0 +1,22 @@
++/* A 64-bit constant is added with addi and addic, or addc when its high
++   word is zero, rather than loaded into a register pair.  */
++/* { dg-options "-O2" } */
++
++typedef long long s64;
++
++s64 add1 (s64 x) { return x + 1; }			/* addi 1; addc */
++s64 sub3 (s64 x) { return x - 3; }			/* addi -3; addic -1 */
++s64 add7fff (s64 x) { return x + 0x7fff; }		/* addi 32767; addc */
++s64 sub8000 (s64 x) { return x - 0x8000; }		/* addi -32768; addic -1 */
++s64 add80000000 (s64 x) { return x + 0x80000000LL; }	/* addi imm; addc */
++s64 add100000000 (s64 x) { return x + 0x100000000LL; }	/* addik 1 */
++
++/* { dg-final { scan-assembler {\taddi\tr[0-9]+,r[0-9]+,1\n} } } */
++/* { dg-final { scan-assembler {\taddi\tr[0-9]+,r[0-9]+,-3\n} } } */
++/* { dg-final { scan-assembler {\taddi\tr[0-9]+,r[0-9]+,32767\n} } } */
++/* { dg-final { scan-assembler {\taddi\tr[0-9]+,r[0-9]+,-32768\n} } } */
++/* { dg-final { scan-assembler {\taddi\tr[0-9]+,r[0-9]+,-2147483648\n} } } */
++/* { dg-final { scan-assembler-times {\taddc\tr[0-9]+,r[0-9]+,r0\n} 3 } } */
++/* { dg-final { scan-assembler-times {\taddic\tr[0-9]+,r[0-9]+,-1\n} 2 } } */
++/* { dg-final { scan-assembler {\taddik\tr[0-9]+,r[0-9]+,1\n} } } */
++/* { dg-final { scan-assembler-not {\tadd\t} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/adddi3-imm-run.c b/gcc/testsuite/gcc.target/microblaze/others/adddi3-imm-run.c
+new file mode 100644
+index 000000000..fb56e47ed
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/adddi3-imm-run.c
+@@ -0,0 +1,49 @@
++/* Check adding 64-bit constants against an add of the same values from
++   registers, with the low words at the carry boundaries.  */
++/* { dg-do run } */
++
++extern void abort (void);
++
++typedef unsigned long long u64;
++
++static const u64 vals[] = {
++  0, 1, 2, 0x7fff, 0x8000, 0xffff, 0x10000, 0x7fffffffULL, 0x80000000ULL,
++  0xfffffffeULL, 0xffffffffULL, 0x100000000ULL, 0x1ffffffffULL,
++  0x7fffffffffffffffULL, 0x8000000000000000ULL, 0xffffffff00000000ULL,
++  0xffffffff7fffffffULL, 0xffffffff80000000ULL, 0xfffffffffffffffdULL,
++  0xffffffffffffffffULL, 0x0123456789abcdefULL
++};
++#define N (sizeof vals / sizeof vals[0])
++
++#define CONSTS(X) \
++  X (1, 1) X (2, -1) X (3, -3) X (4, 0x7fff) X (5, -0x8000) X (6, 0x8000) \
++  X (7, -0x8001) X (8, 0xffff) X (9, 0x10000) X (10, 0x7fffffff) \
++  X (11, -0x7fffffffLL) X (12, -0x80000000LL) X (13, 0x80000000LL) \
++  X (14, 0xffffffffLL) X (15, 0x100000000LL) X (16, -0x100000000LL) \
++  X (17, 0x100000001LL) X (18, 0x123456789LL) X (19, -0x123456789LL) \
++  X (20, 0x7fffffffffffffffLL) X (21, 0x8000000000000000ULL) \
++  X (22, 0xffffffff00000001ULL) X (23, 0x7fff00008000LL)
++
++#define DEF(n, c) \
++  __attribute__ ((noipa)) u64 add##n (u64 x) { return x + (u64) (c); } \
++  __attribute__ ((noipa)) u64 sub##n (u64 x) { return x - (u64) (c); }
++CONSTS (DEF)
++
++__attribute__ ((noipa)) u64 addr (u64 x, u64 y) { return x + y; }
++
++int
++main (void)
++{
++  unsigned int i;
++  for (i = 0; i < N; i++)
++    {
++      u64 x = vals[i];
++#define CHECK(n, c) \
++      if (add##n (x) != addr (x, (u64) (c))) \
++	abort (); \
++      if (sub##n (x) != addr (x, -(u64) (c))) \
++	abort ();
++      CONSTS (CHECK)
++    }
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

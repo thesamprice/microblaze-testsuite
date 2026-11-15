@@ -1,0 +1,351 @@
+From a16eefd1f6ec4f509a0a62b9b4165a9892d28e4e Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 01:30:36 -0500
+Subject: [PATCH 9/9] opcodes: microblaze: symbolize addresses at or above
+ 0x80000000
+
+print_insn_microblaze computes the target of a branch or the address
+in an immediate as an int, tests it with "immval > 0" and passes it to
+symbol_at_address_func sign-extended to bfd_vma.  An address at or
+above 0x80000000, where many boards put their memory, is negative, so
+objdump names no symbol: linked at 0x90000000,
+
+	brlid	r15, 20
+	addik	r3, r0, 32
+	bri	-20		// 90000000
+
+where at 0x10000000 the same code shows <far>, <dat> and <_start>.
+
+Compute the address as a 32-bit bfd_vma.  Keep skipping address 0,
+which the "> 0" tests also did, so that output for objects is
+unchanged.  Four ld tests expected the raw addresses for code linked at
+0x90000000; they now show the symbols.
+
+opcodes/
+	* microblaze-dis.c (get_imm_value): New function.
+	(print_insn_microblaze): Use it, and compute addresses as
+	32-bit bfd_vma.
+
+ld/
+	* testsuite/ld-microblaze/disas-high.d: New test.
+	* testsuite/ld-microblaze/disas-high.s: New file.
+	* testsuite/ld-microblaze/relax-64-none.d: Expect symbols for
+	addresses above 0x80000000.
+	* testsuite/ld-microblaze/relax-addend.d: Likewise.
+	* testsuite/ld-microblaze/relax-no-keep-memory.d: Likewise.
+	* testsuite/ld-microblaze/relax-wrap.d: Likewise.
+	* testsuite/ld-microblaze/relax-align.d: Likewise.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ ld/testsuite/ld-microblaze/disas-high.d       | 22 ++++++
+ ld/testsuite/ld-microblaze/disas-high.s       | 21 +++++
+ ld/testsuite/ld-microblaze/relax-64-none.d    |  4 +-
+ ld/testsuite/ld-microblaze/relax-addend.d     |  2 +-
+ ld/testsuite/ld-microblaze/relax-align.d      | 12 +--
+ .../ld-microblaze/relax-no-keep-memory.d      |  4 +-
+ ld/testsuite/ld-microblaze/relax-wrap.d       |  4 +-
+ opcodes/microblaze-dis.c                      | 78 ++++++++-----------
+ 8 files changed, 89 insertions(+), 58 deletions(-)
+ create mode 100644 ld/testsuite/ld-microblaze/disas-high.d
+ create mode 100644 ld/testsuite/ld-microblaze/disas-high.s
+
+diff --git a/ld/testsuite/ld-microblaze/disas-high.d b/ld/testsuite/ld-microblaze/disas-high.d
+new file mode 100644
+index 00000000000..2716422f36e
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/disas-high.d
+@@ -0,0 +1,22 @@
++#source: disas-high.s
++#ld: -Ttext=0x90000000 -Tdata=0xa0000000
++#objdump: -d
++#name: MicroBlaze disassembly of addresses above 0x80000000
++
++# The targets are negative as an int, and were printed raw or not at all.
++
++.*: +file format .*
++
++
++Disassembly of section \.text:
++
++90000000 <_start>:
++90000000:	b0000000 	imm	0
++90000004:	b9f4001c 	brlid	r15, 28	// 90000020 <far>
++90000008:	80000000 	or	r0, r0, r0
++9000000c:	b000a000 	imm	-24576
++90000010:	30600004 	addik	r3, r0, 4	// a0000004 <dat>
++90000014:	b800ffec 	bri	-20	// 90000000 <_start>
++90000018:	b0009000 	imm	-28672
++9000001c:	b8080000 	brai	0	// 90000000 <_start>
++#...
+diff --git a/ld/testsuite/ld-microblaze/disas-high.s b/ld/testsuite/ld-microblaze/disas-high.s
+new file mode 100644
+index 00000000000..8c5dada5683
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/disas-high.s
+@@ -0,0 +1,21 @@
++/* The disassembler names the targets of a call, a branch and an
++   address load at or above 0x80000000.  */
++
++	.text
++	.globl	_start
++_start:
++	brlid	r15, far
++	nop
++	addik	r3, r0, dat
++	bri	_start
++	brai	_start
++
++	.section .text.far,"ax"
++far:
++	rtsd	r15, 8
++	nop
++
++	.data
++	.word	0
++dat:
++	.word	0
+diff --git a/ld/testsuite/ld-microblaze/relax-64-none.d b/ld/testsuite/ld-microblaze/relax-64-none.d
+index d1be61a00b3..0c368ae2f29 100644
+--- a/ld/testsuite/ld-microblaze/relax-64-none.d
++++ b/ld/testsuite/ld-microblaze/relax-64-none.d
+@@ -6,9 +6,9 @@
+ #...
+ 90000008 <_start>:
+ 90000008:	b0000000 	imm	0
+-9000000c:	b800fffc 	bri	-4		// 90010008
++9000000c:	b800fffc 	bri	-4	// 90010008 <far>
+ #...
+ 90010008 <far>:
+ 90010008:	b000ffff 	imm	-1
+-9001000c:	b8000004 	bri	4		// 90000010
++9001000c:	b8000004 	bri	4	// 90000010 <back>
+ #pass
+diff --git a/ld/testsuite/ld-microblaze/relax-addend.d b/ld/testsuite/ld-microblaze/relax-addend.d
+index 951c8737696..364bab1ea75 100644
+--- a/ld/testsuite/ld-microblaze/relax-addend.d
++++ b/ld/testsuite/ld-microblaze/relax-addend.d
+@@ -18,7 +18,7 @@
+ 90000000 <aaa_relaxed>:
+ [ 	]*90000000:[ 	]+3021ffe4[ 	]+addik[ 	]+r1, r1, -28
+ [ 	]*90000004:[ 	]+f9e10000[ 	]+swi[ 	]+r15, r1, 0
+-[ 	]*90000008:[ 	]+b9f40024[ 	]+brlid[ 	]+r15, 36
++[ 	]*90000008:[ 	]+b9f40024[ 	]+brlid[ 	]+r15, 36[ 	]+// 9000002c <near_callee>
+ #...
+ 9000001c <zzz_victim>:
+ [ 	]*9000001c:[ 	]+b0009000[ 	]+imm[ 	]+-28672
+diff --git a/ld/testsuite/ld-microblaze/relax-align.d b/ld/testsuite/ld-microblaze/relax-align.d
+index 13d22e30743..c700bc3cce0 100644
+--- a/ld/testsuite/ld-microblaze/relax-align.d
++++ b/ld/testsuite/ld-microblaze/relax-align.d
+@@ -9,23 +9,23 @@ Disassembly of section \.text:
+ 
+ 90000000 <_start>:
+ 90000000:	b0000000 	imm	0
+-90000004:	b9f40044 	brlid	r15, 68
++90000004:	b9f40044 	brlid	r15, 68	// 90000048 <far>
+ 90000008:	80000000 	or	r0, r0, r0
+ 9000000c:	00000000 	add	r0, r0, r0
+ 
+ 90000010 <aligned16>:
+-90000010:	b9f40038 	brlid	r15, 56
++90000010:	b9f40038 	brlid	r15, 56	// 90000048 <far>
+ 90000014:	80000000 	or	r0, r0, r0
+-90000018:	b9f40030 	brlid	r15, 48
++90000018:	b9f40030 	brlid	r15, 48	// 90000048 <far>
+ 9000001c:	80000000 	or	r0, r0, r0
+ 
+ 90000020 <b16>:
+ 90000020:	80000000 	or	r0, r0, r0
+-90000024:	b9f40024 	brlid	r15, 36
++90000024:	b9f40024 	brlid	r15, 36	// 90000048 <far>
+ 90000028:	80000000 	or	r0, r0, r0
+-9000002c:	b9f4001c 	brlid	r15, 28
++9000002c:	b9f4001c 	brlid	r15, 28	// 90000048 <far>
+ 90000030:	80000000 	or	r0, r0, r0
+-90000034:	b9f40014 	brlid	r15, 20
++90000034:	b9f40014 	brlid	r15, 20	// 90000048 <far>
+ 90000038:	80000000 	or	r0, r0, r0
+ 9000003c:	00000000 	add	r0, r0, r0
+ 
+diff --git a/ld/testsuite/ld-microblaze/relax-no-keep-memory.d b/ld/testsuite/ld-microblaze/relax-no-keep-memory.d
+index bc6795ba53e..d84d46729e6 100644
+--- a/ld/testsuite/ld-microblaze/relax-no-keep-memory.d
++++ b/ld/testsuite/ld-microblaze/relax-no-keep-memory.d
+@@ -7,9 +7,9 @@
+ .*: +file format .*
+ #...
+ 90000000 <_start>:
+-[ 	]*90000000:[ 	]+b9f40010[ 	]+brlid[ 	]+r15, 16
++[ 	]*90000000:[ 	]+b9f40010[ 	]+brlid[ 	]+r15, 16[ 	]+// 90000010 <callee>
+ #...
+ 90000010 <callee>:
+ [ 	]*90000010:[ 	]+b0009000[ 	]+imm[ 	]+-28672
+-[ 	]*90000014:[ 	]+e8601000[ 	]+lwi[ 	]+r3, r0, 4096
++[ 	]*90000014:[ 	]+e8601000[ 	]+lwi[ 	]+r3, r0, 4096[ 	]+// 90001000 <gvar>
+ #pass
+diff --git a/ld/testsuite/ld-microblaze/relax-wrap.d b/ld/testsuite/ld-microblaze/relax-wrap.d
+index a943fb09a8c..ae4d188695b 100644
+--- a/ld/testsuite/ld-microblaze/relax-wrap.d
++++ b/ld/testsuite/ld-microblaze/relax-wrap.d
+@@ -22,7 +22,7 @@
+ 90000000 <relaxed_caller>:
+ [ 	]*90000000:[ 	]+3021ffe4[ 	]+addik[ 	]+r1, r1, -28
+ [ 	]*90000004:[ 	]+f9e10000[ 	]+swi[ 	]+r15, r1, 0
+-[ 	]*90000008:[ 	]+b9f4003c[ 	]+brlid[ 	]+r15, 60
++[ 	]*90000008:[ 	]+b9f4003c[ 	]+brlid[ 	]+r15, 60[ 	]+// 90000044 <near_callee>
+ [ 	]*9000000c:[ 	]+80000000[ 	]+or[ 	]+r0, r0, r0
+ [ 	]*90000010:[ 	]+e9e10000[ 	]+lwi[ 	]+r15, r1, 0
+ [ 	]*90000014:[ 	]+b60f0008[ 	]+rtsd[ 	]+r15, 8
+@@ -33,5 +33,5 @@
+ #...
+ 90000028 <calls_foo>:
+ #...
+-[ 	]*90000030:[ 	]+b9f4ffec[ 	]+brlid[ 	]+r15, -20
++[ 	]*90000030:[ 	]+b9f4ffec[ 	]+brlid[ 	]+r15, -20[ 	]+// 9000001c <__wrap_foo>
+ #pass
+diff --git a/opcodes/microblaze-dis.c b/opcodes/microblaze-dis.c
+index 3158ef74fb0..dbfd1990ce9 100644
+--- a/opcodes/microblaze-dis.c
++++ b/opcodes/microblaze-dis.c
+@@ -239,6 +239,21 @@ read_insn_microblaze (bfd_vma memaddr,
+ }
+ 
+ 
++/* Return the 32-bit value of the immediate operand of INST, extended by
++   the IMM prefix IMMVAL if IMMFOUND.  */
++
++static bfd_vma
++get_imm_value (unsigned long inst, bool immfound, int immval)
++{
++  uint32_t val = get_int_field_imm (inst) & 0xffff;
++
++  if (immfound)
++    val |= (uint32_t) immval & 0xffff0000;
++  else if (val & 0x8000)
++    val |= 0xffff0000;
++  return val;
++}
++
+ int
+ print_insn_microblaze (bfd_vma memaddr, struct disassemble_info * info)
+ {
+@@ -247,6 +262,7 @@ print_insn_microblaze (bfd_vma memaddr, struct disassemble_info * info)
+   unsigned long inst, prev_inst;
+   const struct op_code_struct *op, *pop;
+   int immval = 0;
++  bfd_vma addr;
+   bool immfound = false;
+   static bfd_vma prev_insn_addr = -1;	/* Init the prev insn addr.  */
+   static int prev_insn_vma = -1;	/* Init the prev insn vma.  */
+@@ -300,18 +316,11 @@ print_insn_microblaze (bfd_vma memaddr, struct disassemble_info * info)
+ 	  if (info->print_address_func && get_int_field_r1 (inst) == 0
+ 	      && info->symbol_at_address_func)
+ 	    {
+-	      if (immfound)
+-		immval |= (get_int_field_imm (inst) & 0x0000ffff);
+-	      else
+-		{
+-		  immval = get_int_field_imm (inst);
+-		  if (immval & 0x8000)
+-		    immval |= (~0xFFFF);
+-		}
+-	      if (immval > 0 && info->symbol_at_address_func (immval, info))
++	      addr = get_imm_value (inst, immfound, immval);
++	      if (addr != 0 && info->symbol_at_address_func (addr, info))
+ 		{
+ 		  print_func (stream, "\t// ");
+-		  info->print_address_func (immval, info);
++		  info->print_address_func (addr, info);
+ 		}
+ 	    }
+ 	  break;
+@@ -351,24 +360,17 @@ print_insn_microblaze (bfd_vma memaddr, struct disassemble_info * info)
+ 	  if (info->print_address_func && op->inst_offset_type == INST_PC_OFFSET
+ 	      && info->symbol_at_address_func)
+ 	    {
+-	      if (immfound)
+-		immval |= (get_int_field_imm (inst) & 0x0000ffff);
+-	      else
+-		{
+-		  immval = get_int_field_imm (inst);
+-		  if (immval & 0x8000)
+-		    immval |= (~0xFFFF);
+-		}
+-	      immval += memaddr;
+-	      if (immval > 0 && info->symbol_at_address_func (immval, info))
++	      addr = (get_imm_value (inst, immfound, immval) + memaddr)
++		     & 0xffffffff;
++	      if (addr != 0 && info->symbol_at_address_func (addr, info))
+ 		{
+ 		  print_func (stream, "\t// ");
+-		  info->print_address_func (immval, info);
++		  info->print_address_func (addr, info);
+ 		}
+ 	      else
+ 		{
+ 		  print_func (stream, "\t\t// ");
+-		  print_func (stream, "%x", immval);
++		  print_func (stream, "%x", (unsigned int) addr);
+ 		}
+ 	    }
+ 	  break;
+@@ -377,20 +379,13 @@ print_insn_microblaze (bfd_vma memaddr, struct disassemble_info * info)
+ 		      get_field_imm (&buf, inst));
+ 	  if (info->print_address_func && info->symbol_at_address_func)
+ 	    {
+-	      if (immfound)
+-		immval |= (get_int_field_imm (inst) & 0x0000ffff);
+-	      else
+-		{
+-		  immval = get_int_field_imm (inst);
+-		  if (immval & 0x8000)
+-		    immval |= (~0xFFFF);
+-		}
++	      addr = get_imm_value (inst, immfound, immval);
+ 	      if (op->inst_offset_type == INST_PC_OFFSET)
+-		immval += (int) memaddr;
+-	      if (info->symbol_at_address_func (immval, info))
++		addr = (addr + memaddr) & 0xffffffff;
++	      if (info->symbol_at_address_func (addr, info))
+ 		{
+ 		  print_func (stream, "\t// ");
+-		  info->print_address_func (immval, info);
++		  info->print_address_func (addr, info);
+ 		}
+ 	    }
+ 	  break;
+@@ -399,25 +394,18 @@ print_insn_microblaze (bfd_vma memaddr, struct disassemble_info * info)
+ 	  if (info->print_address_func && info->symbol_at_address_func
+ 	      && op->instr != imm)
+ 	    {
+-	      if (immfound)
+-		immval |= (get_int_field_imm (inst) & 0x0000ffff);
+-	      else
+-		{
+-		  immval = get_int_field_imm (inst);
+-		  if (immval & 0x8000)
+-		    immval |= (~0xFFFF);
+-		}
++	      addr = get_imm_value (inst, immfound, immval);
+ 	      if (op->inst_offset_type == INST_PC_OFFSET)
+-		immval += (int) memaddr;
+-	      if (immval > 0 && info->symbol_at_address_func (immval, info))
++		addr = (addr + memaddr) & 0xffffffff;
++	      if (addr != 0 && info->symbol_at_address_func (addr, info))
+ 		{
+ 		  print_func (stream, "\t// ");
+-		  info->print_address_func (immval, info);
++		  info->print_address_func (addr, info);
+ 		}
+ 	      else if (op->inst_offset_type == INST_PC_OFFSET)
+ 		{
+ 		  print_func (stream, "\t\t// ");
+-		  print_func (stream, "%x", immval);
++		  print_func (stream, "%x", (unsigned int) addr);
+ 		}
+ 	    }
+ 	  break;
+-- 
+2.39.5 (Apple Git-154)
+

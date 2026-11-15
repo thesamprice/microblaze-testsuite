@@ -1,0 +1,370 @@
+From fbef83554b621ee1ad7b6089543a1c4b02782750 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 00:55:17 -0500
+Subject: [PATCH 2/9] ld: microblaze: don't read other sections' contents when
+ relaxing
+
+When relaxation deletes bytes from a code section, the loop over the
+object's other sections adjusts relocations against that section.  It
+read and cached the contents of every section holding such a
+relocation, with bfd_get_section_contents, although for most of them,
+debug sections included, only the addend changes.  For a compressed
+debug section that call fails, and the link stops:
+
+  unable to get decompressed section .debug_info
+  can't relax section: invalid operation
+
+This happens for any -g object assembled with
+--compress-debug-sections; the same object uncompressed, or linked
+without --relax, is fine.
+
+Read contents only for the relocations whose instruction words are
+rewritten (R_MICROBLAZE_32_LO, 32_PCREL_LO, TEXTREL_32_LO and
+64_PCREL), and read them with bfd_malloc_and_get_section, which also
+handles compressed sections.  The loop is now a switch over the
+relocation type, after a single test that the relocation is against
+the relaxed section's symbol.
+
+bfd/
+	* elf32-microblaze.c (microblaze_get_cached_contents): New.
+	(microblaze_elf_relax_section): Use it, and only for relocations
+	in instruction words.
+
+ld/
+	* testsuite/ld-microblaze/relax-compressed-debug.s: New file.
+	* testsuite/ld-microblaze/relax-compressed-debug.d: New test.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ bfd/elf32-microblaze.c                        | 249 +++++++-----------
+ .../ld-microblaze/relax-compressed-debug.d    |  13 +
+ .../ld-microblaze/relax-compressed-debug.s    |  22 ++
+ 3 files changed, 123 insertions(+), 161 deletions(-)
+ create mode 100644 ld/testsuite/ld-microblaze/relax-compressed-debug.d
+ create mode 100644 ld/testsuite/ld-microblaze/relax-compressed-debug.s
+
+diff --git a/bfd/elf32-microblaze.c b/bfd/elf32-microblaze.c
+index e7f2a4f7bd6..dac4ae39900 100644
+--- a/bfd/elf32-microblaze.c
++++ b/bfd/elf32-microblaze.c
+@@ -2291,6 +2291,34 @@ microblaze_bfd_write_imm_value_64 (bfd *abfd, bfd_byte *bfd_addr, bfd_vma val)
+     bfd_put_32 (abfd, instr_lo, bfd_addr + INST_WORD_SIZE);
+ }
+ 
++/* Set *CONTENTS to the contents of section O of ABFD, reading and
++   caching them on first use.  Only instruction words are rewritten
++   through it; relocations elsewhere just have their addends adjusted, so
++   the contents of other sections, which may be compressed debug
++   sections, are never read.  */
++
++static bool
++microblaze_get_cached_contents (bfd *abfd, asection *o, bfd_byte **contents)
++{
++  if (*contents != NULL)
++    return true;
++
++  if (elf_section_data (o)->this_hdr.contents != NULL)
++    {
++      *contents = elf_section_data (o)->this_hdr.contents;
++      return true;
++    }
++
++  if ((o->flags & SEC_HAS_CONTENTS) == 0
++      || !bfd_malloc_and_get_section (abfd, o, contents))
++    return false;
++
++  /* We always cache the section contents.  Perhaps, if info->keep_memory
++     is FALSE, we should free them, if we are permitted to.  */
++  elf_section_data (o)->this_hdr.contents = *contents;
++  return true;
++}
++
+ static bool
+ microblaze_elf_relax_section (bfd *abfd,
+ 			      asection *sec,
+@@ -2567,175 +2595,74 @@ microblaze_elf_relax_section (bfd *abfd,
+ 	  irelscanend = irelocs + o->reloc_count;
+ 	  for (irelscan = irelocs; irelscan < irelscanend; irelscan++)
+ 	    {
++	      int r_type = ELF32_R_TYPE (irelscan->r_info);
++
+ 	      if (ELF32_R_SYM (irelscan->r_info) >= symtab_hdr->sh_info)
+ 		continue;
+ 
+-	      if ((ELF32_R_TYPE (irelscan->r_info) == (int) R_MICROBLAZE_32)
+-		  || (ELF32_R_TYPE (irelscan->r_info) == (int) R_MICROBLAZE_32_PCREL)
+-		  || (ELF32_R_TYPE (irelscan->r_info) == (int) R_MICROBLAZE_32_NONE)
+-		  || microblaze_diff_reloc_p (ELF32_R_TYPE (irelscan->r_info)))
+-		{
+-		  isym = isymbuf + ELF32_R_SYM (irelscan->r_info);
++	      /* Look at the reloc only if it is against this section's
++		 symbol, and so has an addend that is an offset into it.  */
++	      isym = isymbuf + ELF32_R_SYM (irelscan->r_info);
++	      if (isym->st_shndx != shndx
++		  || ELF32_ST_TYPE (isym->st_info) != STT_SECTION)
++		continue;
+ 
+-		  /* Look at the reloc only if the value has been resolved.  */
+-		  if (isym->st_shndx == shndx
+-		      && (ELF32_ST_TYPE (isym->st_info) == STT_SECTION))
+-		    {
+-		      if (ocontents == NULL)
+-			{
+-			  if (elf_section_data (o)->this_hdr.contents != NULL)
+-			    ocontents = elf_section_data (o)->this_hdr.contents;
+-			  else
+-			    {
+-			      /* We always cache the section contents.
+-				 Perhaps, if info->keep_memory is FALSE, we
+-				 should free them, if we are permitted to.  */
+-			      if (o->rawsize == 0)
+-				o->rawsize = o->size;
+-			      ocontents = (bfd_byte *) bfd_malloc (o->rawsize);
+-			      if (ocontents == NULL)
+-				goto error_return;
+-			      if (!bfd_get_section_contents (abfd, o, ocontents,
+-							     (file_ptr) 0,
+-							     o->rawsize))
+-				goto error_return;
+-			      elf_section_data (o)->this_hdr.contents = ocontents;
+-			    }
+-
+-			}
+-		      irelscan->r_addend -= calc_fixup (irelscan->r_addend, 0, sec);
+-		    }
+-		}
+-	      else if ((ELF32_R_TYPE (irelscan->r_info) == (int) R_MICROBLAZE_32_PCREL_LO)
+-		       || (ELF32_R_TYPE (irelscan->r_info)
+-			   == (int) R_MICROBLAZE_32_LO)
+-		       || (ELF32_R_TYPE (irelscan->r_info)
+-			   == (int) R_MICROBLAZE_TEXTREL_32_LO))
++	      switch (r_type)
+ 		{
+-		  isym = isymbuf + ELF32_R_SYM (irelscan->r_info);
+-
+-		  /* Look at the reloc only if the value has been resolved.  */
+-		  if (isym->st_shndx == shndx
+-		      && (ELF32_ST_TYPE (isym->st_info) == STT_SECTION))
+-		    {
+-		      bfd_vma immediate;
+-		      bfd_vma target_address;
+-
+-		      if (ocontents == NULL)
+-			{
+-			  if (elf_section_data (o)->this_hdr.contents != NULL)
+-			    ocontents = elf_section_data (o)->this_hdr.contents;
+-			  else
+-			    {
+-			      /* We always cache the section contents.
+-				 Perhaps, if info->keep_memory is FALSE, we
+-				 should free them, if we are permitted to.  */
+-			      if (o->rawsize == 0)
+-				o->rawsize = o->size;
+-			      ocontents = (bfd_byte *) bfd_malloc (o->rawsize);
+-			      if (ocontents == NULL)
+-				goto error_return;
+-			      if (!bfd_get_section_contents (abfd, o, ocontents,
+-							     (file_ptr) 0,
+-							     o->rawsize))
+-				goto error_return;
+-			      elf_section_data (o)->this_hdr.contents = ocontents;
+-			    }
+-			}
+-
+-		      unsigned long instr = bfd_get_32 (abfd, ocontents + irelscan->r_offset);
+-		      immediate = instr & 0x0000ffff;
+-		      target_address = immediate;
+-		      offset = calc_fixup (target_address, 0, sec);
+-		      immediate -= offset;
+-		      irelscan->r_addend -= offset;
+-	  microblaze_bfd_write_imm_value_32 (abfd, ocontents + irelscan->r_offset,
+-					     irelscan->r_addend);
+-		    }
+-		}
++		case R_MICROBLAZE_32:
++		case R_MICROBLAZE_32_PCREL:
++		case R_MICROBLAZE_32_NONE:
++		case R_MICROBLAZE_64:
++		case R_MICROBLAZE_TEXTREL_64:
++		  irelscan->r_addend -= calc_fixup (irelscan->r_addend, 0, sec);
++		  break;
+ 
+-	      if (ELF32_R_TYPE (irelscan->r_info) == (int) R_MICROBLAZE_64
+-		  || (ELF32_R_TYPE (irelscan->r_info)
+-			      == (int) R_MICROBLAZE_TEXTREL_64))
+-		{
+-		  isym = isymbuf + ELF32_R_SYM (irelscan->r_info);
++		case R_MICROBLAZE_32_PCREL_LO:
++		case R_MICROBLAZE_32_LO:
++		case R_MICROBLAZE_TEXTREL_32_LO:
++		  if (!microblaze_get_cached_contents (abfd, o, &ocontents))
++		    goto error_return;
++		  {
++		    unsigned long instr = bfd_get_32 (abfd, ocontents
++						      + irelscan->r_offset);
++		    bfd_vma target_address = instr & 0x0000ffff;
++
++		    offset = calc_fixup (target_address, 0, sec);
++		    irelscan->r_addend -= offset;
++		    microblaze_bfd_write_imm_value_32 (abfd,
++						       ocontents
++						       + irelscan->r_offset,
++						       irelscan->r_addend);
++		  }
++		  break;
+ 
+-		  /* Look at the reloc only if the value has been resolved.  */
+-		  if (isym->st_shndx == shndx
+-		      && (ELF32_ST_TYPE (isym->st_info) == STT_SECTION))
+-		    {
+-		      if (ocontents == NULL)
+-			{
+-			  if (elf_section_data (o)->this_hdr.contents != NULL)
+-			    ocontents = elf_section_data (o)->this_hdr.contents;
+-			  else
+-			    {
+-			      /* We always cache the section contents.
+-				 Perhaps, if info->keep_memory is FALSE, we
+-				 should free them, if we are permitted to.  */
+-
+-			      if (o->rawsize == 0)
+-				o->rawsize = o->size;
+-			      ocontents = (bfd_byte *) bfd_malloc (o->rawsize);
+-			      if (ocontents == NULL)
+-				goto error_return;
+-			      if (!bfd_get_section_contents (abfd, o, ocontents,
+-							     (file_ptr) 0,
+-							     o->rawsize))
+-				goto error_return;
+-			      elf_section_data (o)->this_hdr.contents = ocontents;
+-			    }
+-			}
+-		      offset = calc_fixup (irelscan->r_addend, 0, sec);
+-		      irelscan->r_addend -= offset;
+-		    }
+-		}
+-	      else if (ELF32_R_TYPE (irelscan->r_info) == (int) R_MICROBLAZE_64_PCREL)
+-		{
+-		  isym = isymbuf + ELF32_R_SYM (irelscan->r_info);
++		case R_MICROBLAZE_64_PCREL:
++		  if (!microblaze_get_cached_contents (abfd, o, &ocontents))
++		    goto error_return;
++		  {
++		    unsigned long instr_hi = bfd_get_32 (abfd, ocontents
++							 + irelscan->r_offset);
++		    unsigned long instr_lo = bfd_get_32 (abfd, ocontents
++							 + irelscan->r_offset
++							 + INST_WORD_SIZE);
++		    bfd_vma immediate = (instr_hi & 0x0000ffff) << 16;
++
++		    immediate |= instr_lo & 0x0000ffff;
++		    offset = calc_fixup (immediate, 0, sec);
++		    immediate -= offset;
++		    irelscan->r_addend -= offset;
++		    microblaze_bfd_write_imm_value_64 (abfd,
++						       ocontents
++						       + irelscan->r_offset,
++						       immediate);
++		  }
++		  break;
+ 
+-		  /* Look at the reloc only if the value has been resolved.  */
+-		  if (isym->st_shndx == shndx
+-		      && (ELF32_ST_TYPE (isym->st_info) == STT_SECTION))
+-		    {
+-		      bfd_vma immediate;
+-		      bfd_vma target_address;
+-
+-		      if (ocontents == NULL)
+-			{
+-			  if (elf_section_data (o)->this_hdr.contents != NULL)
+-			    ocontents = elf_section_data (o)->this_hdr.contents;
+-			  else
+-			    {
+-			      /* We always cache the section contents.
+-				 Perhaps, if info->keep_memory is FALSE, we
+-				 should free them, if we are permitted to.  */
+-			      if (o->rawsize == 0)
+-				o->rawsize = o->size;
+-			      ocontents = (bfd_byte *) bfd_malloc (o->rawsize);
+-			      if (ocontents == NULL)
+-				goto error_return;
+-			      if (!bfd_get_section_contents (abfd, o, ocontents,
+-							     (file_ptr) 0,
+-							     o->rawsize))
+-				goto error_return;
+-			      elf_section_data (o)->this_hdr.contents = ocontents;
+-			    }
+-			}
+-	  unsigned long instr_hi =  bfd_get_32 (abfd, ocontents
+-						+ irelscan->r_offset);
+-	  unsigned long instr_lo =  bfd_get_32 (abfd, ocontents
+-						+ irelscan->r_offset
+-						+ INST_WORD_SIZE);
+-	  immediate = (instr_hi & 0x0000ffff) << 16;
+-	  immediate |= (instr_lo & 0x0000ffff);
+-		      target_address = immediate;
+-		      offset = calc_fixup (target_address, 0, sec);
+-		      immediate -= offset;
+-		      irelscan->r_addend -= offset;
+-	  microblaze_bfd_write_imm_value_64 (abfd, ocontents
+-					     + irelscan->r_offset, immediate);
+-		    }
++		default:
++		  if (microblaze_diff_reloc_p (r_type))
++		    irelscan->r_addend -= calc_fixup (irelscan->r_addend,
++						      0, sec);
++		  break;
+ 		}
+ 	    }
+ 	}
+diff --git a/ld/testsuite/ld-microblaze/relax-compressed-debug.d b/ld/testsuite/ld-microblaze/relax-compressed-debug.d
+new file mode 100644
+index 00000000000..9e330cb2c57
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-compressed-debug.d
+@@ -0,0 +1,13 @@
++#source: relax-compressed-debug.s
++#as: --compress-debug-sections=zlib-gabi
++#ld: -relax -T $srcdir/$subdir/relax-diff.ld
++#objdump: -s -j .debug_info
++#name: MicroBlaze relaxation with a compressed debug section
++
++# The IMM at 0x90000000 is deleted, so .Lafter is at 0x90000008.
++
++.*: +file format .*
++
++Contents of section \.debug_info:
++ 0000 90000008 00000000 00000000 00000000  .*
++#pass
+diff --git a/ld/testsuite/ld-microblaze/relax-compressed-debug.s b/ld/testsuite/ld-microblaze/relax-compressed-debug.s
+new file mode 100644
+index 00000000000..92c91172f67
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/relax-compressed-debug.s
+@@ -0,0 +1,22 @@
++/* A debug section assembled compressed, with a word against the code
++   section.  Relaxation adjusts the word's addend and must not need the
++   debug section's contents for that; it used to read them with
++   bfd_get_section_contents, which fails for a compressed section, and
++   the link stopped with "can't relax section".  */
++
++	.section .text.aaa,"ax",@progbits
++	.globl	_start
++_start:
++	brlid	r15, far
++	nop
++.Lafter:
++	nop
++
++	.section .text.zz,"ax",@progbits
++far:
++	rtsd	r15, 8
++	nop
++
++	.section .debug_info,"",@progbits
++	.4byte	.Lafter
++	.space	256
+-- 
+2.39.5 (Apple Git-154)
+
