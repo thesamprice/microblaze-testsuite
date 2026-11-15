@@ -42,35 +42,49 @@ speeds that up.
 Estimated clock cycles per call, mean over 4701 operand pairs, on QEMU,
 big-endian, with the libgcc series applied, before and after this
 series.  "5-stage" and "3-stage" are MicroBlaze with C_AREA_OPTIMIZED=0
-and 1:
+and 1.  The 5-stage figures are given with no branch target cache and
+with a perfect one; the cache is optional, and the 3-stage pipeline
+cannot have it.  The operands of __umoddi3 and __udivdi3 are never
+negative:
 
 	                  no options          barrel shifter,
 	                                      hw multiply
 	                  before    after     before    after
-	5-stage
+	5-stage, no branch target cache
 	  __moddi3         530.4    444.8      310.0    277.3
-	  __umoddi3        392.6    334.0      220.7    200.7
+	  __umoddi3        513.3    433.5      290.9    263.7
 	  __divdi3        1397.7    523.5      377.2    323.5
-	  __udivdi3       1012.9    379.3      271.0    224.2
+	  __udivdi3       1374.1    503.8      360.8    302.5
+	5-stage, perfect branch target cache
+	  __moddi3         455.0    343.9      273.3    215.2
+	  __umoddi3        439.9    351.6      256.9    221.2
+	  __divdi3        1310.7    412.2      336.4    258.5
+	  __udivdi3       1289.9    395.2      323.5    240.4
 	3-stage
 	  __moddi3         547.1    458.8      347.4    294.4
-	  __umoddi3        403.5    357.3      246.8    226.3
+	  __umoddi3        525.2    462.3      323.5    295.7
 	  __divdi3        1425.6    540.1      436.4    344.4
-	  __udivdi3       1036.9    390.3      317.1    237.9
+	  __udivdi3       1398.8    515.8      416.0    318.2
 
 With the divider nothing changes.  The slowest single call with no
 options, 5-stage, drops from 5527 to 1480 cycles for __divdi3 and from
-5601 to 1484 for __udivdi3; today's long division takes up to 4047 and
-4021.
+5601 to 1484 for __udivdi3 (5300 to 1130 and 5374 to 1132 with a
+perfect branch target cache); today's long division takes up to 4047
+and 4021 (3070 and 3062).
 
 The cycle counts are estimates.  A QEMU plugin counts the instructions
 each call executes and costs them with UG984's per-instruction
 latencies: 1 cycle for most, 34 or 35 for idiv, 1 or 3 for mul, 1 or 2
 for barrel shifts, loads and stores, and for a branch 1 cycle not
-taken, 2 taken with a delay slot and 3 without.  It assumes
-single-cycle local memory, no branch target cache and no data hazard
-stalls, which UG984 does not quantify.  I have not measured cycles on
-hardware.  On a hand-counted test loop the plugin's counts were exact.
+taken, 2 taken with a delay slot and 3 without; with a perfect branch
+target cache a taken branch costs 1.  It assumes single-cycle local
+memory.  The tables leave out UG984's data hazards: on the 5-stage
+pipeline an instruction that needs the result of a load, multiply or
+barrel shift from the instruction before stalls 1 or 2 cycles.
+Counted, they add at most 4 cycles per call in these columns, before
+and after this series alike; the 3-stage pipeline has none.  I have
+not measured cycles on hardware.  On a hand-counted test loop the
+plugin's counts were exact.
 
 Code size
 ---------
