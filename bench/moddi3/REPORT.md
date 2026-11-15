@@ -411,25 +411,87 @@ average.
 ## On a real no-divider target: Cortex-M0
 
 ARM Cortex-M0 (armv6-m) defines `TARGET_HAS_NO_HW_DIVIDE`, so the generic
-gcc patches 1 and 2 apply to it as they are. The routines were built from
-libgcc2.c, before and after, by Debian's `arm-none-eabi-gcc` 14.2 at
-`-O2 -mcpu=cortex-m0 -mthumb`. They ran on QEMU's `microbit` machine, a
-real Cortex-M0 model, and a TCG plugin counted instructions in the libgcc
-address range. Same 4701 vectors; all 108 runs correct. The scripts are in
-the session scratchpad (`gaps-arm/`), not in this repo.
+gcc patches 1 and 2 apply to it. Patch 2's remainder-only loop is opt-in
+(`LIBGCC2_MOD_WITHOUT_QUOTIENT`), and ARM does not opt in, so only patch
+1 changes ARM code; "forced" below defines the macro, as an earlier
+version of patch 2 did for every no-divider target.
 
-| routine | before | after | change |
+[`arm/run.sh`](arm/run.sh) measures it:
+
+- **Compiler:** Debian's `arm-none-eabi-gcc` 14.2, from the image
+  [`arm/Dockerfile`](arm/Dockerfile) builds.
+- **Objects:** each routine is built from the file libgcc builds it from,
+  with libgcc's own flags. [`arm/mkcmd.py`](arm/mkcmd.py) takes them from
+  an `arm-none-eabi` libgcc build of gcc `df809a029` (`--with-cpu=cortex-m0
+  --with-mode=thumb --disable-multilib`) and adds `-mcpu=cortex-m0 -mthumb`.
+  - From `lib1funcs.S`: `__aeabi_ldivmod`, `__aeabi_uldivmod`, `__clzsi2`,
+    `__clzdi2`.
+  - From `bpabi.c`: the AEABI helpers.
+  - From `libgcc2.c`: the rest. `__aeabi_lmul` is its `__muldi3`.
+
+  Only the `libgcc2.c` objects differ between the variants.
+- **Machine:** QEMU's `microbit`, a Cortex-M0 model.
+- **Counting:** [`arm/armcount.c`](arm/armcount.c), a TCG plugin, counts
+  each call's instructions in the libgcc objects' address range.
+  [`arm/checkcalls.py`](arm/checkcalls.py) refuses a link in which code in
+  that range branches out of it.
+- **Checks:** [`arm/summary.py`](arm/summary.py) checks that every result
+  was right, that there is one count per vector, and that the counts add
+  up to the plugin's total.
+- **Operands:** the same 4701 vectors as above, the unsigned routines' never
+  negative, plus the signed set for the unsigned routines too, as the
+  earlier figures had it.
+
+Saved results: [`results/arm-m0.txt`](results/arm-m0.txt). To reproduce
+(about 40 minutes, most of it the arm-none-eabi gcc build):
+
+```sh
+docker build -t mb-armgcc142 bench/moddi3/arm
+git -C work/src/gcc worktree add --detach work/arm-bench/gcc df809a029
+mkdir -p work/arm-bench/build && cd work/arm-bench/build
+../gcc/configure --target=arm-none-eabi --enable-languages=c \
+  --without-headers --with-newlib --disable-multilib \
+  --with-cpu=cortex-m0 --with-mode=thumb --with-float=soft \
+  --disable-libssp --disable-shared --disable-threads --disable-nls
+# on macOS add --with-gmp=/opt/homebrew --with-mpfr=/opt/homebrew --with-mpc=/opt/homebrew
+make -j8 all-gcc all-target-libgcc
+cd ../../..
+ARM_BUILD=work/arm-bench/build QEMU=qemu-system-arm OUT=work/arm-bench/out \
+  sh bench/moddi3/arm/run.sh
+```
+
+`run.sh` needs `qemu-system-arm` with plugin support and its
+`qemu-plugin.h`, `pkg-config` with glib, and Docker (or `ARM_CC` set to
+another `arm-none-eabi-gcc`, whose counts will differ).
+
+| routine | before | after | forced |
 |---|---:|---:|---:|
-| `__aeabi_ldivmod`, what C's signed `/` and `%` call | 487.7 | 483.6 | -0.9% |
-| `__aeabi_uldivmod`, what C's unsigned `/` and `%` call | 249.1 | 252.1 | **+1.2%** |
-| `__udivdi3` | 229.9 | 207.3 | -9.8% |
-| `__divdi3` | 406.5 | 402.3 | -1.0% |
-| `__moddi3` | 280.7 | 356.5 | **+27.0%** |
-| `__umoddi3` | 193.6 | 282.0 | **+45.7%** |
+| `__aeabi_ldivmod`, what C's signed `/` and `%` call | 484.6 | 480.2 (-0.9%) | |
+| `__aeabi_uldivmod`, what C's unsigned `/` and `%` call | 319.1 | 319.1 | |
+| `__udivdi3` | 298.8 | 270.8 (-9.4%) | |
+| `__divdi3` | 403.4 | 399.0 (-1.1%) | |
+| `__moddi3` | 278.4 | 278.4 | 353.4 (**+26.9%**) |
+| `__umoddi3` | 254.1 | 254.1 | 368.3 (**+44.9%**) |
 
-Every patched object is smaller (by 4 to 76 bytes).
+**Mean instructions per call.**
+- **Same code where the count holds.** `__moddi3`, `__umoddi3`,
+  `__udivmoddi4` and `__muldi3` compile to the same code before and after.
+- **Smaller where it changes.** `__divdi3` shrinks from 516 to 452 bytes
+  and `__udivdi3` from 392 to 316.
+- **On the signed operands**, as the earlier figures used: `__umoddi3`
+  189.9, `__udivdi3` 225.5 to 203.4, `__aeabi_uldivmod` 244.7, and
+  `__umoddi3` forced 276.8 (+45.8%).
 
-**Patch 2 loses on ARM.** On ARM EABI ordinary C never calls `__moddi3`
+**Earlier figures.** The first measurement, made 2026-11-07 with scripts
+that were not kept, gave 3 to 4 instructions per call more in every cell;
+its before-to-after changes agree with these to 0.1 points. This
+measurement replaces it.
+
+An earlier version of patch 1 also slowed the exported `__udivmoddi4`
+behind `__aeabi_uldivmod`, by 1.2%; the version in the series selects
+the change with the preprocessor, so that routine is unchanged.
+
+**Forced, patch 2 loses on ARM.** On ARM EABI ordinary C never calls `__moddi3`
 or `__umoddi3`: `%` goes through `__aeabi_ldivmod` (via `__divdi3`) and
 `__aeabi_uldivmod` (via `__udivmoddi4`). So only code that names them is
 slowed. The reason is the two machines' strengths:
@@ -442,10 +504,10 @@ slowed. The reason is the two machines' strengths:
   variable shift `__udivmoddi4` needs is a loop and the fused test saves
   a compare. That is why the same change wins on MicroBlaze.
 
-**Patch 1 is mixed on ARM.** It wins where the remainder is dead
-(`__udivdi3`, `__divdi3`), and loses 1.2% on the exported `__udivmoddi4`
-behind `__aeabi_uldivmod`. Keeping the 64-bit `bit` live across the loop
-spills on Thumb-1's eight low registers.
+**Patch 1 wins on ARM where the remainder is dead** (`__udivdi3`,
+`__divdi3`). The earlier version that kept the 64-bit `bit` live across
+the exported `__udivmoddi4`'s loop spilled on Thumb-1's eight low
+registers; the series' version leaves that routine alone.
 
 So the two "generic" patches are MicroBlaze wins, not general ones. See
 "Suggested follow-ups" for the options.

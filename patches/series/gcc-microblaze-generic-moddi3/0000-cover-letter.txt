@@ -90,26 +90,25 @@ on hardware.
 
 On Cortex-M0 (armv6-m), which defines TARGET_HAS_NO_HW_DIVIDE but not
 the new macro, mean instructions per call (not cycles) on QEMU's
-microbit machine, with the routines built by arm-none-eabi-gcc 14.2 at
--O2:
+microbit machine, with the routines built by arm-none-eabi-gcc 14.2
+with libgcc's own flags (-O2), over the same operands:
 
                        before   after
-  __aeabi_ldivmod       487.7   483.6
-  __aeabi_uldivmod      249.1   249.1
-  __udivdi3             229.9   207.3
-  __divdi3              406.5   402.3
-  __moddi3              280.7   280.7
-  __umoddi3             193.6   193.6
+  __aeabi_ldivmod       484.6   480.2
+  __aeabi_uldivmod      319.1   319.1
+  __udivdi3             298.8   270.8
+  __divdi3              403.4   399.0
+  __moddi3              278.4   278.4
+  __umoddi3             254.1   254.1
 
 On ARM EABI, C's 64-bit / and % call __aeabi_ldivmod and
 __aeabi_uldivmod.  Nothing gets slower, and the routines left at the
-same count compile to the same code.  These runs gave the unsigned
-routines the signed operands' bit patterns, so about half of their
-operands are 2^63 or more and the quotients are short.  2/3 is opt-in because an earlier
+same count compile to the same code.  2/3 is opt-in because an earlier
 version applied it to every target without a divider, and on Cortex-M0
-it made __moddi3 and __umoddi3 27% and 46% slower: ARM shifts a double
-word left in two instructions and compares with flags, so
-__udivmoddi4's existing loop suits it.
+it made __moddi3 and __umoddi3 27% and 46% slower (with the macro
+defined, 278.4 to 353.4 and, on signed operands, 189.9 to 276.8): ARM
+shifts a double word left in two instructions and compares with flags,
+so __udivmoddi4's existing loop suits it.
 
 Tested with gcc.c-torture/execute.exp on qemu-system-microblaze,
 machine petalogix-s3adsp1800, against gcc master df809a029:

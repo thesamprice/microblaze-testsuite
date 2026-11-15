@@ -1,0 +1,73 @@
+# Cortex-M0 instruction counts, made by bench/moddi3/arm/run.sh
+# gcc df809a029 libgcc, before and after patches/gcc/0001-0002
+# QEMU 11.0.2, machine microbit
+
+arm-none-eabi-gcc (15:14.2.rel1-1) 14.2.1 20241119
+routine            vectors  variant      mean    min    max
+__moddi3           signed   before      278.4     28    949
+__moddi3           signed   after       278.4     28    949
+__moddi3           signed   forced      353.4     30   1124
+__umoddi3          unsigned before      254.1     16    929
+__umoddi3          unsigned after       254.1     16    929
+__umoddi3          unsigned forced      368.3     20   1241
+__umoddi3          signed   before      189.9     16    929
+__umoddi3          signed   after       189.9     16    929
+__umoddi3          signed   forced      276.8     20   1241
+__divdi3           signed   before      403.4     32   1475
+__divdi3           signed   after       399.0     30   1468
+__udivdi3          unsigned before      298.8     26   1094
+__udivdi3          unsigned after       270.8     20    957
+__udivdi3          signed   before      225.5     26   1094
+__udivdi3          signed   after       203.4     20    957
+__aeabi_ldivmod    signed   before      484.6    112   1557
+__aeabi_ldivmod    signed   after       480.2    110   1550
+__aeabi_uldivmod   unsigned before      319.1     43   1117
+__aeabi_uldivmod   unsigned after       319.1     43   1117
+__aeabi_uldivmod   signed   before      244.7     43   1117
+__aeabi_uldivmod   signed   after       244.7     43   1117
+
+Mean per class: edge, small, wide/narrow, wide/wide, mixed
+__moddi3           signed   before     225.2    167.3    608.8     78.2    296.6
+__moddi3           signed   after      225.2    167.3    608.8     78.2    296.6
+__moddi3           signed   forced     276.8    170.6    834.9     83.9    377.8
+__umoddi3          unsigned before     190.8    145.7    583.9     57.7    273.6
+__umoddi3          unsigned after      190.8    145.7    583.9     57.7    273.6
+__umoddi3          unsigned forced     274.9    164.7    910.4     67.4    396.3
+__umoddi3          signed   before     190.8    204.5    293.3     66.6    194.6
+__umoddi3          signed   after      190.8    204.5    293.3     66.6    194.6
+__umoddi3          signed   forced     274.9    295.0    455.7     72.2    285.4
+__divdi3           signed   before     321.0    223.7    922.5     90.8    434.3
+__divdi3           signed   after      315.8    215.5    920.4     91.4    426.9
+__udivdi3          unsigned before     227.3    179.3    664.6     76.8    324.5
+__udivdi3          unsigned after      204.0    158.0    611.9     67.9    292.0
+__udivdi3          signed   before     227.3    242.1    336.8     88.9    233.0
+__udivdi3          signed   after      204.0    217.9    308.9     78.0    208.3
+__aeabi_ldivmod    signed   before     402.1    305.3   1004.1    171.3    515.4
+__aeabi_ldivmod    signed   after      396.9    297.0   1002.1    171.9    508.0
+__aeabi_uldivmod   unsigned before     246.4    200.1    687.6     94.3    345.2
+__aeabi_uldivmod   unsigned after      246.4    200.1    687.6     94.3    345.2
+__aeabi_uldivmod   signed   before     246.4    261.6    356.7    106.9    252.3
+__aeabi_uldivmod   signed   after      246.4    261.6    356.7    106.9    252.3
+
+## run.sh results.txt
+__moddi3 before s status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1308710
+__moddi3 after s status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1308710
+__moddi3 forced s status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1661353
+__umoddi3 before u status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1194625
+__umoddi3 after u status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1194625
+__umoddi3 forced u status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1731451
+__umoddi3 before s status=0 BENCH bad=0 ARMCOUNT calls=4701 total=892780
+__umoddi3 after s status=0 BENCH bad=0 ARMCOUNT calls=4701 total=892780
+__umoddi3 forced s status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1301002
+__divdi3 before s status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1896304
+__divdi3 after s status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1875647
+__udivdi3 before u status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1404506
+__udivdi3 after u status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1272874
+__udivdi3 before s status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1060114
+__udivdi3 after s status=0 BENCH bad=0 ARMCOUNT calls=4701 total=956065
+__aeabi_ldivmod before s status=0 BENCH bad=0 ARMCOUNT calls=4701 total=2277906
+__aeabi_ldivmod after s status=0 BENCH bad=0 ARMCOUNT calls=4701 total=2257249
+__aeabi_uldivmod before u status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1499909
+__aeabi_uldivmod after u status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1499909
+__aeabi_uldivmod before s status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1150348
+__aeabi_uldivmod after s status=0 BENCH bad=0 ARMCOUNT calls=4701 total=1150348
