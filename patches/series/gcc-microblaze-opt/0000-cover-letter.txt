@@ -1,10 +1,10 @@
-microblaze: 64-bit add immediates, lwr/swr, and shift costs
+microblaze: 64-bit add immediates, lwr/swr, shift costs, sibcalls, odd pairs
 
-Three MicroBlaze code-quality patches.  They apply to master df809a029
+Five MicroBlaze code-quality patches.  They apply to master df809a029
 with the other MicroBlaze series listed in NOTES.md (not without them:
 the context in microblaze.cc and microblaze-protos.h differs).
 
-1/3 add 64-bit constants with addi and addic
+1/5 add 64-bit constants with addi and addic
 
   adddi3's predicate and its immediate constraints had no constant in
   common, so x + 1 went through a register pair: six instructions with
@@ -13,7 +13,7 @@ the context in microblaze.cc and microblaze-protos.h differs).
   libgcc.a 75624 -> 75524; 27 of 1645 test files smaller at -O2, none
   larger.
 
-2/3 use lwr and swr for byte-reversed loads and stores
+2/5 use lwr and swr for byte-reversed loads and stores
 
   The only pattern for them took bswap:SI of an SFmode operand, which
   no RTL has, so __builtin_bswap32 (*p) was lw and swapb.  New patterns
@@ -21,7 +21,7 @@ the context in microblaze.cc and microblaze-protos.h differs).
   byte-swap loop at -O2 -mcpu=v10.0: 6158 -> 5134 instructions under
   QEMU.
 
-3/3 cost shifts by what they expand to without a barrel shifter
+3/5 cost shifts by what they expand to without a barrel shifter
 
   With a multiplier but no barrel shifter, every shift was costed as
   one instruction, though only a left shift by a constant (muli) is.
@@ -30,9 +30,41 @@ the context in microblaze.cc and microblaze-protos.h differs).
   instructions instead of 40014.  With the default options, text over
   1646 test files goes from 3126036 to 3125312 bytes at -O2.
 
+4/5 add sibcall patterns
+
+  Every call in tail position was a brlid followed by the epilogue and
+  an rtsd.  Now the epilogue without the return, then brid (or brad
+  r12).  The epilogue records its restores and CFA changes in the CFI,
+  which dwarf2cfi needs once epilogues are cross-jumped.  1000 calls to
+  a one-call wrapper: 20012 -> 15012 instructions; mutual recursion
+  1000 deep: 9011 -> 3010.  Text at -Os over 1646 test files 3121940 ->
+  3120312 bytes (85 files smaller, 18 larger).  A wrapper that calls
+  and then tail-calls the same function costs one instruction more per
+  call (28010 -> 29010 for 1000), its argument now kept in a saved
+  register.  gcc.dg/sibcall-3, -4, -9 and -10 now pass.
+
+5/5 allow 64-bit values in odd register pairs
+
+  DImode and DFmode were allowed only in even pairs, though the ABI
+  returns them in r3:r4 and passes the first in r5:r6, so every 64-bit
+  argument and result was copied with two addk.  Patterns that write
+  one word before reading the other of an overlapping input now check
+  for it.  A loop calling three small 64-bit functions: 21% fewer
+  instructions big-endian, 23% little-endian; text over 1653 test files
+  -0.11% at -O2 and -0.13% at -Os; libm.a -1.0%.  The largest growth is
+  pr58574.c, +456 bytes.
+
 Tested on microblaze-elf and microblazeel-elf, QEMU 10.2.4, newlib,
-execute.exp and microblaze.exp together: 25474 PASS, 4 FAIL before and
-25527 PASS, 4 FAIL after, on both, with no new failure.  microblaze.exp
-was also run with four other option sets, with no new failure.  The
+execute.exp and microblaze.exp together, with no new failure on either:
+
+  before            25474 PASS, 4 FAIL
+  with 1/5-3/5      25527 PASS, 4 FAIL
+  with 1/5-4/5      25580 PASS, 4 FAIL
+  with 1/5-5/5      25615 PASS, 4 FAIL
+
+microblaze.exp was also run with four other option sets, with no new
+failure (3978 PASS, 96 FAIL with 4/5 and 4102 PASS, 96 FAIL with 5/5),
+dg.exp=sibcall* with 4/5 (18 PASS, 0 FAIL; 14 PASS, 4 FAIL before),
+and gcc.dg/torture *64* with 5/5 (892 PASS, 0 FAIL, both endians).  The
 four FAILs are scan-assembler-not tests from earlier series that
 matched the .file directive, since fixed in those series.

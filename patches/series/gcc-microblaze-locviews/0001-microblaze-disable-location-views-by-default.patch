@@ -1,0 +1,170 @@
+From 6668ef9b714bf9bab9e1fab1e2b2354dc188e1d9 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 14:51:57 -0500
+Subject: [PATCH] microblaze: disable location views by default
+
+From -O1 with -g, var-tracking turns on location views, and gcc's own
+line table (MicroBlaze sets DWARF2_ASM_LINE_DEBUG_INFO to 0) then
+advances the address with DW_LNS_advance_pc and a
+".uleb128 $LMn-$LMm" difference instead of DW_LNE_set_address.  The
+assembler resolves that difference, so the linker cannot adjust it
+when it relaxes, which LINK_SPEC asks for by default, and deletes IMM
+instructions; every row after a deleted IMM then points at the wrong
+instruction.  DW_LNE_set_address carries an R_MICROBLAZE_32
+relocation, which the linker does adjust.
+
+Over 9 gcc.c-torture/execute tests and 4 newlib files at -O2 -g
+(17575 line rows, 1777 IMMs deleted by relaxation), linked with
+binutils that lack relocations for label differences, 9254 rows were
+wrong after a relaxed link, 969 of them in the middle of an IMM pair
+and 413 outside their function.  With -gno-variable-location-views
+none are wrong (15101 rows).
+
+Turn the views off unless -g[no-]variable-location-views is given.
+This costs the view numbers that tell apart several variable
+locations at one address.  It can be lifted once the assembler emits
+relocations for code label differences and the linker updates them
+when relaxing.  DW_AT_entry_pc of inlined subroutines goes with the
+views, as with -gno-variable-location-views; inline2.c and inline6.c
+count them, so ask for views there.
+
+Location lists, range lists and DW_AT_high_pc use label differences
+as well, and there is no option that avoids them with DWARF 5: over
+the same files 4924 of 7916 location list entries, 344 of 1339 range
+list entries and 206 of 585 DW_AT_high_pc values are wrong after
+relaxation, with or without views.  This patch does not change them.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.cc (microblaze_option_override):
+	Disable -gvariable-location-views unless it is given.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.dg/debug/dwarf2/inline2.c: Add -gvariable-location-views
+	for microblaze.
+	* gcc.dg/debug/dwarf2/inline6.c: Likewise.
+	* gcc.target/microblaze/others/locviews-default.c: New test.
+	* gcc.target/microblaze/others/locviews-explicit.c: New test.
+---
+ gcc/config/microblaze/microblaze.cc           | 18 +++++++++++++++
+ gcc/testsuite/gcc.dg/debug/dwarf2/inline2.c   |  2 ++
+ gcc/testsuite/gcc.dg/debug/dwarf2/inline6.c   |  2 ++
+ .../microblaze/others/locviews-default.c      | 22 +++++++++++++++++++
+ .../microblaze/others/locviews-explicit.c     | 18 +++++++++++++++
+ 5 files changed, 62 insertions(+)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/locviews-default.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/locviews-explicit.c
+
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index 234851652..bf47f11e2 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -1969,6 +1969,24 @@ microblaze_option_override (void)
+   if (TARGET_MULTIPLY_HIGH && TARGET_SOFT_MUL)
+     error ("%<-mxl-multiply-high%> requires %<-mno-xl-soft-mul%>");
+ 
++  /* Location views make the line table advance the address with
++     DW_LNS_advance_pc and a ".uleb128 $LMn-$LMm" label difference
++     instead of DW_LNE_set_address.  The assembler resolves that
++     difference, so it is not adjusted when the linker relaxes (the
++     default, see LINK_SPEC) and deletes IMM instructions in between;
++     the rows after it then point at the wrong instructions.
++     DW_LNE_set_address carries an R_MICROBLAZE_32 relocation, which
++     the linker does adjust.  Turn the views off unless asked for; this
++     can be lifted once the assembler emits relocations for such
++     differences and the linker updates them when relaxing.  The value
++     has to be marked as set, or process_options would compute its own
++     default after this hook.  */
++  if (!OPTION_SET_P (debug_variable_location_views))
++    {
++      debug_variable_location_views = 0;
++      global_options_set.x_debug_variable_location_views = 1;
++    }
++
+   /* Always use DFA scheduler.  */
+   microblaze_sched_use_dfa = 1;
+ 
+diff --git a/gcc/testsuite/gcc.dg/debug/dwarf2/inline2.c b/gcc/testsuite/gcc.dg/debug/dwarf2/inline2.c
+index f5d7e4efd..7066df94b 100644
+--- a/gcc/testsuite/gcc.dg/debug/dwarf2/inline2.c
++++ b/gcc/testsuite/gcc.dg/debug/dwarf2/inline2.c
+@@ -17,6 +17,8 @@
+ /* Explicitly use dwarf-2 because dwarf-5 might use DW_FORM_implicit_const
+    which is hard to scan for. */
+ /* { dg-options "-O -g3 -gdwarf-2 -gno-strict-dwarf -dA -fgnu89-inline" } */
++/* MicroBlaze turns location views off by default.  */
++/* { dg-additional-options "-gvariable-location-views" { target microblaze*-*-* } } */
+ /* { dg-do compile } */
+ 
+ /* There are 6 inlined subroutines:
+diff --git a/gcc/testsuite/gcc.dg/debug/dwarf2/inline6.c b/gcc/testsuite/gcc.dg/debug/dwarf2/inline6.c
+index f271ebbcc..34772c0eb 100644
+--- a/gcc/testsuite/gcc.dg/debug/dwarf2/inline6.c
++++ b/gcc/testsuite/gcc.dg/debug/dwarf2/inline6.c
+@@ -17,6 +17,8 @@
+ /* Explicitly use dwarf-5 which uses DW_FORM_implicit_const.  */
+ /* { dg-do compile } */
+ /* { dg-options "-O -g3 -gdwarf-5 -gno-strict-dwarf -dA -fgnu89-inline -gno-as-loc-support" } */
++/* MicroBlaze turns location views off by default.  */
++/* { dg-additional-options "-gvariable-location-views" { target microblaze*-*-* } } */
+ 
+ /* There are 6 inlined subroutines:
+    - One for each subroutine inlined into main, that's 3.
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/locviews-default.c b/gcc/testsuite/gcc.target/microblaze/others/locviews-default.c
+new file mode 100644
+index 000000000..3d564a39f
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/locviews-default.c
+@@ -0,0 +1,22 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -g -dA" } */
++/* { dg-skip-if "no assembly" { *-*-* } { "-fno-fat-lto-objects" } { "" } } */
++
++/* Location views are off by default: the line table advances the address
++   with DW_LNE_set_address, which the linker adjusts when it relaxes, and
++   not with a ".uleb128 $LMn-$LMm" difference, which it does not.  */
++
++extern int g (int);
++
++int
++f (int n)
++{
++  int s = 0;
++  for (int i = 0; i < n; i++)
++    s += g (i);
++  return s;
++}
++
++/* { dg-final { scan-assembler {set address \*\$LM[0-9]+} } } */
++/* { dg-final { scan-assembler-not {\.uleb128[ \t]+\$LM[0-9]+-\$LM[0-9]+} } } */
++/* { dg-final { scan-assembler-not {DW_AT_GNU_locviews} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/locviews-explicit.c b/gcc/testsuite/gcc.target/microblaze/others/locviews-explicit.c
+new file mode 100644
+index 000000000..e2013a761
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/locviews-explicit.c
+@@ -0,0 +1,18 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -g -dA -gvariable-location-views" } */
++/* { dg-skip-if "no assembly" { *-*-* } { "-fno-fat-lto-objects" } { "" } } */
++
++/* Location views can still be asked for.  */
++
++extern int g (int);
++
++int
++f (int n)
++{
++  int s = 0;
++  for (int i = 0; i < n; i++)
++    s += g (i);
++  return s;
++}
++
++/* { dg-final { scan-assembler {\.uleb128[ \t]+\$LM[0-9]+-\$LM[0-9]+} } } */
+-- 
+2.39.5 (Apple Git-154)
+

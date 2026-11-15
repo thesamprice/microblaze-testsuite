@@ -1,0 +1,139 @@
+From 9f88f3cbfda32b764dc76bd19da3fe6b0939a6fc Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 14:29:29 -0500
+Subject: [PATCH] ld: microblaze: create the GOT for R_MICROBLAZE_GOTPC_64
+
+gcc -fpic code loads the GOT pointer with
+
+	mfs	r20, rpc
+	addik	r20, r20, _GLOBAL_OFFSET_TABLE_+8
+
+which is an R_MICROBLAZE_GOTPC_64 against _GLOBAL_OFFSET_TABLE_.  A
+function that calls only through the PLT makes no other GOT reference,
+and microblaze_elf_check_relocs did not handle GOTPC, so in a static
+link nothing created .got/.got.plt.  _GLOBAL_OFFSET_TABLE_ was then
+undefined, and after reporting that, microblaze_elf_relocate_section
+dereferenced the NULL htab->elf.sgotplt and ld died with SIGSEGV.
+gcc.dg/20001012-1.c, pic-macro-define.c and 20050321-2.c, which the
+fpic effective target expects to link and run, all hit this.
+
+Create the GOT for GOTPC as is already done for GOTOFF, and as arm and
+s390 do for their GOTPC relocs.  _bfd_elf_create_got_section defines
+_GLOBAL_OFFSET_TABLE_ at the start of .got.plt, which is what the
+reloc computes against, so the link succeeds and the program runs.
+Also report an error rather than crash if relocate_section ever sees
+GOTPC without a GOT.
+
+bfd/
+	* elf32-microblaze.c (microblaze_elf_check_relocs): Create the
+	GOT for R_MICROBLAZE_GOTPC_64.
+	(microblaze_elf_relocate_section): Report an error for
+	R_MICROBLAZE_GOTPC_64 if there is no .got.plt.
+
+ld/
+	* testsuite/ld-microblaze/gotpc-static.d: New test.
+	* testsuite/ld-microblaze/gotpc-static.s: New file.
+	* testsuite/ld-microblaze/gotpc-static.ld: New file.
+
+Assisted-by: Claude <noreply@anthropic.com>
+---
+ bfd/elf32-microblaze.c                     | 16 ++++++++++++++++
+ ld/testsuite/ld-microblaze/gotpc-static.d  | 17 +++++++++++++++++
+ ld/testsuite/ld-microblaze/gotpc-static.ld |  7 +++++++
+ ld/testsuite/ld-microblaze/gotpc-static.s  | 12 ++++++++++++
+ 4 files changed, 52 insertions(+)
+ create mode 100644 ld/testsuite/ld-microblaze/gotpc-static.d
+ create mode 100644 ld/testsuite/ld-microblaze/gotpc-static.ld
+ create mode 100644 ld/testsuite/ld-microblaze/gotpc-static.s
+
+diff --git a/bfd/elf32-microblaze.c b/bfd/elf32-microblaze.c
+index e8e90969b7e..1d0708aabff 100644
+--- a/bfd/elf32-microblaze.c
++++ b/bfd/elf32-microblaze.c
+@@ -1771,6 +1771,18 @@ microblaze_elf_relocate_section (struct bfd_link_info *info,
+ 	      break;
+ 
+ 	    case (int) R_MICROBLAZE_GOTPC_64:
++	      if (htab->elf.sgotplt == NULL)
++		{
++		  /* check_relocs creates the GOT for this reloc; if it
++		     didn't run on this section, don't crash.  */
++		  _bfd_error_handler
++		    /* xgettext:c-format */
++		    (_("%pB(%pA+%#" PRIx64 "): %s relocation without a GOT"),
++		     input_bfd, input_section, (uint64_t) offset, howto->name);
++		  bfd_set_error (bfd_error_bad_value);
++		  ret = false;
++		  break;
++		}
+ 	      relocation = (htab->elf.sgotplt->output_section->vma
+ 			    + htab->elf.sgotplt->output_offset);
+ 	      relocation -= (input_section->output_section->vma
+@@ -3247,6 +3259,10 @@ microblaze_elf_check_relocs (bfd * abfd,
+ 	    }
+ 	  break;
+ 
++	  /* These relocs need the GOT to exist, and _GLOBAL_OFFSET_TABLE_
++	     to be defined at its start, but no GOT entry.  A static -fpic
++	     program may have GOTPC relocs and no other GOT reference.  */
++	case R_MICROBLAZE_GOTPC_64:
+ 	case R_MICROBLAZE_GOTOFF_64:
+ 	case R_MICROBLAZE_GOTOFF_32:
+ 	  if (htab->elf.sgot == NULL)
+diff --git a/ld/testsuite/ld-microblaze/gotpc-static.d b/ld/testsuite/ld-microblaze/gotpc-static.d
+new file mode 100644
+index 00000000000..4e4ed4ededd
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/gotpc-static.d
+@@ -0,0 +1,17 @@
++#source: gotpc-static.s
++#ld: -static -T $srcdir/$subdir/gotpc-static.ld
++#objdump: -dt
++#name: MicroBlaze static link with only a GOTPC reference
++
++# _GLOBAL_OFFSET_TABLE_ is defined at the start of .got.plt, and r20 is
++# set to it: 0x2000 - 0x1000 (the address of the mfs).
++
++#...
++0+2000 l     O \.got	0+ _GLOBAL_OFFSET_TABLE_
++#...
++0+1000 <_start>:
++ +1000:	96808000 	mfs	r20, rpc
++ +1004:	b0000000 	imm	0
++ +1008:	32941000 	addik	r20, r20, 4096
++ +100c:	b8000000 	bri	0.*
++#pass
+diff --git a/ld/testsuite/ld-microblaze/gotpc-static.ld b/ld/testsuite/ld-microblaze/gotpc-static.ld
+new file mode 100644
+index 00000000000..f683f0b84c6
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/gotpc-static.ld
+@@ -0,0 +1,7 @@
++SECTIONS
++{
++  . = 0x1000;
++  .text : { *(.text) }
++  . = 0x2000;
++  .got : { *(.got.plt) *(.got) }
++}
+diff --git a/ld/testsuite/ld-microblaze/gotpc-static.s b/ld/testsuite/ld-microblaze/gotpc-static.s
+new file mode 100644
+index 00000000000..bbc3d39e89d
+--- /dev/null
++++ b/ld/testsuite/ld-microblaze/gotpc-static.s
+@@ -0,0 +1,12 @@
++/* A static link of gcc -fpic code: main sets up r20 with a GOTPC reloc
++   against _GLOBAL_OFFSET_TABLE_ but makes no other GOT reference.
++   check_relocs did not create the GOT for R_MICROBLAZE_GOTPC_64, so
++   _GLOBAL_OFFSET_TABLE_ was undefined and relocate_section crashed
++   dereferencing the NULL .got.plt.  */
++
++	.text
++	.globl	_start
++_start:
++	mfs	r20, rpc
++	addik	r20, r20, _GLOBAL_OFFSET_TABLE_+8
++	bri	0
+-- 
+2.39.5 (Apple Git-154)
+

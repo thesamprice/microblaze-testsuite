@@ -1,7 +1,7 @@
 From 5d46d219044f9f4509d5da99a6fecfbe0f501ce1 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 15 Nov 2026 03:06:38 -0500
-Subject: [PATCH 2/3] microblaze: use lwr and swr for byte-reversed loads and
+Subject: [PATCH 2/5] microblaze: use lwr and swr for byte-reversed loads and
  stores
 
 With the reorder instructions (-mxl-reorder, on by default for -mcpu=

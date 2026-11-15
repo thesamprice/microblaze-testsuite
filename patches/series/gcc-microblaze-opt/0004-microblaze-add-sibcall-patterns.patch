@@ -1,0 +1,713 @@
+From 7793f80abbb3f9f7d0ef097363747a324f339d2a Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 12:29:46 -0500
+Subject: [PATCH 4/5] microblaze: add sibcall patterns
+
+MicroBlaze had no sibcall patterns, so every call in tail position was
+a brlid followed by the epilogue and an rtsd.  Add them.  The sibling
+call epilogue is the normal one without the return: it restores r15,
+the callee-saved registers and sp, then the call is a brid to the
+callee, which returns through the restored r15 to this function's
+caller.  Should the callee's address not be a symbol, the expanders
+copy it to r12, a volatile register that no epilogue restores and no
+argument uses, and the call is a brad r12.
+
+microblaze_function_ok_for_sibcall rejects:
+- calls without a decl, as the address may live in a register the
+  epilogue restores;
+- all PIC code, where the call goes through the PLT and the GOT
+  pointer would have to survive the epilogue;
+- interrupt_handler, fast_interrupt and break_handler functions, which
+  return with rtid or rtbd, and save_volatiles functions, which must
+  restore the volatile registers after the callee has run;
+- calls to interrupt, fast interrupt and break handlers, which expect
+  to be entered by an interrupt or by brki.
+
+The epilogue now records its restores and its CFA changes in the CFI:
+REG_CFA_RESTORE on each register load, REG_CFA_DEF_CFA when sp is set
+from the frame pointer and when the frame is released.  Without these
+notes, building newlib's ssp/gets_chk.c with -O2 -g failed in
+maybe_record_trace_start: shrink-wrapping left one path to a tail call
+without a frame, cross-jumping merged it into the sibling call
+epilogue of a path with one, and dwarf2cfi saw two CFAs where they
+joined.  The notes are on the normal epilogue too, not only the
+sibling call one: cfgcleanup hoisted the r15 load common to both
+epilogues of pr49390.c above the branch between them, and the hoisted
+insn kept the notes of one, which failed the same way at -O3 -g.
+
+The blockage that the separate fix for the dynamic area (setting sp
+from the frame pointer only after the last access to it) emits in
+microblaze_expand_epilogue is in the code both epilogues share, so the
+sibling call epilogue gets it as well.
+
+The strlen-pcmpbf tests scanned for brlid r15,strlen; strlen is in
+tail position there and is now reached with brid.  Accept either.
+
+Under QEMU at -O2, 1000 calls to a wrapper that tail-calls a leaf take
+15012 instructions instead of 20012, and even/odd mutual recursion
+1000 deep 3010 instead of 9011.  A wrapper that calls the leaf and then
+tail-calls it takes 29010 instead of 28010: its argument must now
+survive the first call in a callee-saved register, saved and restored,
+rather than in its incoming argument slot, which a sibling call may
+overwrite.  Over gcc.c-torture/execute and gcc.target/microblaze, 1646
+files, text size at -Os goes from 3121940 to 3120312 bytes compared
+with -fno-optimize-sibling-calls (85 files smaller by 1888 bytes, 18
+larger by 260).
+
+Tested on microblaze-elf and microblazeel-elf under QEMU:
+gcc.c-torture/execute.exp and gcc.target/microblaze, with no new
+failures, and microblaze.exp with four -mcpu variants on
+microblaze-elf.  gcc.dg/sibcall-3.c, sibcall-4.c, sibcall-9.c and
+sibcall-10.c, which check that a sibling call reuses the frame, now
+pass.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze-protos.h
+	(microblaze_expand_epilogue): Take a bool.
+	* config/microblaze/microblaze.cc (save_restore_insns): Add a
+	REG_CFA_RESTORE note to each restore.
+	(microblaze_function_ok_for_sibcall): New function.
+	(microblaze_expand_epilogue): Add SIBCALL_P parameter, and omit
+	the return when it is true.  Add REG_CFA_RESTORE and
+	REG_CFA_DEF_CFA notes.
+	(TARGET_FUNCTION_OK_FOR_SIBCALL): Define.
+	* config/microblaze/microblaze.h (MB_ABI_SIBCALL_REGNUM): Define.
+	* config/microblaze/microblaze.md (epilogue): Update call to
+	microblaze_expand_epilogue.
+	(sibcall_epilogue, sibcall, sibcall_internal, sibcall_value)
+	(sibcall_value_internal): New patterns.
+	* config/microblaze/predicates.md (sibcall_insn_operand): New
+	predicate.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/isa/strlen-pcmpbf-nopcmp.c: Accept a
+	sibling call to strlen.
+	* gcc.target/microblaze/isa/strlen-pcmpbf-os.c: Likewise.
+	* gcc.target/microblaze/isa/strlen-pcmpbf-unaligned.c: Likewise.
+	* gcc.target/microblaze/isa/sibcall-pic.c: New test.
+	* gcc.target/microblaze/isa/sibcall.c: New test.
+	* gcc.target/microblaze/others/sibcall-cfi-fp.c: New test.
+	* gcc.target/microblaze/others/sibcall-cfi.c: New test.
+	* gcc.target/microblaze/others/sibcall-run.c: New test.
+---
+ gcc/config/microblaze/microblaze-protos.h     |   2 +-
+ gcc/config/microblaze/microblaze.cc           |  81 ++++++++++--
+ gcc/config/microblaze/microblaze.h            |   3 +
+ gcc/config/microblaze/microblaze.md           |  86 +++++++++++-
+ gcc/config/microblaze/predicates.md           |   7 +
+ .../gcc.target/microblaze/isa/sibcall-pic.c   |   9 ++
+ .../gcc.target/microblaze/isa/sibcall.c       |  22 ++++
+ .../microblaze/isa/strlen-pcmpbf-nopcmp.c     |   3 +-
+ .../microblaze/isa/strlen-pcmpbf-os.c         |   3 +-
+ .../microblaze/isa/strlen-pcmpbf-unaligned.c  |   3 +-
+ .../microblaze/others/sibcall-cfi-fp.c        |  38 ++++++
+ .../microblaze/others/sibcall-cfi.c           |  37 ++++++
+ .../microblaze/others/sibcall-run.c           | 124 ++++++++++++++++++
+ 13 files changed, 403 insertions(+), 15 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/sibcall-pic.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/sibcall.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/sibcall-cfi-fp.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/sibcall-cfi.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/sibcall-run.c
+
+diff --git a/gcc/config/microblaze/microblaze-protos.h b/gcc/config/microblaze/microblaze-protos.h
+index 90c532b1d..828be867e 100644
+--- a/gcc/config/microblaze/microblaze-protos.h
++++ b/gcc/config/microblaze/microblaze-protos.h
+@@ -29,7 +29,7 @@ extern int pic_address_needs_scratch (rtx);
+ extern bool microblaze_constant_address_p (rtx x);
+ extern void expand_block_move        (rtx *);
+ extern void microblaze_expand_prologue (void);
+-extern void microblaze_expand_epilogue (void);
++extern void microblaze_expand_epilogue (bool);
+ extern void override_options (void);
+ extern int microblaze_expand_shift (rtx *);
+ extern bool microblaze_dword_overlap_p (rtx, bool, rtx, bool);
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index 2415e6993..e58ffc770 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -2139,6 +2139,40 @@ microblaze_save_volatiles (tree func)
+   return a != NULL_TREE;
+ }
+ 
++/* Implement TARGET_FUNCTION_OK_FOR_SIBCALL.  A sibling call restores
++   the caller's frame and branches to the callee, which returns to the
++   caller's caller through r15.  */
++
++static bool
++microblaze_function_ok_for_sibcall (tree decl, tree exp ATTRIBUTE_UNUSED)
++{
++  /* Indirect calls would need a register that the epilogue keeps.  */
++  if (!decl)
++    return false;
++
++  /* PLT calls and the GOT pointer are not worth the trouble.  */
++  if (flag_pic)
++    return false;
++
++  /* Interrupt and break handlers return with rtid or rtbd, and
++     save_volatiles functions must restore the volatile registers after
++     the callee has run.  */
++  if (microblaze_interrupt_function_p (current_function_decl)
++      || microblaze_fast_interrupt_function_p (current_function_decl)
++      || microblaze_break_function_p (current_function_decl)
++      || microblaze_save_volatiles (current_function_decl))
++    return false;
++
++  /* Nor branch to one: a break handler is entered with brki, and an
++     interrupt handler expects to be entered by an interrupt.  */
++  if (microblaze_interrupt_function_p (decl)
++      || microblaze_fast_interrupt_function_p (decl)
++      || microblaze_break_function_p (decl))
++    return false;
++
++  return true;
++}
++
+ /* Return whether function is tagged with 'interrupt_handler',
+    'fast_interrupt' or 'break_handler' attribute.  Return true if
+    function should use return from interrupt or break rather than
+@@ -2873,7 +2907,9 @@ save_restore_insns (int prologue)
+ 	    }
+ 	  else
+ 	    {
+-	      insn = emit_move_insn (reg_rtx, mem_rtx);
++	      rtx_insn *restore = emit_move_insn (reg_rtx, mem_rtx);
++	      RTX_FRAME_RELATED_P (restore) = 1;
++	      add_reg_note (restore, REG_CFA_RESTORE, reg_rtx);
+ 	    }
+ 
+ 	  gp_offset += GET_MODE_SIZE (SImode);
+@@ -3231,24 +3267,32 @@ microblaze_function_epilogue (FILE *file)
+ /* Expand the epilogue into a bunch of separate insns.  */
+ 
+ void
+-microblaze_expand_epilogue (void)
++microblaze_expand_epilogue (bool sibcall_p)
+ {
+   HOST_WIDE_INT fsiz = current_frame_info.total_size;
+   rtx fsiz_rtx = GEN_INT (fsiz);
+   rtx reg_rtx;
+   rtx mem_rtx;
++  rtx_insn *insn;
+ 
+   /* In case of interrupt handlers use addki instead of addi for changing the
+      stack pointer value.  */
+ 
+   if (microblaze_can_use_return_insn ())
+     {
+-      emit_jump_insn (gen_return_internal (gen_rtx_REG (Pmode,
+-							GP_REG_FIRST +
+-							MB_ABI_SUB_RETURN_ADDR_REGNUM)));
++      if (!sibcall_p)
++	emit_jump_insn (gen_return_internal (gen_rtx_REG (Pmode,
++							  GP_REG_FIRST +
++							  MB_ABI_SUB_RETURN_ADDR_REGNUM)));
+       return;
+     }
+ 
++  /* Record the restores and the CFA changes in the CFI.  A sibling call
++     epilogue must: shrink-wrapping can leave a path without a frame and
++     cross-jumping can merge it into the sibling call, where the CFI
++     state of both must agree.  The normal epilogue must too, as
++     cfgcleanup can hoist an insn common to both epilogues above the
++     branch between them, and the hoisted insn keeps the notes of one.  */
+   if (fsiz > 0)
+     {
+       /* Restore SUB_RETURN_ADDR_REGNUM at first. This is to prevent the
+@@ -3265,7 +3309,9 @@ microblaze_expand_epilogue (void)
+ 	    /* Do not optimize in flow analysis.  */
+ 	    MEM_VOLATILE_P (mem_rtx) = 1;
+ 	  reg_rtx = gen_rtx_REG (SImode, MB_ABI_SUB_RETURN_ADDR_REGNUM);
+-	  emit_move_insn (reg_rtx, mem_rtx);
++	  insn = emit_move_insn (reg_rtx, mem_rtx);
++	  RTX_FRAME_RELATED_P (insn) = 1;
++	  add_reg_note (insn, REG_CFA_RESTORE, reg_rtx);
+ 	}
+ 
+       /* It is important that this is done after we restore the return address
+@@ -3275,12 +3321,21 @@ microblaze_expand_epilogue (void)
+ 	 might have been over-written since alloca allocates memory on the
+ 	 current stack.  */
+       if (frame_pointer_needed)
+-	emit_insn (gen_movsi (stack_pointer_rtx, hard_frame_pointer_rtx));
++	{
++	  insn = emit_insn (gen_movsi (stack_pointer_rtx,
++				       hard_frame_pointer_rtx));
++	  RTX_FRAME_RELATED_P (insn) = 1;
++	  add_reg_note (insn, REG_CFA_DEF_CFA,
++			plus_constant (Pmode, stack_pointer_rtx, fsiz));
++	}
+ 
+       /* _restore_ registers for epilogue.  */
+       save_restore_insns (0);
+       emit_insn (gen_blockage ());
+-      emit_insn (gen_addsi3 (stack_pointer_rtx, stack_pointer_rtx, fsiz_rtx));
++      insn = emit_insn (gen_addsi3 (stack_pointer_rtx, stack_pointer_rtx,
++				    fsiz_rtx));
++      RTX_FRAME_RELATED_P (insn) = 1;
++      add_reg_note (insn, REG_CFA_DEF_CFA, stack_pointer_rtx);
+     }
+ 
+   if (crtl->calls_eh_return)
+@@ -3289,8 +3344,11 @@ microblaze_expand_epilogue (void)
+                            gen_raw_REG (SImode,
+ 					MB_EH_STACKADJ_REGNUM)));
+ 
+-  emit_jump_insn (gen_return_internal (gen_rtx_REG (Pmode, GP_REG_FIRST +
+-						    MB_ABI_SUB_RETURN_ADDR_REGNUM)));
++  /* A sibling call branches to its callee, which returns through r15
++     as restored above.  */
++  if (!sibcall_p)
++    emit_jump_insn (gen_return_internal (gen_rtx_REG (Pmode, GP_REG_FIRST +
++						      MB_ABI_SUB_RETURN_ADDR_REGNUM)));
+ }
+ 
+ 
+@@ -4201,6 +4259,9 @@ microblaze_starting_frame_offset (void)
+ #undef TARGET_ATTRIBUTE_TABLE
+ #define TARGET_ATTRIBUTE_TABLE          microblaze_attribute_table
+ 
++#undef TARGET_FUNCTION_OK_FOR_SIBCALL
++#define TARGET_FUNCTION_OK_FOR_SIBCALL	microblaze_function_ok_for_sibcall
++
+ #undef TARGET_IN_SMALL_DATA_P
+ #define TARGET_IN_SMALL_DATA_P          microblaze_elf_in_small_data_p
+ 
+diff --git a/gcc/config/microblaze/microblaze.h b/gcc/config/microblaze/microblaze.h
+index 9cb52a20a..116fa1571 100644
+--- a/gcc/config/microblaze/microblaze.h
++++ b/gcc/config/microblaze/microblaze.h
+@@ -142,6 +142,9 @@ extern enum pipeline_type microblaze_pipe;
+ #define MB_ABI_GPRW_REGNUM                  13
+ #define MB_ABI_INTR_RETURN_ADDR_REGNUM      14
+ #define MB_ABI_SUB_RETURN_ADDR_REGNUM       15
++/* Holds the target of a sibling call that is not a symbol: a volatile
++   register that no epilogue restores and no argument uses.  */
++#define MB_ABI_SIBCALL_REGNUM               12
+ #define MB_ABI_DEBUG_RETURN_ADDR_REGNUM     16
+ #define MB_ABI_EXCEPTION_RETURN_ADDR_REGNUM 17
+ #define MB_ABI_ASM_TEMP_REGNUM              18
+diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
+index 550911a9e..98678872b 100644
+--- a/gcc/config/microblaze/microblaze.md
++++ b/gcc/config/microblaze/microblaze.md
+@@ -2137,7 +2137,16 @@
+   [(use (const_int 0))]
+   ""
+   {
+-      microblaze_expand_epilogue ();
++      microblaze_expand_epilogue (false);
++      DONE;
++  }
++)
++
++(define_expand "sibcall_epilogue"
++  [(use (const_int 0))]
++  ""
++  {
++      microblaze_expand_epilogue (true);
+       DONE;
+   }
+ )
+@@ -2481,6 +2490,81 @@
+   (set_attr "length"	"4")])
+ 
+ 
++;; Sibling calls.  The epilogue has restored r15, so the callee returns
++;; to this function's caller.  microblaze_function_ok_for_sibcall only
++;; accepts calls with a decl and not PIC; should the address still be in
++;; a register, it goes to r12, which the epilogue does not restore.
++
++(define_expand "sibcall"
++  [(parallel [(call (match_operand 0 "memory_operand")
++		    (match_operand 1 ""))
++	      (return)
++	      (use (reg:SI R_SR))])
++   (use (match_operand 2 ""))
++   (use (match_operand 3 ""))]
++  ""
++  {
++    rtx addr = XEXP (operands[0], 0);
++    if (GET_CODE (addr) != SYMBOL_REF)
++      {
++	rtx reg = gen_rtx_REG (Pmode, MB_ABI_SIBCALL_REGNUM);
++	emit_move_insn (reg, addr);
++	addr = reg;
++      }
++    emit_call_insn (gen_sibcall_internal (addr, operands[1]));
++    DONE;
++  }
++)
++
++(define_insn "sibcall_internal"
++  [(call (mem (match_operand:SI 0 "sibcall_insn_operand" "s,d"))
++	 (match_operand 1 "" ""))
++   (return)
++   (use (reg:SI R_SR))]
++  ""
++  "@
++   brid\t%0\;%#
++   brad\t%0\;%#"
++  [(set_attr "type"	"call")
++   (set_attr "mode"	"none")
++   (set_attr "length"	"4")])
++
++(define_expand "sibcall_value"
++  [(parallel [(set (match_operand 0 "register_operand")
++		   (call (match_operand 1 "memory_operand")
++			 (match_operand 2 "")))
++	      (return)
++	      (use (reg:SI R_SR))])
++   (use (match_operand 3 ""))]
++  ""
++  {
++    rtx addr = XEXP (operands[1], 0);
++    if (GET_CODE (addr) != SYMBOL_REF)
++      {
++	rtx reg = gen_rtx_REG (Pmode, MB_ABI_SIBCALL_REGNUM);
++	emit_move_insn (reg, addr);
++	addr = reg;
++      }
++    emit_call_insn (gen_sibcall_value_internal (operands[0], addr,
++						operands[2]));
++    DONE;
++  }
++)
++
++(define_insn "sibcall_value_internal"
++  [(set (match_operand 0 "register_operand" "")
++	(call (mem (match_operand:SI 1 "sibcall_insn_operand" "s,d"))
++	      (match_operand 2 "" "")))
++   (return)
++   (use (reg:SI R_SR))]
++  ""
++  "@
++   brid\t%1\;%#
++   brad\t%1\;%#"
++  [(set_attr "type"	"call")
++   (set_attr "mode"	"none")
++   (set_attr "length"	"4")])
++
+ ;; Call subroutine returning any type.
+ (define_expand "untyped_call"
+   [(parallel [(call (match_operand 0 "" "")
+diff --git a/gcc/config/microblaze/predicates.md b/gcc/config/microblaze/predicates.md
+index 18f004017..6eb46ad1a 100644
+--- a/gcc/config/microblaze/predicates.md
++++ b/gcc/config/microblaze/predicates.md
+@@ -107,6 +107,13 @@
+   (and (match_test "CALL_INSN_OP (op)")
+        (match_test "GET_CODE (op) == REG || GET_CODE (op) == SYMBOL_REF || GET_CODE (op) == CONST_INT")))
+ 
++;; A sibling call's target: a symbol, or the register the sibcall
++;; expanders copy any other address to.
++(define_predicate "sibcall_insn_operand"
++  (ior (match_code "symbol_ref")
++       (and (match_code "reg")
++	    (match_test "REGNO (op) == MB_ABI_SIBCALL_REGNUM"))))
++
+ ;; Return if OPERAND is valid as a source operand for a move instruction.
+ (define_predicate "move_src_operand"
+   (and (
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/sibcall-pic.c b/gcc/testsuite/gcc.target/microblaze/isa/sibcall-pic.c
+new file mode 100644
+index 000000000..5851ed432
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/sibcall-pic.c
+@@ -0,0 +1,9 @@
++/* With -fPIC there are no sibling calls.  */
++/* { dg-do compile } */
++/* { dg-options "-O2 -fPIC" } */
++
++extern int g (int);
++int tail1 (int x) { return g (x + 1); }
++
++/* { dg-final { scan-assembler-not {\tbrid\t} } } */
++/* { dg-final { scan-assembler {\tbrlid\tr15,g} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/sibcall.c b/gcc/testsuite/gcc.target/microblaze/isa/sibcall.c
+new file mode 100644
+index 000000000..127c53a89
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/sibcall.c
+@@ -0,0 +1,22 @@
++/* Calls in tail position become branches, except where the callee
++   needs more stack arguments than the caller has, or the caller is an
++   interrupt handler.  */
++/* { dg-options "-O2" } */
++
++extern int g (int);
++extern int g7 (int, int, int, int, int, int, int);
++extern void h (void);
++
++int tail1 (int x) { return g (x + 1); }		/* brid g */
++int tail7 (int a, int b, int c, int d, int e, int f, int s)
++{ return g7 (f, e, d, c, b, a, s); }		/* brid g7 */
++int more_args (int a, int b, int c, int d, int e, int f)
++{ return g7 (a, b, c, d, e, f, 1); }		/* brlid g7 */
++void __attribute__ ((interrupt_handler)) isr (void) { h (); }	/* brlid h */
++void __attribute__ ((save_volatiles)) savev (void) { h (); }	/* brlid h */
++
++/* { dg-final { scan-assembler {\tbrid\tg\n} } } */
++/* { dg-final { scan-assembler-times {\tbrid\tg7\n} 1 } } */
++/* { dg-final { scan-assembler-times {\tbrlid\tr15,g7\n} 1 } } */
++/* { dg-final { scan-assembler-times {\tbrlid\tr15,h\n} 2 } } */
++/* { dg-final { scan-assembler-not {\tbrid\th\n} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-nopcmp.c b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-nopcmp.c
+index c3f597591..f8567800b 100644
+--- a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-nopcmp.c
++++ b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-nopcmp.c
+@@ -9,4 +9,5 @@ aligned (const char *p)
+ }
+ 
+ /* { dg-final { scan-assembler-not "pcmpbf" } } */
+-/* { dg-final { scan-assembler "brlid\tr15,strlen" } } */
++/* A call or, in tail position, a sibling call.  */
++/* { dg-final { scan-assembler {\tbr(lid\tr15,|id\t)strlen\n} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-os.c b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-os.c
+index 378e81ddb..1e2eef872 100644
+--- a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-os.c
++++ b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-os.c
+@@ -11,4 +11,5 @@ aligned (const char *p)
+ }
+ 
+ /* { dg-final { scan-assembler-not "pcmpbf" } } */
+-/* { dg-final { scan-assembler "brlid\tr15,strlen" } } */
++/* A call or, in tail position, a sibling call.  */
++/* { dg-final { scan-assembler {\tbr(lid\tr15,|id\t)strlen\n} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-unaligned.c b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-unaligned.c
+index f7cb39431..010dd3881 100644
+--- a/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-unaligned.c
++++ b/gcc/testsuite/gcc.target/microblaze/isa/strlen-pcmpbf-unaligned.c
+@@ -12,4 +12,5 @@ unaligned (const char *p)
+ }
+ 
+ /* { dg-final { scan-assembler-not "pcmpbf" } } */
+-/* { dg-final { scan-assembler "brlid\tr15,strlen" } } */
++/* A call or, in tail position, a sibling call.  */
++/* { dg-final { scan-assembler {\tbr(lid\tr15,|id\t)strlen\n} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/sibcall-cfi-fp.c b/gcc/testsuite/gcc.target/microblaze/others/sibcall-cfi-fp.c
+new file mode 100644
+index 000000000..57eff3a96
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/sibcall-cfi-fp.c
+@@ -0,0 +1,38 @@
++/* Shrink-wrapping leaves one path to the sibling call without a frame,
++   and cross-jumping merges it into the sibling call epilogue of another
++   path.  The epilogue must record its restores and its CFA changes, or
++   the CFI state differs where the paths join.  Here the epilogue also
++   sets sp from the frame pointer.  */
++/* { dg-do compile } */
++/* { dg-options "-O2 -g -fno-omit-frame-pointer" } */
++
++typedef __SIZE_TYPE__ size_t;
++extern char *g (char *);
++extern void *malloc (size_t);
++extern void free (void *);
++extern char *fill (char *, int);
++extern size_t strlen (const char *);
++
++char *
++f (char *buf, size_t slen)
++{
++  char *abuf;
++  size_t len;
++
++  if (slen >= 0x7fffffff)
++    return g (buf);
++  if ((abuf = malloc (slen + 1)) == 0)
++    return g (buf);
++  if (fill (abuf, slen + 1) == 0)
++    {
++      free (abuf);
++      return 0;
++    }
++  len = strlen (abuf);
++  __builtin_memcpy (buf, abuf, len);
++  buf[len] = 0;
++  free (abuf);
++  return buf;
++}
++
++/* { dg-final { scan-assembler {\tbrid\tg\n} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/sibcall-cfi.c b/gcc/testsuite/gcc.target/microblaze/others/sibcall-cfi.c
+new file mode 100644
+index 000000000..b0409c4bc
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/sibcall-cfi.c
+@@ -0,0 +1,37 @@
++/* Shrink-wrapping leaves one path to the sibling call without a frame,
++   and cross-jumping merges it into the sibling call epilogue of another
++   path.  The epilogue must record its restores and its CFA changes, or
++   the CFI state differs where the paths join.  */
++/* { dg-do compile } */
++/* { dg-options "-O2 -g" } */
++
++typedef __SIZE_TYPE__ size_t;
++extern char *g (char *);
++extern void *malloc (size_t);
++extern void free (void *);
++extern char *fill (char *, int);
++extern size_t strlen (const char *);
++
++char *
++f (char *buf, size_t slen)
++{
++  char *abuf;
++  size_t len;
++
++  if (slen >= 0x7fffffff)
++    return g (buf);
++  if ((abuf = malloc (slen + 1)) == 0)
++    return g (buf);
++  if (fill (abuf, slen + 1) == 0)
++    {
++      free (abuf);
++      return 0;
++    }
++  len = strlen (abuf);
++  __builtin_memcpy (buf, abuf, len);
++  buf[len] = 0;
++  free (abuf);
++  return buf;
++}
++
++/* { dg-final { scan-assembler {\tbrid\tg\n} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/sibcall-run.c b/gcc/testsuite/gcc.target/microblaze/others/sibcall-run.c
+new file mode 100644
+index 000000000..51189a039
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/sibcall-run.c
+@@ -0,0 +1,124 @@
++/* Check sibling calls: tail recursion, mutual recursion, arguments on
++   the stack, a callee that needs more stack arguments than its caller,
++   a variadic callee, a struct returned in memory, and an indirect call
++   through a pointer the compiler knows.  */
++/* { dg-do run } */
++
++#include <stdarg.h>
++
++extern void abort (void);
++
++__attribute__ ((noipa)) int
++sum_to (int n, int acc)
++{
++  if (n == 0)
++    return acc;
++  return sum_to (n - 1, acc + n);
++}
++
++__attribute__ ((noipa)) int is_odd (unsigned n);
++__attribute__ ((noipa)) int
++is_even (unsigned n)
++{
++  return n == 0 ? 1 : is_odd (n - 1);
++}
++__attribute__ ((noipa)) int
++is_odd (unsigned n)
++{
++  return n == 0 ? 0 : is_even (n - 1);
++}
++
++/* Eight arguments: two on the stack.  */
++__attribute__ ((noipa)) int
++mix8 (int a, int b, int c, int d, int e, int f, int g, int h)
++{
++  return a + 2 * b + 3 * c + 4 * d + 5 * e + 6 * f + 7 * g + 8 * h;
++}
++
++__attribute__ ((noipa)) int
++swap8 (int a, int b, int c, int d, int e, int f, int g, int h)
++{
++  return mix8 (h, g, f, e, d, c, b, a);
++}
++
++/* Ten arguments from a function with six: no sibling call.  */
++__attribute__ ((noipa)) int
++mix10 (int a, int b, int c, int d, int e, int f, int g, int h, int i, int j)
++{
++  return mix8 (a, b, c, d, e, f, g, h) + 9 * i + 10 * j;
++}
++
++__attribute__ ((noipa)) int
++grow (int a, int b, int c, int d, int e, int f)
++{
++  return mix10 (f, e, d, c, b, a, a, b, c, d);
++}
++
++__attribute__ ((noipa)) int
++vsum (int n, ...)
++{
++  va_list ap;
++  int s = 0;
++  va_start (ap, n);
++  while (n--)
++    s += va_arg (ap, int);
++  va_end (ap);
++  return s;
++}
++
++__attribute__ ((noipa)) int
++call_vsum (int a, int b)
++{
++  return vsum (3, a, b, a + b);
++}
++
++struct big { int v[5]; };
++
++__attribute__ ((noipa)) struct big
++make_big (int x)
++{
++  struct big b = { { x, x + 1, x + 2, x + 3, x + 4 } };
++  return b;
++}
++
++__attribute__ ((noipa)) struct big
++pass_big (int x)
++{
++  return make_big (x * 2);
++}
++
++__attribute__ ((noipa)) long long
++add64 (long long a, long long b)
++{
++  return a + b;
++}
++
++__attribute__ ((noipa)) long long
++call_add64 (int a, long long b)
++{
++  return add64 (b, a);
++}
++
++int
++main (void)
++{
++  struct big b;
++
++  if (sum_to (10000, 0) != 50005000)
++    abort ();
++  if (!is_even (10000) || is_odd (10000) || !is_odd (9999))
++    abort ();
++  if (swap8 (1, 2, 3, 4, 5, 6, 7, 8) != mix8 (8, 7, 6, 5, 4, 3, 2, 1))
++    abort ();
++  if (grow (1, 2, 3, 4, 5, 6)
++      != mix8 (6, 5, 4, 3, 2, 1, 1, 2) + 9 * 3 + 10 * 4)
++    abort ();
++  if (call_vsum (5, 7) != 24)
++    abort ();
++  b = pass_big (10);
++  if (b.v[0] != 20 || b.v[4] != 24)
++    abort ();
++  if (call_add64 (-1, 0x100000000LL) != 0xffffffffLL)
++    abort ();
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

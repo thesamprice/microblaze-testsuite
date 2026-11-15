@@ -1,0 +1,49 @@
+microblaze: ICE, assembler-error and wrong-code fixes from gcc.dg
+
+Five MicroBlaze back-end fixes for failures in compile.exp, dg.exp and
+dg-torture.exp, none of which the execute tests reach.  Each comes with
+a test in gcc.target/microblaze.  They were written and tested on master
+df809a029 plus the other MicroBlaze series listed in NOTES.md.
+
+1/5 accept only CONST_INT counts in the constant shift patterns
+
+  The shift patterns used without a barrel shifter took their count
+  with immediate_operand, which also accepts a symbol address; combine
+  substituted one and LRA ICEd in *ashlsi3_with_rotate (pr65014.c).
+
+2/5 return values in the mode the promotion hook gives them
+
+  TARGET_FUNCTION_VALUE widened one- and two-byte vectors to SImode,
+  which TARGET_PROMOTE_FUNCTION_MODE does not promote, and expand_call
+  or the return expansion ICEd.  The mode now comes from
+  promote_function_mode.
+
+3/5 fix calls through constant addresses that are not functions
+
+  A call through a data symbol was a PC-relative brlid, which the
+  assembler rejects, and a call through symbol + offset printed
+  "Unsupported call insn" as the instruction.
+
+4/5 count a TImode argument as four words
+
+  A 16-byte vector argument takes four registers but advanced the
+  argument count by one, so the next argument shared a register with
+  it: wrong code.
+
+5/5 save r20 as the PIC register only when the prologue loads it
+
+  r20 was saved and restored whenever it was live, even without PIC,
+  so a function that assigned a global register variable in r20 lost
+  the assignment on return (20020312-2.c).
+
+Tested on microblaze-elf, QEMU 10.2.4, newlib, big-endian:
+
+                   before                       after
+  compile.exp      14652 PASS, 22 FAIL          14668 PASS, 0 FAIL
+  dg.exp           40031 PASS, 66 FAIL, 3 UNRES 40040 PASS, 55 FAIL, 1 UNRES
+  dg-torture.exp   24667 PASS, 31 FAIL, 6 UNRES 24697 PASS, 1 FAIL
+  execute.exp      after: 24536 PASS, 0 FAIL
+  microblaze.exp   no new FAIL
+
+The FAILs left in dg.exp and dg-torture.exp have other causes and are
+not addressed here.

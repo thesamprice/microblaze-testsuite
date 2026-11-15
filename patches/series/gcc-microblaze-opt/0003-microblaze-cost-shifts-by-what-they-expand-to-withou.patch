@@ -1,7 +1,7 @@
 From 210124658950d121607fcceb7e5cf0a101a68d98 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 15 Nov 2026 06:14:57 -0500
-Subject: [PATCH 3/3] microblaze: cost shifts by what they expand to without a
+Subject: [PATCH 3/5] microblaze: cost shifts by what they expand to without a
  barrel shifter
 
 Without a barrel shifter but with a multiplier, microblaze_rtx_costs

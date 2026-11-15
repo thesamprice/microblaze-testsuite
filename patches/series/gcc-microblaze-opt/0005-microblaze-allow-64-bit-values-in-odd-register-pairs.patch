@@ -1,0 +1,679 @@
+From 5664caf9cab1018207312fc8196755a47860658f Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 13:43:05 -0500
+Subject: [PATCH 5/5] microblaze: allow 64-bit values in odd register pairs
+
+microblaze_hard_regno_mode_ok, inherited from MIPS, puts DImode and
+DFmode values only in even register pairs.  The ABI returns them in
+r3:r4 and passes the first in r5:r6, both odd pairs, so every 64-bit
+argument and result was copied to or from an even pair with two addk:
+long long add (long long a, long long b) { return a + b; } was add and
+addc with four copies of the arguments into r4:r5 and r6:r7 and two of
+the result to r3:r4.
+
+Let a value of several words start at any general register, as long
+as it ends at r31.  A double-word result can then overlap an input by
+one word, e.g. r3:r4 computed from r4:r5, so the patterns that write
+one word of the result before reading the other word of an input must
+check for it.  Audit of the DImode and DFmode patterns:
+
+  adddi3, registers: wrote the low word first.  Now goes through r18,
+    like adddi3_carry, when the low word of the result is the high
+    word of an input.
+  adddi3, constant: already checked (microblaze_dword_overlap_p).
+  subdi3, mulsidi3, umulsidi3, usmulsidi3: earlyclobber result.
+  adddi3_carry, subdi3_nborrow, *ashldi3_one, *<shiftrt>di3_one:
+    already checked.
+  negdi2: wrote the low word first.  Now goes through r18.
+  *one_cmpldi2: wrote the high word first.  Now writes first the word
+    that the other does not read.
+  not:DI split: wrote subreg 0 first.  Now writes the second register
+    first when the result starts one register above the input, as the
+    register move splits do.
+  *movdi_internal, *movdf_internal: register moves are split after
+    reload, in the safe order; loads already check the address against
+    the first register written.  The unsplit movdi register template
+    now also orders the words, and has a third operand.
+  extendsidi2: reads its input only before writing.
+  DImode compares and branches, zero extension and the soft-float
+  DFmode operations are expanded a word at a time or are libcalls.
+
+Since microblaze_dword_overlap_p no longer depends on a register rule,
+its comment changes too.
+
+a + b, a - b, -a, a << 1 and a + 1 on long long arguments are now two
+instructions each, with no copies.  In a QEMU instruction count of a
+loop calling three small 64-bit functions 2000 times, the count drops
+from 96053 to 76049 on microblaze-elf and to 74049 on microblazeel-elf
+at -O2 (98044 to 78042 and 76042 at -Os); 64-bit add, shift, xorshift
+and multiply loops, whose values stay in registers, move by a few
+instructions.  Compiling gcc.c-torture/execute and gcc.target/microblaze,
+1653 files, the text shrinks by 3400 bytes (0.11%) at -O2, 91 files
+smaller and 5 larger, and by 4092 bytes at -Os, 92 smaller and 5 larger;
+the largest growth, 456 bytes in pr58574.c, is one more __adddf3 call
+in each of the 64 cases of a switch, 2 * x no longer being shared.  Built by the compiler, the text of
+newlib's libc.a shrinks from 413689 to 413481 bytes, libm.a from 222532
+to 220244 and libgcc.a from 77004 to 76812 (microblaze-elf).
+
+others/dword-overlap-run.c forces each one-word overlap, the result
+one register below and one above the input, with register variables
+for negation, complement, moves, shifts by one, additions of registers
+and constants, subtraction and the overflow-checking add and subtract,
+and compares the results with the same operations done a word at a
+time.  Replacing its r18 sequences with the old ones in the assembly
+makes it abort.  others/dword-abi-run.c checks 64-bit and double
+arguments and results passed in odd pairs and chains of operations on
+them.  isa/dword-odd-pair.c checks that no copies are left.
+
+Tested on microblaze-elf and microblazeel-elf under QEMU:
+gcc.c-torture/execute.exp and gcc.target/microblaze, and on
+microblaze-elf gcc.target/microblaze with -mno-xl-soft-mul,
+-mcpu=v10.0 -mxl-barrel-shift -mno-xl-soft-mul -mxl-pattern-compare
+-mxl-multiply-high, -mcpu=v8.50.a -mxl-reorder and -mcpu=v9.6
+-mno-xl-soft-mul -mxl-reorder, with no new failures.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.cc (microblaze_option_override):
+	Let a value of several words start at an odd general register.
+	(microblaze_hard_regno_mode_ok): Update the comment.
+	(microblaze_dword_overlap_p): Likewise.
+	* config/microblaze/microblaze.md (adddi3): Go through r18 when
+	the low word of the result is the high word of an input.
+	(negdi2): Likewise.
+	(*one_cmpldi2): Write first the word that the other does not
+	read.
+	(not:DI split): Likewise.
+	(*movdi_internal): Likewise for register moves, and give them a
+	third operand.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/isa/dword-odd-pair.c: New test.
+	* gcc.target/microblaze/others/dword-abi-run.c: New test.
+	* gcc.target/microblaze/others/dword-overlap-run.c: New test.
+---
+ gcc/config/microblaze/microblaze.cc           |  25 ++-
+ gcc/config/microblaze/microblaze.md           |  65 +++++-
+ .../microblaze/isa/dword-odd-pair.c           |  12 ++
+ .../microblaze/others/dword-abi-run.c         | 176 ++++++++++++++++
+ .../microblaze/others/dword-overlap-run.c     | 193 ++++++++++++++++++
+ 5 files changed, 450 insertions(+), 21 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/dword-odd-pair.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/dword-abi-run.c
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/dword-overlap-run.c
+
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index e58ffc770..4db14f8f9 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -2052,7 +2052,9 @@ microblaze_option_override (void)
+ 	      ok = (ST_REG_P (regno) || GP_REG_P (regno));
+ 	    }
+ 	  else if (GP_REG_P (regno))
+-	    ok = ((regno & 1) == 0 || size <= UNITS_PER_WORD);
++	    /* A value of several words may start at any register, even or
++	       odd, as long as it ends in a general register.  */
++	    ok = (regno + CEIL (size, UNITS_PER_WORD) <= GP_REG_LAST + 1);
+ 	  else
+ 	    ok = 0;
+ 
+@@ -2061,13 +2063,15 @@ microblaze_option_override (void)
+     }
+ }
+ 
+-/* Implement TARGET_HARD_REGNO_MODE_OK.  In 32 bit mode, require that
+-   DImode and DFmode be in even registers.  For DImode, this makes some
+-   of the insns easier to write, since you don't have to worry about a
+-   DImode value in registers 3 & 4, producing a result in 4 & 5.
++/* Implement TARGET_HARD_REGNO_MODE_OK.  DImode and DFmode values may
++   start at an odd register, as the ABI's r3:r4 return and r5:r6 first
++   argument do, so a double-word result can overlap a double-word input
++   by one word, e.g. r3:r4 computed from r4:r5.  The patterns that write
++   one word before reading the other word of an input check for this
++   with microblaze_dword_overlap_p.
+ 
+-   To make the code simpler, the hook now just references an
+-   array built in override_options.  */
++   To make the code simpler, the hook just references an array built in
++   microblaze_option_override.  */
+ 
+ static bool
+ microblaze_hard_regno_mode_ok (unsigned int regno, machine_mode mode)
+@@ -3689,10 +3693,9 @@ microblaze_expand_shift (rtx operands[])
+ 
+ /* Return true if the high (DST_HIGH) or low word of the double-word
+    register DST is the same register as the high (SRC_HIGH) or low word
+-   of SRC.  Double words normally start at an even register, and then
+-   the two never overlap by one word; the patterns that write one word
+-   of their result before reading the other word of an input check
+-   anyway.  */
++   of SRC.  Double words may start at any register, so a pattern that
++   writes one word of its result before reading the other word of an
++   input must check that the two are not the same register.  */
+ bool
+ microblaze_dword_overlap_p (rtx dst, bool dst_high, rtx src, bool src_high)
+ {
+diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
+index 98678872b..fd9b13675 100644
+--- a/gcc/config/microblaze/microblaze.md
++++ b/gcc/config/microblaze/microblaze.md
+@@ -498,7 +498,9 @@
+ ;; Adding 2 DI operands in register or reg/imm.  A constant is added a
+ ;; word at a time: addi adds the low word and sets the carry, and addic
+ ;; adds the high word and the carry.  The assembler gives either an imm
+-;; prefix when its word does not fit in 16 signed bits.
++;; prefix when its word does not fit in 16 signed bits.  The low word of
++;; the result is written before the high words of the inputs are read,
++;; so a result that overlaps an input by one word goes through r18.
+ 
+ (define_insn "adddi3"
+   [(set (match_operand:DI 0 "register_operand" "=d,d")
+@@ -507,14 +509,28 @@
+   ""
+   {
+     if (which_alternative == 0)
+-      return "add\t%L0,%L1,%L2\;addc\t%M0,%M1,%M2";
++      {
++	if (microblaze_dword_overlap_p (operands[0], false, operands[1], true)
++	    || microblaze_dword_overlap_p (operands[0], false, operands[2],
++					   true))
++	  return "add\tr18,%L1,%L2\;addc\t%M0,%M1,%M2\;addk\t%L0,r18,r0";
++	return "add\t%L0,%L1,%L2\;addc\t%M0,%M1,%M2";
++      }
+     return microblaze_output_adddi3_imm (operands);
+   }
+   [(set_attr "type"	"darith")
+   (set_attr "mode"	"DI")
+   (set (attr "length")
+ 	(if_then_else (eq_attr "alternative" "0")
+-		      (const_int 8)
++		      (if_then_else
++			(match_test "microblaze_dword_overlap_p (operands[0],
++							  false, operands[1],
++							  true)
++				     || microblaze_dword_overlap_p (operands[0],
++							  false, operands[2],
++							  true)")
++			(const_int 12)
++			(const_int 8))
+ 		      (symbol_ref "microblaze_adddi3_imm_length (operands)")))])
+ 
+ ;;----------------------------------------------------------------
+@@ -796,10 +812,20 @@
+   [(set (match_operand:DI 0 "register_operand" "=d")
+ 	(neg:DI (match_operand:DI 1 "register_operand" "d")))]
+   ""
+-  "rsub\t%L0,%L1,r0\;rsubc\t%M0,%M1,r0"
++  {
++    /* The low word is written before the high word is read.  */
++    if (microblaze_dword_overlap_p (operands[0], false, operands[1], true))
++      return "rsub\tr18,%L1,r0\;rsubc\t%M0,%M1,r0\;addk\t%L0,r18,r0";
++    return "rsub\t%L0,%L1,r0\;rsubc\t%M0,%M1,r0";
++  }
+   [(set_attr "type"	"darith")
+   (set_attr "mode"	"DI")
+-  (set_attr "length"	"8")])
++  (set (attr "length")
++	(if_then_else (match_test "microblaze_dword_overlap_p (operands[0],
++							false, operands[1],
++							true)")
++		      (const_int 12)
++		      (const_int 8)))])
+ 
+ 
+ (define_insn "one_cmplsi2"
+@@ -815,7 +841,12 @@
+   [(set (match_operand:DI 0 "register_operand" "=d")
+ 	(not:DI (match_operand:DI 1 "register_operand" "d")))]
+   ""
+-  "nor\t%M0,r0,%M1\;nor\t%L0,r0,%L1"
++  {
++    /* Write first the word that the other does not read.  */
++    if (microblaze_dword_overlap_p (operands[0], true, operands[1], false))
++      return "nor\t%L0,r0,%L1\;nor\t%M0,r0,%M1";
++    return "nor\t%M0,r0,%M1\;nor\t%L0,r0,%L1";
++  }
+   [(set_attr "type"	"darith")
+   (set_attr "mode"	"DI")
+   (set_attr "length"    "8")]
+@@ -828,9 +859,19 @@
+    && GET_CODE (operands[0]) == REG && GP_REG_P (REGNO (operands[0]))
+    && GET_CODE (operands[1]) == REG && GP_REG_P (REGNO (operands[1]))"
+ 
+-  [(set (subreg:SI (match_dup 0) 0) (not:SI (subreg:SI (match_dup 1) 0)))
+-  (set (subreg:SI (match_dup 0) 4) (not:SI (subreg:SI (match_dup 1) 4)))]
+-  "")
++  [(set (match_dup 2) (not:SI (match_dup 3)))
++   (set (match_dup 4) (not:SI (match_dup 5)))]
++  {
++    /* Write first the word that the other does not read: the second
++       register when the result starts one register above the input.  */
++    int first = REGNO (operands[0]) == REGNO (operands[1]) + 1 ? 4 : 0;
++    operands[2] = simplify_gen_subreg (SImode, operands[0], DImode, first);
++    operands[3] = simplify_gen_subreg (SImode, operands[1], DImode, first);
++    operands[4] = simplify_gen_subreg (SImode, operands[0], DImode,
++				       4 - first);
++    operands[5] = simplify_gen_subreg (SImode, operands[1], DImode,
++				       4 - first);
++  })
+ 
+ 
+ ;;----------------------------------------------------------------
+@@ -1015,7 +1056,11 @@
+     switch (which_alternative)
+     {
+       case 0:
+-        return "addk\t%0,%1\n\taddk\t%D0,%d1";
++	/* Normally split after reload, in the order that is safe when
++	   the registers overlap.  */
++	if (REGNO (operands[0]) == REGNO (operands[1]) + 1)
++	  return "addk\t%D0,%D1,r0\n\taddk\t%0,%1,r0";
++	return "addk\t%0,%1,r0\n\taddk\t%D0,%D1,r0";
+       case 1:
+ 	return "addik\t%M0,r0,%h1\n\taddik\t%L0,r0,%j1 #li => la";
+       case 2:
+diff --git a/gcc/testsuite/gcc.target/microblaze/isa/dword-odd-pair.c b/gcc/testsuite/gcc.target/microblaze/isa/dword-odd-pair.c
+new file mode 100644
+index 000000000..66e33d86f
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/isa/dword-odd-pair.c
+@@ -0,0 +1,12 @@
++/* 64-bit values may live in odd register pairs, so arguments in r5:r6
++   and r7:r8 and the result in r3:r4 need no copies.  */
++/* { dg-options "-O2" } */
++
++long long add (long long a, long long b) { return a + b; }
++long long sub (long long a, long long b) { return a - b; }
++long long neg (long long a) { return -a; }
++unsigned long long shl1 (unsigned long long a) { return a << 1; }
++long long add1 (long long a) { return a + 1; }
++
++/* { dg-final { scan-assembler-not {\taddk\t} } } */
++/* { dg-final { scan-assembler-not {\tor\t} } } */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/dword-abi-run.c b/gcc/testsuite/gcc.target/microblaze/others/dword-abi-run.c
+new file mode 100644
+index 000000000..d04e425b3
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/dword-abi-run.c
+@@ -0,0 +1,176 @@
++/* 64-bit arguments and results live in odd register pairs (r5:r6,
++   r6:r7 after an int, r3:r4 for the result), so the register allocator
++   may overlap a 64-bit result with an input by one word.  Check chains
++   of 64-bit operations and soft-float double moves against values done
++   a word at a time.  */
++/* { dg-do run } */
++/* { dg-options "-std=gnu99" } */
++
++extern void abort (void);
++
++typedef unsigned long long u64;
++typedef long long s64;
++typedef unsigned int u32;
++
++static const u64 vals[] = {
++  0, 1, 0x7fffffffULL, 0x80000000ULL, 0xffffffffULL, 0x100000000ULL,
++  0x180000001ULL, 0x7fffffffffffffffULL, 0x8000000000000000ULL,
++  0xffffffff00000000ULL, 0xffffffffffffffffULL, 0x0123456789abcdefULL
++};
++#define N (sizeof vals / sizeof vals[0])
++
++static u32 hi (u64 x) { return (u32) (x >> 32); }
++static u32 lo (u64 x) { return (u32) x; }
++static u64 mk (u32 h, u32 l) { return ((u64) h << 32) | l; }
++
++__attribute__ ((noipa)) static u64
++ref_add (u64 a, u64 b)
++{
++  u32 l = lo (a) + lo (b);
++  return mk (hi (a) + hi (b) + (l < lo (a)), l);
++}
++
++__attribute__ ((noipa)) static u64
++ref_neg (u64 a)
++{
++  return ref_add (mk (~hi (a), ~lo (a)), 1);
++}
++
++__attribute__ ((noipa)) static int
++ref_lts (u64 a, u64 b)
++{
++  if (hi (a) != hi (b))
++    return (int) hi (a) < (int) hi (b);
++  return lo (a) < lo (b);
++}
++
++__attribute__ ((noipa)) u64 f_add (u64 a, u64 b) { return a + b; }
++__attribute__ ((noipa)) u64 f_sub (u64 a, u64 b) { return a - b; }
++__attribute__ ((noipa)) u64 f_neg (u64 a) { return -a; }
++__attribute__ ((noipa)) u64 f_not (u64 a) { return ~a; }
++__attribute__ ((noipa)) u64 f_shl (u64 a) { return a << 1; }
++__attribute__ ((noipa)) u64 f_shr (u64 a) { return a >> 1; }
++__attribute__ ((noipa)) s64 f_sar (s64 a) { return a >> 1; }
++__attribute__ ((noipa)) u64 f_add1 (u64 a) { return a + 1; }
++__attribute__ ((noipa)) u64 f_iadd (int i, u64 a) { return a + i; }
++__attribute__ ((noipa)) u64 f_iswap (int i, u64 a) { return (a << 32) | (a >> 32); }
++__attribute__ ((noipa)) s64 f_ext (int i) { return i; }
++__attribute__ ((noipa)) u64 f_zext (u32 i) { return i; }
++__attribute__ ((noipa)) int f_lt (s64 a, s64 b) { return a < b; }
++__attribute__ ((noipa)) u64 f_min (s64 a, s64 b) { return a < b ? a : b; }
++__attribute__ ((noipa)) u64 f_mul (u32 a, u32 b) { return (u64) a * b; }
++__attribute__ ((noipa)) s64 f_smul (int a, int b) { return (s64) a * b; }
++
++/* A chain in which each result feeds the next operation.  */
++__attribute__ ((noipa)) u64
++f_chain (u64 a, u64 b)
++{
++  u64 x = a + b;
++  x = -x;
++  x = ~x + a;
++  x = (x << 1) - b;
++  x = (x >> 1) + (u64) ((s64) a >> 1);
++  return x;
++}
++
++__attribute__ ((noipa)) static u64
++ref_chain (u64 a, u64 b)
++{
++  u64 x = ref_add (a, b);
++  x = ref_neg (x);
++  x = ref_add (mk (~hi (x), ~lo (x)), a);
++  x = ref_add (mk ((hi (x) << 1) | (lo (x) >> 31), lo (x) << 1), ref_neg (b));
++  x = mk (hi (x) >> 1, (lo (x) >> 1) | (hi (x) << 31));
++  return ref_add (x, mk ((hi (a) >> 1) | (hi (a) & 0x80000000u),
++			 (lo (a) >> 1) | (hi (a) << 31)));
++}
++
++/* Rotate three 64-bit values through the argument registers.  */
++__attribute__ ((noipa)) u64
++f_rot (int n, u64 a, u64 b, u64 c)
++{
++  while (n-- > 0)
++    {
++      u64 t = a;
++      a = b + 1;
++      b = c;
++      c = t;
++    }
++  return a ^ (b << 1) ^ (c >> 1);
++}
++
++__attribute__ ((noipa)) double d_id (double x) { return x; }
++__attribute__ ((noipa)) double d_second (double x, double y) { return y; }
++__attribute__ ((noipa)) double d_isecond (int i, double x) { return x; }
++__attribute__ ((noipa)) double d_neg (double x) { return -x; }
++__attribute__ ((noipa)) double d_sel (int c, double x, double y)
++{
++  return c ? x : y;
++}
++
++union du { double d; u64 u; };
++
++int
++main (void)
++{
++  unsigned int i, j;
++  for (i = 0; i < N; i++)
++    {
++      u64 a = vals[i];
++      if (f_neg (a) != ref_neg (a) || f_not (a) != mk (~hi (a), ~lo (a))
++	  || f_shl (a) != mk ((hi (a) << 1) | (lo (a) >> 31), lo (a) << 1)
++	  || f_shr (a) != mk (hi (a) >> 1, (lo (a) >> 1) | (hi (a) << 31))
++	  || (u64) f_sar (a) != mk ((hi (a) >> 1) | (hi (a) & 0x80000000u),
++				    (lo (a) >> 1) | (hi (a) << 31))
++	  || f_add1 (a) != ref_add (a, 1)
++	  || f_iadd ((int) lo (a), a) != ref_add (a, (u64) (s64) (int) lo (a))
++	  || f_iswap (0, a) != mk (lo (a), hi (a))
++	  || (u64) f_ext ((int) lo (a)) != (u64) (s64) (int) lo (a)
++	  || f_zext (lo (a)) != lo (a)
++	  || f_mul (lo (a), hi (a)) != (u64) lo (a) * hi (a)
++	  || (u64) f_smul ((int) lo (a), (int) hi (a))
++	     != (u64) ((s64) (int) lo (a) * (int) hi (a)))
++	abort ();
++
++      union du x, y;
++      x.u = a;
++      y.u = ref_neg (a);
++      union du r;
++      r.d = d_id (x.d);
++      if (r.u != x.u)
++	abort ();
++      r.d = d_second (y.d, x.d);
++      if (r.u != x.u)
++	abort ();
++      r.d = d_isecond (1, x.d);
++      if (r.u != x.u)
++	abort ();
++      r.d = d_neg (x.d);
++      if (r.u != (x.u ^ 0x8000000000000000ULL))
++	abort ();
++      r.d = d_sel (0, x.d, y.d);
++      if (r.u != y.u)
++	abort ();
++      r.d = d_sel (1, x.d, y.d);
++      if (r.u != x.u)
++	abort ();
++
++      for (j = 0; j < N; j++)
++	{
++	  u64 b = vals[j];
++	  if (f_add (a, b) != ref_add (a, b)
++	      || f_sub (a, b) != ref_add (a, ref_neg (b))
++	      || f_lt (a, b) != ref_lts (a, b)
++	      || f_min (a, b) != (ref_lts (a, b) ? a : b)
++	      || f_chain (a, b) != ref_chain (a, b))
++	    abort ();
++	}
++    }
++
++  if (f_rot (0, 1, 2, 3) != (1 ^ (2 << 1) ^ (3 >> 1))
++      || f_rot (1, 0x100000000ULL, 0xffffffffULL, 7)
++	 != (0x100000000ULL ^ (7 << 1) ^ (0x100000000ULL >> 1))
++      || f_rot (2, 1, 2, 3) != (4 ^ (1 << 1) ^ (3 >> 1)))
++    abort ();
++  return 0;
++}
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/dword-overlap-run.c b/gcc/testsuite/gcc.target/microblaze/others/dword-overlap-run.c
+new file mode 100644
+index 000000000..b8b98ddc8
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/dword-overlap-run.c
+@@ -0,0 +1,193 @@
++/* Double words may start at an odd register, so the result of a 64-bit
++   operation can overlap an input by one word.  Force each such overlap
++   with register variables and check the result against the same
++   operation done a word at a time.  */
++/* { dg-do run } */
++/* { dg-options "-std=gnu99" } */
++
++extern void abort (void);
++
++typedef unsigned long long u64;
++typedef long long s64;
++typedef unsigned int u32;
++
++static const u64 vals[] = {
++  0, 1, 2, 0x7fffffffULL, 0x80000000ULL, 0xfffffffeULL, 0xffffffffULL,
++  0x100000000ULL, 0x1ffffffffULL, 0x180000001ULL, 0x7fffffffffffffffULL,
++  0x8000000000000000ULL, 0x8000000180000001ULL, 0xffffffff00000000ULL,
++  0xfffffffffffffffeULL, 0xffffffffffffffffULL, 0x0123456789abcdefULL,
++  0xfedcba9876543210ULL
++};
++#define N (sizeof vals / sizeof vals[0])
++
++static u32 hi (u64 x) { return (u32) (x >> 32); }
++static u32 lo (u64 x) { return (u32) x; }
++static u64 mk (u32 h, u32 l) { return ((u64) h << 32) | l; }
++
++__attribute__ ((noipa)) static u64
++ref_add (u64 a, u64 b)
++{
++  u32 l = lo (a) + lo (b);
++  return mk (hi (a) + hi (b) + (l < lo (a)), l);
++}
++
++__attribute__ ((noipa)) static u64
++ref_neg (u64 a)
++{
++  return ref_add (mk (~hi (a), ~lo (a)), 1);
++}
++
++__attribute__ ((noipa)) static u64
++ref_sub (u64 a, u64 b)
++{
++  return ref_add (a, ref_neg (b));
++}
++
++__attribute__ ((noipa)) static u64
++ref_shl1 (u64 a)
++{
++  return mk ((hi (a) << 1) | (lo (a) >> 31), lo (a) << 1);
++}
++
++__attribute__ ((noipa)) static u64
++ref_lshr1 (u64 a)
++{
++  return mk (hi (a) >> 1, (lo (a) >> 1) | (hi (a) << 31));
++}
++
++__attribute__ ((noipa)) static u64
++ref_ashr1 (u64 a)
++{
++  return mk ((hi (a) >> 1) | (hi (a) & 0x80000000u),
++	     (lo (a) >> 1) | (hi (a) << 31));
++}
++
++/* D = OP (S) with D and S in the given registers.  */
++#define UN(name, D, S, expr)						\
++  __attribute__ ((noipa)) u64						\
++  name (u64 a)								\
++  {									\
++    register u64 s __asm__ (S) = a;					\
++    register u64 d __asm__ (D);						\
++    __asm__ ("" : "+r" (s));						\
++    d = expr;								\
++    __asm__ ("" : "+r" (d));						\
++    return d;								\
++  }
++
++/* D = A OP B with D, A and B in the given registers.  */
++#define BIN(name, D, A, B, expr)					\
++  __attribute__ ((noipa)) u64						\
++  name (u64 a, u64 b)							\
++  {									\
++    register u64 x __asm__ (A) = a;					\
++    register u64 y __asm__ (B) = b;					\
++    register u64 d __asm__ (D);						\
++    __asm__ ("" : "+r" (x), "+r" (y));					\
++    d = expr;								\
++    __asm__ ("" : "+r" (d));						\
++    return d;								\
++  }
++
++/* D = A + B, C = the carry out, for the overflow check.  */
++#define ADDV(name, D, A, B)						\
++  __attribute__ ((noipa)) u64						\
++  name (u64 a, u64 b, int *c)						\
++  {									\
++    register u64 x __asm__ (A) = a;					\
++    register u64 y __asm__ (B) = b;					\
++    register u64 d __asm__ (D);						\
++    __asm__ ("" : "+r" (x), "+r" (y));					\
++    u64 t;								\
++    *c = __builtin_add_overflow (x, y, &t);				\
++    d = t;								\
++    __asm__ ("" : "+r" (d));						\
++    return d;								\
++  }
++
++#define SUBV(name, D, A, B)						\
++  __attribute__ ((noipa)) u64						\
++  name (u64 a, u64 b, int *c)						\
++  {									\
++    register u64 x __asm__ (A) = a;					\
++    register u64 y __asm__ (B) = b;					\
++    register u64 d __asm__ (D);						\
++    __asm__ ("" : "+r" (x), "+r" (y));					\
++    u64 t;								\
++    *c = __builtin_sub_overflow (x, y, &t);				\
++    d = t;								\
++    __asm__ ("" : "+r" (d));						\
++    return d;								\
++  }
++
++/* The result one register below and one register above the input.  */
++#define UNARY(X)							\
++  X (neg, -s, ref_neg (a))						\
++  X (not, ~s, mk (~hi (a), ~lo (a)))					\
++  X (mov, s, a)								\
++  X (dbl, s + s, ref_add (a, a))					\
++  X (shl1, s << 1, ref_shl1 (a))					\
++  X (lshr1, s >> 1, ref_lshr1 (a))					\
++  X (ashr1, (u64) ((s64) s >> 1), ref_ashr1 (a))			\
++  X (addi1, s + 1, ref_add (a, 1))					\
++  X (addim1, s - 1, ref_add (a, -1ULL))					\
++  X (addibig, s + 0x123456789ULL, ref_add (a, 0x123456789ULL))		\
++  X (addihi, s + 0x500000000ULL, ref_add (a, 0x500000000ULL))		\
++  X (addilo, s + 0x80000000ULL, ref_add (a, 0x80000000ULL))
++
++#define DEF_UN(op, expr, ref)						\
++  UN (op##_dn, "r4", "r5", expr)					\
++  UN (op##_up, "r6", "r5", expr)					\
++  UN (op##_dn3, "r3", "r4", expr)					\
++  UN (op##_up3, "r4", "r3", expr)
++UNARY (DEF_UN)
++
++#define BINARY(X)							\
++  X (add, x + y, ref_add (a, b))					\
++  X (sub, x - y, ref_sub (a, b))
++
++#define DEF_BIN(op, expr, ref)						\
++  BIN (op##_1, "r4", "r5", "r7", expr)					\
++  BIN (op##_2, "r6", "r5", "r7", expr)					\
++  BIN (op##_3, "r4", "r7", "r5", expr)					\
++  BIN (op##_4, "r6", "r7", "r5", expr)
++BINARY (DEF_BIN)
++
++#define CARRY(X) X (1, "r4", "r5", "r7") X (2, "r6", "r5", "r7")	\
++  X (3, "r4", "r7", "r5") X (4, "r6", "r7", "r5")
++#define DEF_CARRY(n, D, A, B) ADDV (addv_##n, D, A, B) SUBV (subv_##n, D, A, B)
++CARRY (DEF_CARRY)
++
++int
++main (void)
++{
++  unsigned int i, j;
++  for (i = 0; i < N; i++)
++    {
++      u64 a = vals[i];
++#define CHECK_UN(op, expr, ref)						\
++      if (op##_dn (a) != ref || op##_up (a) != ref			\
++	  || op##_dn3 (a) != ref || op##_up3 (a) != ref)		\
++	abort ();
++      UNARY (CHECK_UN)
++
++      for (j = 0; j < N; j++)
++	{
++	  u64 b = vals[j];
++	  int c;
++#define CHECK_BIN(op, expr, ref)					\
++	  if (op##_1 (a, b) != ref || op##_2 (a, b) != ref		\
++	      || op##_3 (a, b) != ref || op##_4 (a, b) != ref)		\
++	    abort ();
++	  BINARY (CHECK_BIN)
++#define CHECK_CARRY(n, D, A, B)						\
++	  if (addv_##n (a, b, &c) != ref_add (a, b)			\
++	      || c != (ref_add (a, b) < a))				\
++	    abort ();							\
++	  if (subv_##n (a, b, &c) != ref_sub (a, b) || c != (a < b))	\
++	    abort ();
++	  CARRY (CHECK_CARRY)
++	}
++    }
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+
