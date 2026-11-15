@@ -1,0 +1,532 @@
+From 41a9741bee8acbff87e5e92935fff46256523b0b Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sat, 14 Nov 2026 16:07:14 -0500
+Subject: [PATCH] libgcc: microblaze: use the generic C for 32-bit division
+
+Replace the hand-written __divsi3, __modsi3, __udivsi3 and __umodsi3
+with libgcc's divmod.c, udivmod.c and udivmodsi4.c, as iq2000 and
+pdp11 do.  The assembly has no variants for the barrel shifter or the
+other options, while the C is compiled for each multilib.  gcc calls
+these routines through ordinary library calls, and with -mno-xl-soft-div
+it emits idiv instead, so the change only affects cores without a
+divider.
+
+The C gives the same results as the assembly: 0 mismatches on about
+700,000 boundary and random operand pairs per endian, in five
+configurations.  Division by zero still returns 0, except that 0 / 0 is
+now 1.
+
+Instructions executed per call, mean, and estimated cycles per call on
+the five-stage pipeline, mean (max), without options.  The cycles come
+from a QEMU plugin that costs each instruction with UG984's latencies,
+with no branch target cache; with a perfect one they equal the
+instruction counts.  They are not measured on hardware.
+
+		random		short quotient	long quotient
+		insns cycles	insns cycles	insns cycles
+  __divsi3  asm	 280  392 (401)	 224  316 (401)	 301  400 (401)
+	    C	 210  265 (620)	  70   87 (107)	 450  568 (620)
+  __udivsi3 asm	 256  358 (415)	 214  304 (415)	 305  409 (415)
+	    C	 225  283 (615)	  66   82 (99)	 448  566 (615)
+
+The C is faster on average for random operands and much faster when the
+quotient is short, but slower when it is long, and its worst case is
+about 50% higher: udivmodsi4.c shifts the divisor up one bit at a time
+and then subtracts one bit at a time, two loops as long as the
+quotient, where the assembly normalizes the dividend and runs one.
+
+Keep mulsi3.S: the best C shift-and-add loop tried, which like the
+assembly loops over the operand of smaller magnitude, was about 20%
+slower on average and in the worst case.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+libgcc/ChangeLog:
+
+	* config/microblaze/divsi3.S: Remove.
+	* config/microblaze/modsi3.S: Remove.
+	* config/microblaze/udivsi3.S: Remove.
+	* config/microblaze/umodsi3.S: Remove.
+	* config/microblaze/t-microblaze (LIB2ADD): Replace them with
+	divmod.c, udivmod.c and udivmodsi4.c.
+---
+ libgcc/config/microblaze/divsi3.S     | 102 -----------------------
+ libgcc/config/microblaze/modsi3.S     | 101 -----------------------
+ libgcc/config/microblaze/t-microblaze |   7 +-
+ libgcc/config/microblaze/udivsi3.S    | 109 -------------------------
+ libgcc/config/microblaze/umodsi3.S    | 112 --------------------------
+ 5 files changed, 3 insertions(+), 428 deletions(-)
+ delete mode 100644 libgcc/config/microblaze/divsi3.S
+ delete mode 100644 libgcc/config/microblaze/modsi3.S
+ delete mode 100644 libgcc/config/microblaze/udivsi3.S
+ delete mode 100644 libgcc/config/microblaze/umodsi3.S
+
+diff --git a/libgcc/config/microblaze/divsi3.S b/libgcc/config/microblaze/divsi3.S
+deleted file mode 100644
+index 3a92770d7..000000000
+--- a/libgcc/config/microblaze/divsi3.S
++++ /dev/null
+@@ -1,102 +0,0 @@
+-###################################-
+-# 
+-#  Copyright (C) 2009-2026 Free Software Foundation, Inc.
+-#
+-#  Contributed by Michael Eager <eager@eagercon.com>.
+-#
+-#  This file is free software; you can redistribute it and/or modify it
+-#  under the terms of the GNU General Public License as published by the
+-#  Free Software Foundation; either version 3, or (at your option) any
+-#  later version.
+-#
+-#  GCC is distributed in the hope that it will be useful, but WITHOUT
+-#  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+-#  or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+-#  License for more details.
+-#
+-#  Under Section 7 of GPL version 3, you are granted additional
+-#  permissions described in the GCC Runtime Library Exception, version
+-#  3.1, as published by the Free Software Foundation.
+-#
+-#  You should have received a copy of the GNU General Public License and
+-#  a copy of the GCC Runtime Library Exception along with this program;
+-#  see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+-#  <http://www.gnu.org/licenses/>. 
+-#
+-#  divsi3.S
+-# 
+-#  Divide operation for 32 bit integers.
+-#	Input :	Dividend in Reg r5
+-#		Divisor in Reg r6
+-#	Output: Result in Reg r3
+-# 
+-#######################################
+-	
+-/* An executable stack is *not* required for these functions.  */
+-#ifdef __linux__
+-.section .note.GNU-stack,"",%progbits
+-.previous
+-#endif
+-
+-	.globl	__divsi3
+-	.ent	__divsi3
+-	.type	__divsi3,@function
+-__divsi3:
+-	.frame	r1,0,r15	
+-
+-	ADDIK   r1,r1,-16
+-	SWI     r28,r1,0
+-	SWI     r29,r1,4
+-	SWI     r30,r1,8
+-	SWI     r31,r1,12
+-
+-	BEQI    r6,$LaDiv_By_Zero       # Div_by_Zero   # Division Error
+-	BEQI    r5,$LaResult_Is_Zero    # Result is Zero 
+-	BGEID   r5,$LaR5_Pos 
+-	XOR     r28,r5,r6               # Get the sign of the result
+-	RSUBI   r5,r5,0                 # Make r5 positive
+-$LaR5_Pos:
+-	BGEI    r6,$LaR6_Pos
+-	RSUBI   r6,r6,0                 # Make r6 positive
+-$LaR6_Pos:
+-	ADDIK   r30,r0,0                # Clear mod
+-	ADDIK   r3,r0,0                 # clear div
+-	ADDIK   r29,r0,32               # Initialize the loop count
+-
+-        # First part try to find the first '1' in the r5
+-$LaDIV0: 
+-        BLTI    r5,$LaDIV2              # This traps r5 == 0x80000000 
+-$LaDIV1:
+-	ADD     r5,r5,r5                # left shift logical r5
+-	BGTID   r5,$LaDIV1       
+-	ADDIK   r29,r29,-1
+-$LaDIV2:
+-	ADD     r5,r5,r5                # left shift logical  r5 get the '1' into the Carry
+-	ADDC    r30,r30,r30             # Move that bit into the Mod register
+-	RSUB    r31,r6,r30              # Try to subtract (r30 a r6)
+-	BLTI    r31,$LaMOD_TOO_SMALL
+-	OR      r30,r0,r31              # Move the r31 to mod since the result was positive
+-	ADDIK   r3,r3,1
+-$LaMOD_TOO_SMALL:
+-	ADDIK   r29,r29,-1
+-	BEQi    r29,$LaLOOP_END
+-	ADD     r3,r3,r3                # Shift in the '1' into div
+-	BRI     $LaDIV2                 # Div2
+-$LaLOOP_END:
+-	BGEI    r28,$LaRETURN_HERE
+-	BRID    $LaRETURN_HERE
+-	RSUBI   r3,r3,0                 # Negate the result
+-$LaDiv_By_Zero:
+-$LaResult_Is_Zero:
+-	OR      r3,r0,r0 # set result to 0
+-$LaRETURN_HERE:
+-# Restore values of CSRs and that of r3 and the divisor and the dividend
+-	LWI     r28,r1,0
+-	LWI     r29,r1,4
+-	LWI     r30,r1,8
+-	LWI     r31,r1,12
+-	RTSD    r15,8
+-	ADDIK   r1,r1,16
+-.end __divsi3
+-	.size	__divsi3, . - __divsi3
+-
+diff --git a/libgcc/config/microblaze/modsi3.S b/libgcc/config/microblaze/modsi3.S
+deleted file mode 100644
+index 1c4b1439d..000000000
+--- a/libgcc/config/microblaze/modsi3.S
++++ /dev/null
+@@ -1,101 +0,0 @@
+-###################################
+-# 
+-#  Copyright (C) 2009-2026 Free Software Foundation, Inc.
+-#
+-#  Contributed by Michael Eager <eager@eagercon.com>.
+-#
+-#  This file is free software; you can redistribute it and/or modify it
+-#  under the terms of the GNU General Public License as published by the
+-#  Free Software Foundation; either version 3, or (at your option) any
+-#  later version.
+-#
+-#  GCC is distributed in the hope that it will be useful, but WITHOUT
+-#  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+-#  or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+-#  License for more details.
+-#
+-#  Under Section 7 of GPL version 3, you are granted additional
+-#  permissions described in the GCC Runtime Library Exception, version
+-#  3.1, as published by the Free Software Foundation.
+-#
+-#  You should have received a copy of the GNU General Public License and
+-#  a copy of the GCC Runtime Library Exception along with this program;
+-#  see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+-#  <http://www.gnu.org/licenses/>. 
+-# 
+-#  modsi3.S
+-# 
+-#  modulo operation for 32 bit integers.
+-#	Input :	op1 in Reg r5
+-#		op2 in Reg r6
+-#	Output: op1 mod op2 in Reg r3
+-# 
+-#######################################
+-
+-/* An executable stack is *not* required for these functions.  */
+-#ifdef __linux__
+-.section .note.GNU-stack,"",%progbits
+-.previous
+-#endif
+-
+-	.globl	__modsi3
+-	.ent	__modsi3
+-	.type	__modsi3,@function
+-__modsi3:
+-	.frame	r1,0,r15	
+-
+-	addik	r1,r1,-16
+-	swi	r28,r1,0
+-	swi	r29,r1,4
+-	swi	r30,r1,8
+-	swi	r31,r1,12
+-
+-	BEQI	r6,$LaDiv_By_Zero       # Div_by_Zero   # Division Error
+-	BEQI	r5,$LaResult_Is_Zero    # Result is Zero 
+-	BGEId	r5,$LaR5_Pos 
+-	ADD	r28,r5,r0               # Get the sign of the result [ Depends only on the first arg]
+-	RSUBI	r5,r5,0	                # Make r5 positive
+-$LaR5_Pos:
+-	BGEI	r6,$LaR6_Pos
+-	RSUBI	r6,r6,0	    # Make r6 positive
+-$LaR6_Pos:
+-	ADDIK	r3,r0,0      # Clear mod
+-	ADDIK	r30,r0,0     # clear div
+-	BLTId	r5,$LaDIV2   # If r5 is still negative (0x80000000), skip
+-			     # the first bit search.
+-	ADDIK	r29,r0,32    # Initialize the loop count
+-   # First part try to find the first '1' in the r5
+-$LaDIV1:
+-	ADD	r5,r5,r5         # left shift logical r5
+-	BGEID	r5,$LaDIV1       #
+-	ADDIK	r29,r29,-1
+-$LaDIV2:
+-	ADD	r5,r5,r5         # left shift logical  r5 get the '1' into the Carry
+-	ADDC	r3,r3,r3         # Move that bit into the Mod register
+-	rSUB	r31,r6,r3        # Try to subtract (r30 a r6)
+-	BLTi	r31,$LaMOD_TOO_SMALL
+-	OR	r3,r0,r31       # Move the r31 to mod since the result was positive
+-	ADDIK	r30,r30,1
+-$LaMOD_TOO_SMALL:
+-	ADDIK	r29,r29,-1
+-	BEQi	r29,$LaLOOP_END
+-	ADD	r30,r30,r30         # Shift in the '1' into div
+-	BRI	$LaDIV2          # Div2
+-$LaLOOP_END:
+-	BGEI	r28,$LaRETURN_HERE
+-	BRId	$LaRETURN_HERE
+-	rsubi	r3,r3,0 # Negate the result
+-$LaDiv_By_Zero:
+-$LaResult_Is_Zero:
+-	or	r3,r0,r0        # set result to 0 [Both mod as well as div are 0]
+-$LaRETURN_HERE:
+-# Restore values of CSRs and that of r3 and the divisor and the dividend
+-	lwi	r28,r1,0
+-	lwi	r29,r1,4
+-	lwi	r30,r1,8
+-	lwi	r31,r1,12
+-	rtsd	r15,8
+-	addik	r1,r1,16
+-        .end __modsi3
+-	.size	__modsi3, . - __modsi3
+-
+diff --git a/libgcc/config/microblaze/t-microblaze b/libgcc/config/microblaze/t-microblaze
+index bb5afa0dd..8285f0700 100644
+--- a/libgcc/config/microblaze/t-microblaze
++++ b/libgcc/config/microblaze/t-microblaze
+@@ -1,10 +1,9 @@
+ LIB2FUNCS_EXCLUDE += _divsi3 _modsi3 _mulsi3 _udivsi3 _umodsi3
+ 
+ LIB2ADD += \
+-        $(srcdir)/config/microblaze/divsi3.S \
+-        $(srcdir)/config/microblaze/modsi3.S \
++	$(srcdir)/divmod.c \
++	$(srcdir)/udivmod.c \
++	$(srcdir)/udivmodsi4.c \
+         $(srcdir)/config/microblaze/mulsi3.S \
+         $(srcdir)/config/microblaze/stack_overflow_exit.S \
+-        $(srcdir)/config/microblaze/udivsi3.S \
+-        $(srcdir)/config/microblaze/umodsi3.S \
+         $(srcdir)/config/microblaze/divsi3_table.c
+diff --git a/libgcc/config/microblaze/udivsi3.S b/libgcc/config/microblaze/udivsi3.S
+deleted file mode 100644
+index b8b3d3d8b..000000000
+--- a/libgcc/config/microblaze/udivsi3.S
++++ /dev/null
+@@ -1,109 +0,0 @@
+-###################################-
+-# 
+-#  Copyright (C) 2009-2026 Free Software Foundation, Inc.
+-#
+-#  Contributed by Michael Eager <eager@eagercon.com>.
+-#
+-#  This file is free software; you can redistribute it and/or modify it
+-#  under the terms of the GNU General Public License as published by the
+-#  Free Software Foundation; either version 3, or (at your option) any
+-#  later version.
+-#
+-#  GCC is distributed in the hope that it will be useful, but WITHOUT
+-#  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+-#  or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+-#  License for more details.
+-#
+-#  Under Section 7 of GPL version 3, you are granted additional
+-#  permissions described in the GCC Runtime Library Exception, version
+-#  3.1, as published by the Free Software Foundation.
+-#
+-#  You should have received a copy of the GNU General Public License and
+-#  a copy of the GCC Runtime Library Exception along with this program;
+-#  see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+-#  <http://www.gnu.org/licenses/>. 
+-# 
+-#  udivsi3.S
+-# 
+-#  Unsigned divide operation.
+-#	Input :	Divisor in Reg r5
+-#		Dividend in Reg r6
+-#	Output: Result in Reg r3
+-# 
+-#######################################
+-	
+-/* An executable stack is *not* required for these functions.  */
+-#ifdef __linux__
+-.section .note.GNU-stack,"",%progbits
+-.previous
+-#endif
+-
+-	.globl	__udivsi3
+-	.ent	__udivsi3
+-	.type	__udivsi3,@function
+-__udivsi3:
+-	.frame	r1,0,r15	
+-
+-	ADDIK   r1,r1,-12
+-    	SWI     r29,r1,0
+-	SWI     r30,r1,4
+-	SWI     r31,r1,8
+-
+-	BEQI    r6,$LaDiv_By_Zero           # Div_by_Zero   # Division Error
+-	BEQID   r5,$LaResult_Is_Zero        # Result is Zero 
+-	ADDIK   r30,r0,0                    # Clear mod
+-	ADDIK   r29,r0,32                   # Initialize the loop count
+-
+-        # Check if r6 and r5 are equal # if yes, return 1
+-	RSUB 	r18,r5,r6
+-	BEQID	r18,$LaRETURN_HERE
+-	ADDIK	r3,r0,1
+-
+-        # Check if (uns)r6 is greater than (uns)r5. In that case, just return 0
+-	XOR	r18,r5,r6
+-	BGEID	r18,16
+-	ADD	r3,r0,r0                    # We would anyways clear r3
+-	BLTI	r6,$LaRETURN_HERE           # r6[bit 31 = 1] hence is greater
+-	BRI	$LCheckr6
+-	RSUB	r18,r6,r5                   # MICROBLAZEcmp
+-	BLTI	r18,$LaRETURN_HERE
+-
+-        # If r6 [bit 31] is set, then return result as 1
+-$LCheckr6:
+-	BGTI	r6,$LaDIV0
+-	BRID	$LaRETURN_HERE
+-	ADDIK	r3,r0,1
+-
+-        # First part try to find the first '1' in the r5
+-$LaDIV0:
+-	BLTI    r5,$LaDIV2	
+-$LaDIV1:
+-	ADD     r5,r5,r5                    # left shift logical r5
+-	BGTID   r5,$LaDIV1       
+-	ADDIK   r29,r29,-1
+-$LaDIV2:
+-	ADD     r5,r5,r5                    # left shift logical  r5 get the '1' into the Carry
+-	ADDC    r30,r30,r30                 # Move that bit into the Mod register
+-	RSUB    r31,r6,r30                  # Try to subtract (r30 a r6)
+-    	BLTI    r31,$LaMOD_TOO_SMALL
+-	OR      r30,r0,r31                  # Move the r31 to mod since the result was positive
+-	ADDIK   r3,r3,1
+-$LaMOD_TOO_SMALL:
+-	ADDIK   r29,r29,-1
+-	BEQi    r29,$LaLOOP_END
+-	ADD     r3,r3,r3 # Shift in the '1' into div
+-	BRI     $LaDIV2   # Div2
+-$LaLOOP_END:
+-	BRI     $LaRETURN_HERE
+-$LaDiv_By_Zero:
+-$LaResult_Is_Zero:
+-	OR      r3,r0,r0 # set result to 0
+-$LaRETURN_HERE:
+-        # Restore values of CSRs and that of r3 and the divisor and the dividend
+-	LWI     r29,r1,0
+-	LWI     r30,r1,4
+-	LWI     r31,r1,8
+-	RTSD    r15,8
+-	ADDIK   r1,r1,12
+-        .end __udivsi3
+-	.size	__udivsi3, . - __udivsi3
+diff --git a/libgcc/config/microblaze/umodsi3.S b/libgcc/config/microblaze/umodsi3.S
+deleted file mode 100644
+index 773d22c3a..000000000
+--- a/libgcc/config/microblaze/umodsi3.S
++++ /dev/null
+@@ -1,112 +0,0 @@
+-###################################
+-# 
+-#  Copyright (C) 2009-2026 Free Software Foundation, Inc.
+-#
+-#  Contributed by Michael Eager <eager@eagercon.com>.
+-#
+-#  This file is free software; you can redistribute it and/or modify it
+-#  under the terms of the GNU General Public License as published by the
+-#  Free Software Foundation; either version 3, or (at your option) any
+-#  later version.
+-#
+-#  GCC is distributed in the hope that it will be useful, but WITHOUT
+-#  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+-#  or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+-#  License for more details.
+-#
+-#  Under Section 7 of GPL version 3, you are granted additional
+-#  permissions described in the GCC Runtime Library Exception, version
+-#  3.1, as published by the Free Software Foundation.
+-#
+-#  You should have received a copy of the GNU General Public License and
+-#  a copy of the GCC Runtime Library Exception along with this program;
+-#  see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+-#  <http://www.gnu.org/licenses/>. 
+-# 
+-#  umodsi3.S
+-#
+-#  Unsigned modulo operation for 32 bit integers.
+-#	Input :	op1 in Reg r5
+-#		op2 in Reg r6
+-#	Output: op1 mod op2 in Reg r3
+-# 
+-#######################################
+-	
+-/* An executable stack is *not* required for these functions.  */
+-#ifdef __linux__
+-.section .note.GNU-stack,"",%progbits
+-.previous
+-#endif
+-
+-	.globl	__umodsi3
+-	.ent	__umodsi3
+-	.type	__umodsi3,@function
+-__umodsi3:
+-	.frame	r1,0,r15	
+-
+-	addik	r1,r1,-12
+-	swi	r29,r1,0
+-	swi	r30,r1,4
+-	swi	r31,r1,8
+-
+-	BEQI	r6,$LaDiv_By_Zero         # Div_by_Zero   # Division Error
+-	BEQId	r5,$LaResult_Is_Zero     # Result is Zero 
+-	ADDIK 	r3,r0,0                  # Clear div
+-	ADDIK 	r30,r0,0     	# clear mod
+-	ADDIK 	r29,r0,32       # Initialize the loop count
+-
+-# Check if r6 and r5 are equal # if yes, return 0
+-	rsub 	r18,r5,r6
+-	beqi	r18,$LaRETURN_HERE
+-
+-# Check if (uns)r6 is greater than (uns)r5. In that case, just return r5
+-	xor	r18,r5,r6
+-	bgeid	r18,16
+-	addik	r3,r5,0
+-	blti	r6,$LaRETURN_HERE
+-	bri	$LCheckr6
+-	rsub	r18,r5,r6 # MICROBLAZEcmp
+-	bgti	r18,$LaRETURN_HERE
+-
+-# If r6 [bit 31] is set, then return result as r5-r6
+-$LCheckr6:
+-	bgtid	r6,$LaDIV0
+-	addik	r3,r0,0
+-	addik	r18,r0,0x7fffffff
+-	and	r5,r5,r18
+-	and 	r6,r6,r18
+-	brid	$LaRETURN_HERE
+-	rsub	r3,r6,r5
+-# First part: try to find the first '1' in the r5
+-$LaDIV0:
+-	BLTI	r5,$LaDIV2
+-$LaDIV1:
+-	ADD 	r5,r5,r5     # left shift logical r5
+-	BGEID 	r5,$LaDIV1   #
+-	ADDIK 	r29,r29,-1
+-$LaDIV2:
+-	ADD 	r5,r5,r5     # left shift logical  r5 get the '1' into the Carry
+-	ADDC 	r3,r3,r3     # Move that bit into the Mod register
+-	rSUB 	r31,r6,r3    # Try to subtract (r3 a r6)
+-	BLTi 	r31,$LaMOD_TOO_SMALL
+-	OR  	r3,r0,r31    # Move the r31 to mod since the result was positive
+-	ADDIK 	r30,r30,1
+-$LaMOD_TOO_SMALL:
+-	ADDIK 	r29,r29,-1
+-	BEQi 	r29,$LaLOOP_END
+-	ADD 	r30,r30,r30 # Shift in the '1' into div
+-	BRI 	$LaDIV2     # Div2
+-$LaLOOP_END:
+-	BRI 	$LaRETURN_HERE
+-$LaDiv_By_Zero:
+-$LaResult_Is_Zero:
+-	or 	r3,r0,r0   # set result to 0
+-$LaRETURN_HERE:
+-# Restore values of CSRs and that of r3 and the divisor and the dividend
+-	lwi 	r29,r1,0
+-	lwi 	r30,r1,4
+-	lwi 	r31,r1,8
+-	rtsd 	r15,8
+-	addik 	r1,r1,12
+-.end __umodsi3
+-	.size	__umodsi3, . - __umodsi3
+-- 
+2.39.5 (Apple Git-154)
+

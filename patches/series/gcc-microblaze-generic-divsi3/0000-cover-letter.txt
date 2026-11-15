@@ -1,0 +1,80 @@
+libgcc: microblaze: use the generic C for 32-bit division
+
+MicroBlaze has hand-written __divsi3, __modsi3, __udivsi3 and __umodsi3
+(libgcc/config/microblaze/*.S).  This patch replaces them with libgcc's
+divmod.c, udivmod.c and udivmodsi4.c, as iq2000 and pdp11 do.  They are
+only called on cores without a divider: with -mno-xl-soft-div gcc emits
+idiv.
+
+It is a trade-off, not a clear win.  The C is faster on average, much
+faster for short quotients, slower for long ones, and its worst case is
+about 50% higher.
+
+Instructions executed per call (mean) and estimated cycles per call,
+mean (max), over 2000 operand pairs per set, big-endian:
+
+  c5   five-stage pipeline (C_AREA_OPTIMIZED=0), no branch target cache
+  cb   five-stage with a perfect branch target cache: one cycle per
+       instruction
+  c3   three-stage pipeline (C_AREA_OPTIMIZED=1)
+
+No options:
+                         insns     c5 (max)    cb (max)    c3 (max)
+  __divsi3  random  asm  280.0   392.0 (401)  280.0 (314)  400.0 (409)
+                    C    209.9   264.7 (620)  209.9 (499)  266.7 (622)
+            short q asm  223.6   316.4 (401)  223.6 (281)  324.4 (409)
+                    C     70.2    86.9 (107)   70.2 (89)    88.9 (109)
+            long q  asm  301.0   400.0 (401)  301.0 (321)  408.0 (409)
+                    C    450.0   568.2 (620)  450.0 (505)  570.2 (622)
+  __udivsi3 random  asm  256.4   358.3 (415)  256.4 (326)  364.3 (421)
+                    C    224.6   283.3 (615)  224.6 (502)  285.3 (617)
+            short q asm  214.2   304.2 (415)  214.2 (286)  310.2 (421)
+                    C     65.9    81.5 (99)    65.9 (83)    83.5 (101)
+            long q  asm  305.3   408.9 (415)  305.3 (326)  414.9 (421)
+                    C    448.3   565.9 (615)  448.3 (499)  567.9 (617)
+
+Every hardware option except the divider (-mcpu=v11.0 -mxl-barrel-shift
+-mno-xl-soft-mul -mxl-multiply-high -mxl-pattern-compare):
+                         insns     c5 (max)    cb (max)    c3 (max)
+  __divsi3  random  asm  280.0   392.0 (401)  280.0 (314)  400.0 (409)
+                    C    198.5   253.3 (590)  198.5 (469)  255.3 (592)
+            long q  asm  301.0   400.0 (401)  301.0 (321)  408.0 (409)
+                    C    422.7   540.8 (590)  422.7 (475)  542.8 (592)
+  __udivsi3 random  asm  256.4   358.3 (415)  256.4 (326)  364.3 (421)
+                    C    211.9   270.6 (585)  211.9 (472)  272.6 (587)
+            long q  asm  305.3   408.9 (415)  305.3 (326)  414.9 (421)
+                    C    420.8   538.4 (585)  420.8 (469)  540.4 (587)
+
+__umodsi3 costs within 2 cycles of __udivsi3, and __modsi3 within 3 of
+__divsi3, except that the C __modsi3 without the barrel shifter costs
+about 33 cycles more.  The assembly has no variants, so its column never
+changes; the C gains about 5% from the options.  With the divider too, the C is
+unchanged (udivmodsi4.c is a shift loop and never uses /), and inline
+idiv costs 36 cycles (c5) for a quotient and 38 for a remainder.
+
+"random" is a 32-bit dividend and a divisor of random bit length; "short
+q" has quotients from 0 to 15; "long q" has divisors from 1 to 15.  The
+signed routines get operands of both signs, the unsigned ones operands
+taken as unsigned.
+
+Why: udivmodsi4.c shifts the divisor up one bit at a time until it
+passes the dividend, then subtracts one bit at a time, so it runs two
+loops each as long as the quotient.  The assembly shifts the dividend
+left past its leading zeros, then runs one loop over the remaining bits.
+
+The cycle counts are estimates.  The plugin costs each executed
+instruction with UG984's per-instruction latencies and assumes
+single-cycle local memory.  Data-hazard stalls, counted separately, add
+at most 2 cycles per call to the C and none to the assembly.  I have
+not measured cycles on hardware.
+
+Correctness: libgcc-audit's boundary and random tables, about 700,000
+pairs per endian, give 0 mismatches for the C on big- and little-endian
+with no options, -mxl-barrel-shift, -mno-xl-soft-mul,
+-mxl-pattern-compare and every option.  Division by zero still returns
+0, except that 0 / 0 is now 1.
+
+Tested with make check-gcc (gcc.c-torture/execute and
+gcc.target/microblaze) on qemu-system-microblaze, big-endian, against
+gcc master df809a029 with the other runner patches: 24536 and 770
+passes, no failures, the same as without this patch.

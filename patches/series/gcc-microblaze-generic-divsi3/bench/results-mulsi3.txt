@@ -1,0 +1,39 @@
+
+== def
+routine         operands            insn        c5 (max)        cb (max)        c3 (max)     hz
+__mulsi3   asm  random             102.6     134.0 (225)     102.6 (182)     134.0 (225)   0.00
+__mulsi3   gen  random             141.3     162.9 (269)     141.3 (233)     162.9 (269)   0.00
+__mulsi3   asm  short quotient     102.0     132.3 (205)     102.0 (166)     132.3 (205)   0.00
+__mulsi3   gen  short quotient     140.3     161.7 (245)     140.3 (212)     161.7 (245)   0.00
+__mulsi3   asm  long quotient       27.3       36.2 (44)       27.3 (35)       36.2 (44)   0.00
+__mulsi3   gen  long quotient       38.1       44.9 (53)       38.1 (44)       44.9 (53)   0.00
+
+== bs
+routine         operands            insn        c5 (max)        cb (max)        c3 (max)     hz
+__mulsi3   asm  random             102.6     134.0 (225)     102.6 (182)     134.0 (225)   0.00
+__mulsi3   gen  random             141.3     162.9 (269)     141.3 (233)     162.9 (269)   0.00
+__mulsi3   inl  random               2.0         3.0 (3)         2.0 (2)         5.0 (5)   0.00
+__mulsi3   asm  short quotient     102.0     132.3 (205)     102.0 (166)     132.3 (205)   0.00
+__mulsi3   gen  short quotient     140.3     161.7 (245)     140.3 (212)     161.7 (245)   0.00
+__mulsi3   inl  short quotient       2.0         3.0 (3)         2.0 (2)         5.0 (5)   0.00
+__mulsi3   asm  long quotient       27.3       36.2 (44)       27.3 (35)       36.2 (44)   0.00
+__mulsi3   gen  long quotient       38.1       44.9 (53)       38.1 (44)       44.9 (53)   0.00
+__mulsi3   inl  long quotient        2.0         3.0 (3)         2.0 (2)         5.0 (5)   0.00
+
+== bsonly
+routine         operands            insn        c5 (max)        cb (max)        c3 (max)     hz
+__mulsi3   asm  random             102.6     134.0 (225)     102.6 (182)     134.0 (225)   0.00
+__mulsi3   gen  random             141.3     162.9 (269)     141.3 (233)     162.9 (269)   0.00
+__mulsi3   asm  short quotient     102.0     132.3 (205)     102.0 (166)     132.3 (205)   0.00
+__mulsi3   gen  short quotient     140.3     161.7 (245)     140.3 (212)     161.7 (245)   0.00
+__mulsi3   asm  long quotient       27.3       36.2 (44)       27.3 (35)       36.2 (44)   0.00
+__mulsi3   gen  long quotient       38.1       44.9 (53)       38.1 (44)       44.9 (53)   0.00
+
+== allnomul
+routine         operands            insn        c5 (max)        cb (max)        c3 (max)     hz
+__mulsi3   asm  random             102.6     134.0 (225)     102.6 (182)     134.0 (225)   0.00
+__mulsi3   gen  random             141.3     162.9 (269)     141.3 (233)     162.9 (269)   0.00
+__mulsi3   asm  short quotient     102.0     132.3 (205)     102.0 (166)     132.3 (205)   0.00
+__mulsi3   gen  short quotient     140.3     161.7 (245)     140.3 (212)     161.7 (245)   0.00
+__mulsi3   asm  long quotient       27.3       36.2 (44)       27.3 (35)       36.2 (44)   0.00
+__mulsi3   gen  long quotient       38.1       44.9 (53)       38.1 (44)       44.9 (53)   0.00
