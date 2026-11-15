@@ -115,7 +115,11 @@ each byte order:
 
 The 14 failures are the same as without this series (fprintf-2.c needs
 a filesystem; pr117432.c is a separate variadic-argument bug).  The
-other gcc.target/microblaze failures, in fcmp1-4.c, nofcmp.c,
-vanilla.c and picdtr.c, are front-end errors in those tests (implicit
-function declarations, and a redefinition), the same without this
-series.  I tested the series as a whole, not each patch on its own.
+rest of gcc.target/microblaze also fails the same without this series:
+six isa tests call print undeclared, fcmp4.c expects fcmp.eq where gcc
+now emits fcmp.ne, the scan-assembler tests fail in the
+-fno-fat-lto-objects run, and picdtr.c defines everything twice, which
+hides an ICE with -fPIE -mpic-data-is-text-relative.  Separate patches,
+not part of this series, fix all of these; I have not re-tested this
+series on top of them.  I tested the series as a whole, not each patch
+on its own.

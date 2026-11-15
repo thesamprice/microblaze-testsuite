@@ -1,4 +1,4 @@
-From 302b63e27b4ecb04bf0203fe94aa6d8b40d9baaf Mon Sep 17 00:00:00 2001
+From c871a2233f17604d9acb60748f850bc5330b21aa Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 8 Nov 2026 02:07:33 -0500
 Subject: [PATCH 2/3] libgcc: optional remainder-only __umoddi3 and __moddi3
@@ -21,18 +21,21 @@ in with LIBGCC2_MOD_WITHOUT_QUOTIENT, documented next to
 TARGET_HAS_NO_HW_DIVIDE.  It wins on MicroBlaze, which has no condition
 flags and, without a barrel shifter, no single-instruction variable
 shift.  On armv6-m, which shifts a double word left in two instructions
-and compares with flags, __moddi3 and __umoddi3 got 27% and 46% slower.
+and compares with flags, __moddi3 and __umoddi3 got 27% and 46% slower
+(278.4 to 353.4 and 189.9 to 276.8 instructions, the latter on signed
+operands).
 No target defines the macro after this patch; the next one makes
 MicroBlaze do so.
 
 Mean instructions per call over 4701 operand pairs, under QEMU, on
-MicroBlaze with both macros, against libgcc2.c before this series:
+MicroBlaze with both macros, against libgcc2.c before this series.
+__umoddi3's operands are never negative:
 
 	              no options       barrel shifter     every option
 	                               and hw multiply    but the divider
 	              before   after   before   after     before   after
 	__moddi3      1330.6   457.0    332.4   275.3      299.7   238.9
-	__umoddi3      959.3   338.0    238.5   197.2      203.9   170.7
+	__umoddi3     1306.4   441.9    317.8   258.9      277.7   224.6
 
 Tested as part of this series on microblaze-elf and microblazeel-elf
 under QEMU.

@@ -1,4 +1,4 @@
-From df522836b953781325709077292476c62a45d095 Mon Sep 17 00:00:00 2001
+From 8b8c0127c5ace55f034cbe3d45aacbe36de1e179 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 8 Nov 2026 15:22:38 -0500
 Subject: [PATCH 3/3] microblaze: check unsigned 64-bit overflow with carry
@@ -19,7 +19,8 @@ patch, a one-word overlap goes through r18.
 
 There are no SImode patterns.  A 32-bit check is already a cmpu and a
 branch, and uaddvsi4 made longlong.h's udiv_qrnnd longer, slowing
-__udivdi3 with the divider from 44.2 to 44.8 instructions per call.
+__udivdi3 with the divider from 44.2 to 44.8 instructions per call, on
+an operand set that negated half of __udivdi3's operands.
 
 others/carry-run.c runs every pattern of this series: the shifts against
 variable-count shifts, and the overflow builtins against carries
