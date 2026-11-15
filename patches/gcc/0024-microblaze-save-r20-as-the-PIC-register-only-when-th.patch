@@ -1,0 +1,100 @@
+From 9933b4e5ad25f31c60e35628e306e4bb08e84de4 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 13:38:04 -0500
+Subject: [PATCH 5/5] microblaze: save r20 as the PIC register only when the
+ prologue loads it
+
+microblaze_must_save_register saved r20 whenever it was live and
+pic_offset_table_rtx was set, which it always is, because
+PIC_OFFSET_TABLE_REGNUM is defined unconditionally.  Without PIC or TLS,
+r20 is an ordinary call-saved register, and can be a global register
+variable; a function that assigned the variable then restored its old
+value in the epilogue (gcc.dg/20020312-2.c, which declares
+register void *reg __asm__ ("r20")).
+
+Use the condition under which microblaze_expand_prologue loads r20:
+-fPIC, or a function that set crtl->uses_pic_offset_table.  Otherwise
+r20 is handled like the other call-saved registers, which excludes a
+global register variable because it is fixed.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.cc (microblaze_must_save_register):
+	Save r20 as the PIC register only if flag_pic is 2 or the function
+	uses the PIC offset table.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/global-reg-r20-run.c: New test.
+---
+ gcc/config/microblaze/microblaze.cc           |  7 +++-
+ .../microblaze/others/global-reg-r20-run.c    | 37 +++++++++++++++++++
+ 2 files changed, 42 insertions(+), 2 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/global-reg-r20-run.c
+
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index 80565741e..2c97ab2b8 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -2064,8 +2064,11 @@ microblaze_is_break_handler (void)
+ static int
+ microblaze_must_save_register (int regno)
+ {
+-  if (pic_offset_table_rtx &&
+-      (regno == MB_ABI_PIC_ADDR_REGNUM) && df_regs_ever_live_p (regno))
++  /* The prologue loads r20 under the same condition.  Otherwise r20 is
++     an ordinary call-saved register, or a global register variable that
++     must not be saved.  */
++  if ((flag_pic == 2 || crtl->uses_pic_offset_table)
++      && regno == MB_ABI_PIC_ADDR_REGNUM && df_regs_ever_live_p (regno))
+     return 1;
+ 
+   if (df_regs_ever_live_p (regno) && !call_used_or_fixed_reg_p (regno))
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/global-reg-r20-run.c b/gcc/testsuite/gcc.target/microblaze/others/global-reg-r20-run.c
+new file mode 100644
+index 000000000..a322491d0
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/global-reg-r20-run.c
+@@ -0,0 +1,37 @@
++/* r20 is the PIC register, but without PIC or TLS it is an ordinary
++   call-saved register, and here a global register variable.  The
++   prologue used to save it, and the epilogue to restore it, whenever it
++   was live, undoing the assignment in set_reg (gcc.dg/20020312-2.c).  */
++/* { dg-do run } */
++/* { dg-options "-fno-pic -save-temps" } */
++
++register void *reg __asm__ ("r20");
++
++__attribute__ ((noipa)) void
++set_reg (void *p)
++{
++  reg = p;
++}
++
++__attribute__ ((noipa)) void
++clear_reg (void)
++{
++  reg = 0;
++}
++
++int
++main (void)
++{
++  void *old = reg;
++  int ok;
++
++  set_reg ((void *) 1);
++  ok = reg == (void *) 1;
++  clear_reg ();
++  ok &= reg == 0;
++  reg = old;
++  if (!ok)
++    __builtin_abort ();
++  return 0;
++}
++/* { dg-final { scan-assembler-not "swi\tr20,r1," } } */
+-- 
+2.39.5 (Apple Git-154)
+

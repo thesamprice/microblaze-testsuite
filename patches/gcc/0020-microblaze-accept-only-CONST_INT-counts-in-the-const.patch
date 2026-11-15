@@ -1,0 +1,143 @@
+From 5c92245bb4e1d3b035b08bffb728ee79ed5d8a1a Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 13:38:00 -0500
+Subject: [PATCH 1/5] microblaze: accept only CONST_INT counts in the constant
+ shift patterns
+
+The shift patterns used when there is no barrel shifter (and the
+multiply-based left shifts) took their count with immediate_operand,
+which also accepts a symbol address.  Combine could then substitute
+(symbol_ref "x") for the count, as in gcc.c-torture/compile/pr65014.c,
+the "I" constraint rejected it, and LRA ICEd with "unable to generate
+reloads" in *ashlsi3_with_rotate.  The conditions and output code also
+applied INTVAL to the operand.
+
+Use const_int_operand, which matches what the constraints and the
+output code expect; a symbolic count is then shifted through the
+register patterns.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.md (*ashlsi3_with_mul_delay)
+	(*ashlsi3_with_mul_nodelay, *ashlsi3_with_size_opt)
+	(*ashlsi3_with_rotate, *ashlsi_inline, *ashrsi_inline)
+	(*lshrsi_inline): Use const_int_operand for the shift count.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/shift-symbol-count.c: New test.
+---
+ gcc/config/microblaze/microblaze.md           | 14 ++++-----
+ .../microblaze/others/shift-symbol-count.c    | 31 +++++++++++++++++++
+ 2 files changed, 38 insertions(+), 7 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/shift-symbol-count.c
+
+diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
+index 5f406fc9d..ae1d2d95a 100644
+--- a/gcc/config/microblaze/microblaze.md
++++ b/gcc/config/microblaze/microblaze.md
+@@ -1350,7 +1350,7 @@
+ (define_insn "*ashlsi3_with_mul_delay"
+   [(set (match_operand:SI 0 "register_operand" "=d")
+ 	(ashift:SI (match_operand:SI 1 "register_operand"  "d")
+-                   (match_operand:SI 2 "immediate_operand" "I")))] 
++                   (match_operand:SI 2 "const_int_operand" "I")))] 
+   "!TARGET_SOFT_MUL 
+    && ((1 << INTVAL (operands[2])) <= 32767 && (1 << INTVAL (operands[2])) >= -32768)"
+   "muli\t%0,%1,%m2"
+@@ -1363,7 +1363,7 @@
+ (define_insn "*ashlsi3_with_mul_nodelay"
+   [(set (match_operand:SI 0 "register_operand" "=d")
+ 	(ashift:SI (match_operand:SI 1 "register_operand"  "d")
+-                   (match_operand:SI 2 "immediate_operand" "I")))] 
++                   (match_operand:SI 2 "const_int_operand" "I")))] 
+   "!TARGET_SOFT_MUL"
+   "muli\t%0,%1,%m2"
+   ;; This MUL will generate an IMM. Cannot go into a delay slot
+@@ -1375,7 +1375,7 @@
+ (define_insn "*ashlsi3_with_size_opt"
+   [(set (match_operand:SI 0 "register_operand" "=&d")
+        (ashift:SI (match_operand:SI 1 "register_operand"  "d")
+-                   (match_operand:SI 2 "immediate_operand" "I")))]
++                   (match_operand:SI 2 "const_int_operand" "I")))]
+   "(INTVAL (operands[2]) > 5 && optimize_size)"
+   {
+     operands[3] = gen_rtx_REG (SImode, MB_ABI_ASM_TEMP_REGNUM);
+@@ -1396,7 +1396,7 @@
+ (define_insn "*ashlsi3_with_rotate"
+   [(set (match_operand:SI 0 "register_operand" "=&d")
+        (ashift:SI (match_operand:SI 1 "register_operand"  "d")
+-                   (match_operand:SI 2 "immediate_operand" "I")))]
++                   (match_operand:SI 2 "const_int_operand" "I")))]
+   "(INTVAL (operands[2]) > 17 && !optimize_size)"
+   {
+     int i, nshift;
+@@ -1420,7 +1420,7 @@
+ (define_insn "*ashlsi_inline"
+   [(set (match_operand:SI 0 "register_operand" "=&d")
+        (ashift:SI (match_operand:SI 1 "register_operand"  "d")
+-                   (match_operand:SI 2 "immediate_operand" "I")))]
++                   (match_operand:SI 2 "const_int_operand" "I")))]
+   ""
+   {
+     int i;
+@@ -1509,7 +1509,7 @@
+ (define_insn "*ashrsi_inline"
+   [(set (match_operand:SI 0 "register_operand" "=&d")
+        (ashiftrt:SI (match_operand:SI 1 "register_operand"  "d")
+-                   (match_operand:SI 2 "immediate_operand" "I")))]
++                   (match_operand:SI 2 "const_int_operand" "I")))]
+   ""
+   {
+     int i;
+@@ -1598,7 +1598,7 @@
+ (define_insn "*lshrsi_inline"
+   [(set (match_operand:SI 0 "register_operand" "=&d")
+        (lshiftrt:SI (match_operand:SI 1 "register_operand"  "d")
+-                   (match_operand:SI 2 "immediate_operand" "I")))]
++                   (match_operand:SI 2 "const_int_operand" "I")))]
+   ""
+   {
+     int i;
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/shift-symbol-count.c b/gcc/testsuite/gcc.target/microblaze/others/shift-symbol-count.c
+new file mode 100644
+index 000000000..f621592ef
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/shift-symbol-count.c
+@@ -0,0 +1,31 @@
++/* The constant-count shift patterns used to accept any immediate,
++   including a symbol address, as the count, and LRA could not reload it
++   ("unable to generate reloads").  See gcc.c-torture/compile/pr65014.c.  */
++/* { dg-do compile } */
++/* { dg-options "-mno-xl-barrel-shift" } */
++
++extern int x;
++
++unsigned
++rot (unsigned int y)
++{
++  return (y << ((__INTPTR_TYPE__) &x)) | (y >> (32 - ((__INTPTR_TYPE__) &x)));
++}
++
++unsigned
++shl (unsigned int y)
++{
++  return y << ((__INTPTR_TYPE__) &x);
++}
++
++unsigned
++shr (unsigned int y)
++{
++  return y >> ((__INTPTR_TYPE__) &x);
++}
++
++int
++sar (int y)
++{
++  return y >> ((__INTPTR_TYPE__) &x);
++}
+-- 
+2.39.5 (Apple Git-154)
+

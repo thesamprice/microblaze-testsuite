@@ -1,0 +1,134 @@
+From 2b84d93e1015ff0dff38021045625dbe73c21c14 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 13:38:01 -0500
+Subject: [PATCH 2/5] microblaze: return values in the mode the promotion hook
+ gives them
+
+microblaze_function_value returned every non-aggregate through
+LIBCALL_VALUE, which widens any MODE_INT value narrower than a word to
+SImode.  A one- or two-byte vector has QImode or HImode, but
+TARGET_PROMOTE_FUNCTION_MODE (default_promote_function_mode_always_promote)
+promotes only integer, real and offset types, so the two disagreed:
+expand_call asserted that the return register had the promoted mode
+(gcc.dg/pr123656.c, gcc.dg/pr63594-2.c, gcc.dg/Wstringop-overflow-69.c)
+and expanding the return at -O0 ICEd in emit_move_insn
+(gcc.dg/torture/pr103181.c, gcc.dg/vshift-6.c,
+c-c++-common/torture/builtin-convertvector-2.c,
+gcc.c-torture/compile/vector-shift-1.c).
+
+Compute the mode with promote_function_mode, as other ports do.  This
+returns the same mode as before for every type whose calls compiled:
+integer scalars and pointers are SImode, floats, complex values and
+aggregates keep their own mode, and four-byte vectors are SImode.  On
+this stack, which lacks the return-small-structs-in-their-own-mode fix,
+it also gives a one- or two-byte -freg-struct-return struct its own
+mode.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.cc (microblaze_function_value):
+	Use promote_function_mode for the mode of the return register.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/vector-return-run.c: New test.
+---
+ gcc/config/microblaze/microblaze.cc           | 15 ++++--
+ .../microblaze/others/vector-return-run.c     | 54 +++++++++++++++++++
+ 2 files changed, 65 insertions(+), 4 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/vector-return-run.c
+
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index a150be65d..e261ca3fb 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -3753,13 +3753,20 @@ microblaze_expand_divide (rtx operands[])
+   emit_insn (gen_blockage ());
+ }
+ 
+-/* Implement TARGET_FUNCTION_VALUE.  */
++/* Implement TARGET_FUNCTION_VALUE.  Return the value in the mode that
++   TARGET_PROMOTE_FUNCTION_MODE gives it, as expand_call expects:
++   integer scalars narrower than a word are promoted to SImode, while
++   types that are not promoted keep their own mode.  With
++   -freg-struct-return a one- or two-byte struct is QImode or HImode,
++   and so is a one- or two-byte vector.  */
+ static rtx
+-microblaze_function_value (const_tree valtype,
+-			   const_tree func ATTRIBUTE_UNUSED,
++microblaze_function_value (const_tree valtype, const_tree func,
+ 			   bool outgoing ATTRIBUTE_UNUSED)
+ {
+-  return LIBCALL_VALUE (TYPE_MODE (valtype));
++  int unsignedp = TYPE_UNSIGNED (valtype);
++  machine_mode mode = promote_function_mode (valtype, TYPE_MODE (valtype),
++					     &unsignedp, func, 1);
++  return gen_rtx_REG (mode, GP_RETURN);
+ }
+ 
+ /* Implement TARGET_SCHED_ADJUST_COST.  */
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/vector-return-run.c b/gcc/testsuite/gcc.target/microblaze/others/vector-return-run.c
+new file mode 100644
+index 000000000..e30b4521b
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/vector-return-run.c
+@@ -0,0 +1,54 @@
++/* One- and two-byte vectors are QImode and HImode, which
++   TARGET_PROMOTE_FUNCTION_MODE does not promote.  TARGET_FUNCTION_VALUE
++   used to return them in SImode, and expand_call and the return
++   expansion ICEd (gcc.dg/pr123656.c, gcc.dg/torture/pr103181.c).  */
++/* { dg-do run } */
++/* { dg-options "-Wno-psabi" } */
++
++typedef unsigned char v1qi __attribute__ ((vector_size (1)));
++typedef unsigned char v2qi __attribute__ ((vector_size (2)));
++typedef unsigned short v1hi __attribute__ ((vector_size (2)));
++typedef unsigned char v4qi __attribute__ ((vector_size (4)));
++
++__attribute__ ((noipa)) v1qi
++f1 (v1qi a)
++{
++  return a * 3;
++}
++
++__attribute__ ((noipa)) v2qi
++f2 (v2qi a)
++{
++  return a * 210;
++}
++
++__attribute__ ((noipa)) v1hi
++f3 (v1hi a)
++{
++  return a + 0x1234;
++}
++
++__attribute__ ((noipa)) v4qi
++f4 (v4qi a)
++{
++  return a + 1;
++}
++
++int
++main (void)
++{
++  v1qi a = f1 ((v1qi) { 5 });
++  v2qi b = f2 ((v2qi) { 1, 2 });
++  v1hi c = f3 ((v1hi) { 0x1111 });
++  v4qi d = f4 ((v4qi) { 1, 2, 3, 255 });
++
++  if (a[0] != 15)
++    __builtin_abort ();
++  if (b[0] != 210 || b[1] != (unsigned char) 420)
++    __builtin_abort ();
++  if (c[0] != 0x2345)
++    __builtin_abort ();
++  if (d[0] != 2 || d[1] != 3 || d[2] != 4 || d[3] != 0)
++    __builtin_abort ();
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+

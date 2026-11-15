@@ -1,0 +1,140 @@
+From 4ea6df54cc3b6b7f553bdc0c702dc37206f9e1d7 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 13:38:02 -0500
+Subject: [PATCH 3/5] microblaze: fix calls through constant addresses that are
+ not functions
+
+Two problems with calls whose address is a constant other than a
+function symbol:
+
+call_internal1 emitted brlid, a PC-relative branch, for any symbol.
+For a data symbol, such as a string literal or an array cast to a
+function pointer, the assembler rejects it ("PC relative branch to
+label ... which is not in the instruction space";
+gcc.c-torture/compile/pr37433-1.c, gcc.dg/pr56228.c).
+call_value_intern already used the absolute bralid in that case; do the
+same in call_internal1.
+
+call_value_intern took its address with call_insn_operand, which also
+accepts (const (plus (symbol_ref) (const_int))), and printed
+"Unsupported call insn" for it as the instruction
+(gcc.c-torture/compile/pr92231.c).  Use call_insn_simple_operand, as
+call_internal1 does, and have the call and call_value expanders load any
+address that does not satisfy it into a register.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.md (call, call_value): Load the
+	address into a register unless it satisfies
+	call_insn_simple_operand.
+	(call_internal1): Use bralid for a symbol that is not a function.
+	(call_value_intern): Use call_insn_simple_operand.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/call-non-function.c: New test.
+---
+ gcc/config/microblaze/microblaze.md           | 12 +++---
+ .../microblaze/others/call-non-function.c     | 41 +++++++++++++++++++
+ 2 files changed, 47 insertions(+), 6 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/call-non-function.c
+
+diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
+index ae1d2d95a..2ab53617e 100644
+--- a/gcc/config/microblaze/microblaze.md
++++ b/gcc/config/microblaze/microblaze.md
+@@ -2051,8 +2051,7 @@
+         XEXP (operands[0], 0) = temp;
+       }
+     
+-    if ((GET_CODE (addr) != REG && !CONSTANT_ADDRESS_P (addr))
+-	|| !call_insn_operand (addr, VOIDmode))
++    if (!call_insn_simple_operand (addr, VOIDmode))
+       XEXP (operands[0], 0) = copy_to_mode_reg (Pmode, addr);
+ 
+     if (GET_CODE (XEXP (operands[0], 0)) == UNSPEC)
+@@ -2118,10 +2117,12 @@
+             gen_rtx_CLOBBER (VOIDmode, target2);
+             return "brki\tr16,%0\;%#";
+         }
+-        else {
++        else if (SYMBOL_REF_FLAGS (target) & SYMBOL_FLAG_FUNCTION) {
+             gen_rtx_CLOBBER (VOIDmode, target2);
+             return "brlid\tr15,%0\;%#";
+         }
++        else
++            return "bralid\tr15,%0\;%#";
+     } else if (GET_CODE (target) == CONST_INT)
+         return "la\t%@,r0,%0\;brald\tr15,%@\;%#";
+     else if (GET_CODE (target) == REG)
+@@ -2155,8 +2156,7 @@
+         XEXP (operands[1], 0) = temp;
+       }
+ 
+-    if ((GET_CODE (addr) != REG && !CONSTANT_ADDRESS_P (addr))
+-        || !call_insn_operand (addr, VOIDmode))
++    if (!call_insn_simple_operand (addr, VOIDmode))
+       XEXP (operands[1], 0) = copy_to_mode_reg (Pmode, addr);
+ 
+     if (GET_CODE (XEXP (operands[1], 0)) == UNSPEC)
+@@ -2216,7 +2216,7 @@
+ 
+ (define_insn "call_value_intern"
+   [(set (match_operand:VOID 0 "register_operand" "=d")
+-        (call (mem (match_operand:VOID 1 "call_insn_operand" "ri"))
++        (call (mem (match_operand:VOID 1 "call_insn_simple_operand" "ri"))
+               (match_operand:SI 2 "" "i")))
+    (clobber (match_operand:SI 3 "register_operand" "=d"))]
+   ""
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/call-non-function.c b/gcc/testsuite/gcc.target/microblaze/others/call-non-function.c
+new file mode 100644
+index 000000000..4ef283fae
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/call-non-function.c
+@@ -0,0 +1,41 @@
++/* A call through a constant address that is not a function symbol.
++   call_internal1 used brlid, a PC-relative branch, for a data symbol,
++   which the assembler rejects (gcc.c-torture/compile/pr37433-1.c,
++   gcc.dg/pr56228.c), and call_value_intern accepted a symbol plus an
++   offset and printed "Unsupported call insn" for it
++   (gcc.c-torture/compile/pr92231.c).  */
++/* { dg-do assemble } */
++
++short a[14] = { 1, 2 };
++extern int bar (void);
++
++void
++call_string (void)
++{
++  const void *p = "";
++  (*(void (*) (int)) p) (0);
++}
++
++void
++call_data (void)
++{
++  ((void (*) (void)) a) ();
++}
++
++int
++call_data_value (void)
++{
++  return ((int (*) (void)) a) ();
++}
++
++int
++call_offset (void)
++{
++  return (&bar + 4096) ();
++}
++
++void
++call_offset_void (void)
++{
++  ((void (*) (void)) (&bar + 16)) ();
++}
+-- 
+2.39.5 (Apple Git-154)
+
