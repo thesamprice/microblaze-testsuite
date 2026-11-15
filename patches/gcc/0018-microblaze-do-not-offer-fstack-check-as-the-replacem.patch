@@ -1,0 +1,57 @@
+From 4d5d4652ca41fe2d54f400f06cc5bc39f6e24bee Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 05:52:35 -0500
+Subject: [PATCH 7/8] microblaze: do not offer -fstack-check as the replacement
+ of -mxl-stack-check
+
+The deprecation note of -mxl-stack-check said to use -fstack-check.  On
+MicroBlaze -fstack-check only probes the stack; it does not compare the
+stack pointer with _stack_end as -mxl-stack-check does.  Say so instead.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.opt (mxl-stack-check): Reword the
+	deprecation warning.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/mxl-stack-check-warn.c: New test.
+---
+ gcc/config/microblaze/microblaze.opt                     | 2 +-
+ .../gcc.target/microblaze/others/mxl-stack-check-warn.c  | 9 +++++++++
+ 2 files changed, 10 insertions(+), 1 deletion(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/mxl-stack-check-warn.c
+
+diff --git a/gcc/config/microblaze/microblaze.opt b/gcc/config/microblaze/microblaze.opt
+index 0c2c4bc66..08670aaae 100644
+--- a/gcc/config/microblaze/microblaze.opt
++++ b/gcc/config/microblaze/microblaze.opt
+@@ -84,7 +84,7 @@ Target Mask(PATTERN_COMPARE)
+ Use pattern compare instructions.
+ 
+ mxl-stack-check
+-Target Mask(STACK_CHECK) Warn(%qs is deprecated; use -fstack-check) Undocumented
++Target Mask(STACK_CHECK) Warn(%qs is deprecated; %<-fstack-check%> is not a replacement, it only probes the stack and does not compare the stack pointer with %<_stack_end%>) Undocumented
+ Check for stack overflow at runtime.
+ 
+ mxl-gp-opt
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/mxl-stack-check-warn.c b/gcc/testsuite/gcc.target/microblaze/others/mxl-stack-check-warn.c
+new file mode 100644
+index 000000000..1cff7213f
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/mxl-stack-check-warn.c
+@@ -0,0 +1,9 @@
++/* { dg-do compile } */
++/* { dg-options "-mxl-stack-check" } */
++/* { dg-warning ".-mxl-stack-check. is deprecated; .-fstack-check. is not a replacement" "" { target *-*-* } 0 } */
++
++/* -fstack-check only probes the stack on MicroBlaze; it does not compare
++   the stack pointer with _stack_end as -mxl-stack-check does, so the
++   deprecation note must not present it as the replacement.  */
++
++int x;
+-- 
+2.39.5 (Apple Git-154)
+

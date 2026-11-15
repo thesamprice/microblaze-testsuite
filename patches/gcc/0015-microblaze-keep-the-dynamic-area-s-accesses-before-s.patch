@@ -1,0 +1,82 @@
+From 9731562e0cdbcc2851f4fe986d738478c11c57ee Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 05:52:29 -0500
+Subject: [PATCH 3/8] microblaze: keep the dynamic area's accesses before sp is
+ reset
+
+When a frame pointer is used, the epilogue sets sp from it, which
+releases the area that alloca, VLAs and -fstack-check's dynamic
+allocations use.  Nothing kept the scheduler from moving the last loads
+and stores of that area after the move, where an interrupt, or anything
+else pushing onto the stack, can overwrite them first.  MIPS, from
+which this epilogue comes, puts a barrier before it.
+
+Emit a blockage before setting sp from the frame pointer.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.cc (microblaze_expand_epilogue):
+	Emit a blockage before setting sp from the frame pointer.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/epilogue-alloca.c: New test.
+---
+ gcc/config/microblaze/microblaze.cc           | 11 +++++++++--
+ .../microblaze/others/epilogue-alloca.c       | 19 +++++++++++++++++++
+ 2 files changed, 28 insertions(+), 2 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/epilogue-alloca.c
+
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index 2cb393676..f1d81df8f 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -3250,9 +3250,16 @@ microblaze_expand_epilogue (void)
+ 	 sub-routine return address only from the current stack top and not
+ 	 from the frame pointer (which we restore below). (frame_pointer + 0)
+ 	 might have been over-written since alloca allocates memory on the
+-	 current stack.  */
++	 current stack.
++
++	 Setting sp from the frame pointer frees the dynamic area (alloca,
++	 VLAs), so keep every access to it before that: anything pushed on
++	 this stack, such as an interrupt frame, may overwrite it after.  */
+       if (frame_pointer_needed)
+-	emit_insn (gen_movsi (stack_pointer_rtx, hard_frame_pointer_rtx));
++	{
++	  emit_insn (gen_blockage ());
++	  emit_insn (gen_movsi (stack_pointer_rtx, hard_frame_pointer_rtx));
++	}
+ 
+       /* _restore_ registers for epilogue.  */
+       save_restore_insns (0);
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/epilogue-alloca.c b/gcc/testsuite/gcc.target/microblaze/others/epilogue-alloca.c
+new file mode 100644
+index 000000000..e932aacdd
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/epilogue-alloca.c
+@@ -0,0 +1,19 @@
++/* { dg-do compile } */
++
++/* The epilogue sets sp from the frame pointer, which frees the alloca
++   area, and nothing stopped the scheduler from moving the last accesses
++   to that area after it.  An interrupt arriving in between would
++   overwrite them.  */
++
++void g (char *);
++
++int
++f (int n)
++{
++  char *p = __builtin_alloca (n);
++  g (p);
++  return p[0] + p[n - 1];
++}
++
++/* { dg-final { scan-assembler "addk\tr1,r19,r0" } } */
++/* { dg-final { scan-assembler-not "addk\tr1,r19,r0(\n\t\[^\n\]*)*\n\tlbui?\t" } } */
+-- 
+2.39.5 (Apple Git-154)
+

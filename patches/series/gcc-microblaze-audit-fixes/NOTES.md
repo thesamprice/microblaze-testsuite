@@ -63,8 +63,12 @@ patch. Fixed in `../gcc-microblaze-elfos/` and `../gcc-microblaze-pcmpbf/`
 (patterns anchored on the tab); with those, the four tests pass (11 PASS,
 0 FAIL in a `runtest` of just those files with the `gcc-fixed` compiler).
 
-Runner stack (`df809a029` + `patches/gcc/0001`-`0019`, BE): see the
-top-level README results.
+Runner stack, BE (`df809a029` + `patches/gcc/0001`-`0019`, i.e. without
+0004; built in `work/build-pkg-gcc` with the runner's binutils, newlib,
+DejaGnu and QEMU from `work/wt-zero/work`; results in
+`work/results-pkg-gcc/be`): execute.exp 24536 PASS, 0 FAIL, 183
+UNSUPPORTED (unchanged); microblaze.exp 900 PASS, 0 FAIL (770 with
+`0001`-`0012`, plus 130 from the seven patches' tests).
 
 ## How to reproduce
 

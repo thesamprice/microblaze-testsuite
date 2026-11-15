@@ -1,0 +1,113 @@
+From 2441e546a1547a01eba43d4b9ede6a3594a752d9 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 05:52:32 -0500
+Subject: [PATCH 5/8] microblaze: keep iprefetch out of delay slots
+
+-mxl-prefetch inserts iprefetch, mfs r18,rpc followed by wic r18,r0,
+during machine reorg, before the delay slots are filled.  It had type
+arith, and the delay slot condition excludes insns by type only, so it
+could be put in a delay slot, where only the mfs executes in the slot.
+This happens when nothing else can fill the slot of a branch, e.g. one
+whose condition is computed by the straight-line code after a call.
+
+Give iprefetch type multi.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.md (iprefetch): Set type to multi.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/prefetch-delay-slot.c: New test.
+---
+ gcc/config/microblaze/microblaze.md           |  3 +-
+ .../microblaze/others/prefetch-delay-slot.c   | 61 +++++++++++++++++++
+ 2 files changed, 63 insertions(+), 1 deletion(-)
+ create mode 100644 gcc/testsuite/gcc.target/microblaze/others/prefetch-delay-slot.c
+
+diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
+index 790222ab0..067cc881c 100644
+--- a/gcc/config/microblaze/microblaze.md
++++ b/gcc/config/microblaze/microblaze.md
+@@ -534,7 +534,8 @@
+     operands[2] = gen_rtx_REG (SImode, MB_ABI_ASM_TEMP_REGNUM);
+     return "mfs\t%2,rpc\n\twic\t%2,r0";
+   }
+-  [(set_attr "type" "arith")
++  ;; Two instructions: type multi keeps it out of delay slots.
++  [(set_attr "type" "multi")
+    (set_attr "mode"  "SI")
+    (set_attr "length"    "8")])
+ 
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/prefetch-delay-slot.c b/gcc/testsuite/gcc.target/microblaze/others/prefetch-delay-slot.c
+new file mode 100644
+index 000000000..26976e30e
+--- /dev/null
++++ b/gcc/testsuite/gcc.target/microblaze/others/prefetch-delay-slot.c
+@@ -0,0 +1,61 @@
++/* { dg-do compile } */
++/* { dg-options "-mxl-prefetch" } */
++
++/* -mxl-prefetch inserts mfs r18,rpc; wic r18,r0 after a call followed by
++   a long run of straight-line code.  The pair was eligible for a delay
++   slot, where only the mfs would execute in the slot.  Here no other insn
++   can fill the slot of the branch on y.  */
++
++int g (int);
++
++int
++f (int x)
++{
++  int y = g (x);
++  y = y + 3;
++  y = y ^ 18;
++  y = y + y;
++  y = y - 14;
++  y = y + 31;
++  y = y ^ 70;
++  y = y + y;
++  y = y - 18;
++  y = y + 59;
++  y = y ^ 122;
++  y = y + y;
++  y = y - 22;
++  y = y + 87;
++  y = y ^ 174;
++  y = y + y;
++  y = y - 26;
++  y = y + 115;
++  y = y ^ 226;
++  y = y + y;
++  y = y - 30;
++  y = y + 143;
++  y = y ^ 278;
++  y = y + y;
++  y = y - 34;
++  y = y + 171;
++  y = y ^ 330;
++  y = y + y;
++  y = y - 38;
++  y = y + 199;
++  y = y ^ 382;
++  y = y + y;
++  y = y - 42;
++  y = y + 227;
++  y = y ^ 434;
++  y = y + y;
++  y = y - 46;
++  y = y + 255;
++  y = y ^ 486;
++  y = y + y;
++  y = y - 50;
++  if (y > 0)
++    return g (y);
++  return g (-y);
++}
++
++/* { dg-final { scan-assembler-not "\tb\[a-z\]*d\t\[^\n\]*\n\tmfs\tr18,rpc" } } */
++/* { dg-final { scan-assembler-not "\trt\[a-z\]*d\t\[^\n\]*\n\tmfs\tr18,rpc" } } */
+-- 
+2.39.5 (Apple Git-154)
+

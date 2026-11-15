@@ -57,13 +57,20 @@ given with `*_SRC` (below).
 | `gcc/0004`–`0007` | [`patches/series/gcc-microblaze-zero-fails`](patches/series/gcc-microblaze-zero-fails/), not yet sent: `va_arg` with no named parameter, the `-fPIE -mpic-data-is-text-relative` ICE, and the `gcc.target/microblaze` and `fileio` testsuite fixes |
 | `gcc/0008`–`0010` | [`patches/series/gcc-microblaze-cbranch`](patches/series/gcc-microblaze-cbranch/), not yet sent: removes the dead, wrong `cbranchsi4_reg`, adds run tests for integer compare and branch, and fixes unsigned comparisons against zero being tested as signed |
 | `gcc/0011`–`0012` | [`patches/series/gcc-microblaze-libgcc-asm`](patches/series/gcc-microblaze-libgcc-asm/), not yet sent: removes the unused `muldi3_hardproc`, wrong on little-endian, and makes `-mxl-stack-check`'s overflow exit report a failure |
+| `gcc/0013`–`0019` | seven of the eight patches in [`patches/series/gcc-microblaze-audit-fixes`](patches/series/gcc-microblaze-audit-fixes/), not yet sent: compare-and-swap with values differing in bit 31, the GOT pointer for TLS on bare metal, a blockage before the epilogue releases the alloca area, `iprefetch` in delay slots, latent pattern bugs and `atomic_test_and_set`'s result, the `-mxl-stack-check` note, and the `-fPIC -msmall-divides` ICE. The eighth, interrupt-handler CFI, needs `gcc-microblaze-fixes`, which is not here |
 | `binutils/0001` | [`patches/series/binutils-microblaze-srec-64`](patches/series/binutils-microblaze-srec-64/): `IMM`-pair relocations for `--oformat srec` and other non-ELF output |
 | `dejagnu/0002` | [`patches/series/dejagnu-spawn-split`](patches/series/dejagnu-spawn-split/), without its ChangeLog entry: DejaGnu master's `local_exec` passes the command line to `spawn` as one word, so nothing runs |
 | `qemu/0001` | a test device on `petalogix-s3adsp1800` at `0xff000000`: a write exits QEMU with that status, and reads give the exact instruction count under `-icount`. Used by `bench-moddi3`; the DejaGnu board does not need it |
 
 `patches/series/` holds patch series as they will be mailed upstream; see
 [`patches/series/README.md`](patches/series/README.md). The MicroBlaze
-back-end series there, `gcc-microblaze-carry`, is not in `patches/gcc/`.
+back-end series there, `gcc-microblaze-carry`, is not in `patches/gcc/`;
+nor is `gcc-microblaze-opt`, which needs it and other series not
+here. The binutils series
+`binutils-microblaze-relax-fixes`, `-local-labels` and `-gas-fixes` are
+not in `patches/binutils/`: they apply on top of the in-review relax-safe
+CFI series and the other binutils series, which the runner does not
+carry.
 
 On the machine this was developed on (8 cores, Apple silicon), `make` from
 nothing takes about 7½ minutes, `check-binutils` about 3½,
@@ -181,11 +188,15 @@ default `MB_NO_RELAX`.
 | gas | 331 | 0 | 0 | 0 | 10 |
 | ld | 548 | 0 | 15 | 9 | 232 |
 | gcc `execute.exp` | 24536 | 0 | 0 | 0 | 183 |
-| gcc `microblaze.exp` | 770 | 0 | 0 | 0 | 0 |
+| gcc `microblaze.exp` | 900 | 0 | 0 | 0 | 0 |
 
 There is no FAIL, UNRESOLVED or XPASS anywhere. The gcc rows are from a
-later `check-gcc` with `patches/gcc/0008`-`0012` added; before them,
-`microblaze.exp` gave 644 passes, also with no failures. `execute.exp` and
+later `check-gcc`, on 2026-11-15, with `patches/gcc/0008`-`0019` added,
+built and run the way the Makefile does but by hand, with the binutils,
+newlib, DejaGnu and QEMU of the run above. With `0001`-`0012`,
+`microblaze.exp` gave 770 passes, and with `0001`-`0007` 644, also with no
+failures; `0013`-`0019` add 130 passes from their tests, and `execute.exp`
+does not change. `execute.exp` and
 `microblaze.exp` also had no failures on `microblazeel-elf`, built by hand
 with these gcc patches and the `gcc-microblaze-fixes` series.
 
