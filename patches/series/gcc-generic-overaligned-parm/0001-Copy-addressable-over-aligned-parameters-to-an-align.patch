@@ -1,0 +1,136 @@
+From 448a1320d3af7cdf6a9bbf36495a7ecd84794ecc Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Sun, 15 Nov 2026 18:06:11 -0500
+Subject: [PATCH] Copy addressable over-aligned parameters to an aligned slot
+
+assign_parm_adjust_stack_rtl keeps an incoming stack slot that is less
+aligned than the parameter's type when the slot already has
+MAX_SUPPORTED_STACK_ALIGNMENT, even if the parameter's address is
+taken, on the grounds that a copy could not be aligned any better.
+assign_stack_local now aligns a slot at run time when its alignment
+exceeds MAX_SUPPORTED_STACK_ALIGNMENT, as it does for over-aligned
+locals, so a copy can be.
+
+On targets with a register save area in the caller's frame and a stack
+less aligned than the type, the address of such a parameter was then
+under-aligned.  gcc.dg/pr84877.c fails this way on microblaze-elf (32-bit
+stack, the parameter stored to the save area for r5-r10), and on mips-elf
+(o32, 64-bit stack, the save area for $4-$7) the parameter is only as
+aligned as the caller's stack pointer happens to be.
+
+Make the copy whenever the address of the parameter is taken.  Targets
+that support stack realignment, where MAX_SUPPORTED_STACK_ALIGNMENT is
+MAX_STACK_ALIGNMENT, already did.  riscv32-elf, which passes such
+structs by reference, generates the same code; sparc-elf, which also
+passes them by reference, is not affected.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* function.cc (assign_parm_adjust_stack_rtl): Do not use an
+	under-aligned incoming stack slot for a parameter whose address
+	is taken, whatever MAX_SUPPORTED_STACK_ALIGNMENT is.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.dg/torture/overaligned-parm-1.c: New test.
+---
+ gcc/function.cc                               | 10 ++-
+ .../gcc.dg/torture/overaligned-parm-1.c       | 63 +++++++++++++++++++
+ 2 files changed, 67 insertions(+), 6 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.dg/torture/overaligned-parm-1.c
+
+diff --git a/gcc/function.cc b/gcc/function.cc
+index 0ff9f676b..5d514a663 100644
+--- a/gcc/function.cc
++++ b/gcc/function.cc
+@@ -2931,12 +2931,10 @@ assign_parm_adjust_stack_rtl (tree parm, struct assign_parm_data_one *data)
+ 	      && TYPE_ALIGN (data->nominal_type) > MEM_ALIGN (stack_parm)
+ 	      && ((MEM_ALIGN (stack_parm)
+ 		   < MIN (BIGGEST_ALIGNMENT, MAX_SUPPORTED_STACK_ALIGNMENT))
+-		  /* If its address is taken, make a local copy whose
+-		     maximum alignment is MAX_SUPPORTED_STACK_ALIGNMENT.
+-		   */
+-		  || (TREE_ADDRESSABLE (parm)
+-		      && (MEM_ALIGN (stack_parm)
+-			  < MAX_SUPPORTED_STACK_ALIGNMENT))))))
++		  /* If its address is taken, make a local copy.
++		     assign_stack_local aligns the copy at run time if
++		     its alignment exceeds MAX_SUPPORTED_STACK_ALIGNMENT.  */
++		  || TREE_ADDRESSABLE (parm)))))
+     stack_parm = NULL;
+ 
+   /* If parm was passed in memory, and we need to convert it on entry,
+diff --git a/gcc/testsuite/gcc.dg/torture/overaligned-parm-1.c b/gcc/testsuite/gcc.dg/torture/overaligned-parm-1.c
+new file mode 100644
+index 000000000..62fe7e5ec
+--- /dev/null
++++ b/gcc/testsuite/gcc.dg/torture/overaligned-parm-1.c
+@@ -0,0 +1,63 @@
++/* { dg-do run } */
++
++/* Over-aligned parameters whose address is taken must live at an address
++   with the alignment of their type, wherever they arrive: in registers that
++   have a save area in the caller's frame, on the stack after the argument
++   registers, or as a scalar of an over-aligned type.  Targets whose stack
++   is less aligned than the type used the incoming slot as it was.  */
++
++typedef __UINTPTR_TYPE__ uintptr_t;
++
++struct U { int m0; int m1; } __attribute__ ((aligned (16)));
++typedef int A16 __attribute__ ((aligned (16)));
++
++__attribute__ ((noipa)) void
++check (const void *p, int got, int want)
++{
++  if ((uintptr_t) p & 15)
++    __builtin_abort ();
++  if (got != want)
++    __builtin_abort ();
++}
++
++__attribute__ ((noipa)) void
++in_regs (struct U p)
++{
++  check (&p, p.m0, 1);
++  check (&p, p.m1, 2);
++}
++
++__attribute__ ((noipa)) void
++on_stack (int a, int b, int c, int d, int e, int f, int g, int h,
++	  struct U p)
++{
++  check (&p, p.m0 + a + b + c + d + e + f + g + h, 3 + 36);
++  check (&p, p.m1, 4);
++}
++
++__attribute__ ((noipa)) void
++scalar (A16 x)
++{
++  A16 *q = &x;
++  check (q, *q, 5);
++  *q += 1;
++  check (&x, x, 6);
++}
++
++__attribute__ ((noipa)) void
++two (struct U p, struct U q)
++{
++  check (&p, p.m0, 7);
++  check (&q, q.m1, 10);
++}
++
++int
++main ()
++{
++  struct U u1 = { 1, 2 }, u2 = { 3, 4 }, u3 = { 7, 8 }, u4 = { 9, 10 };
++  in_regs (u1);
++  on_stack (1, 2, 3, 4, 5, 6, 7, 8, u2);
++  scalar (5);
++  two (u3, u4);
++  return 0;
++}
+-- 
+2.39.5 (Apple Git-154)
+
