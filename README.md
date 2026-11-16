@@ -61,6 +61,7 @@ given with `*_SRC` (below).
 | `gcc/0020`–`0024` | [`patches/series/gcc-microblaze-compile-fixes`](patches/series/gcc-microblaze-compile-fixes/), rebased onto the patches above, not yet sent: symbolic shift counts, returning one- and two-byte vectors (here also one- and two-byte `-freg-struct-return` structs), calls through constant non-function addresses, TImode arguments, and r20 saved without PIC |
 | `gcc/0025` | [`patches/series/gcc-microblaze-locviews`](patches/series/gcc-microblaze-locviews/), not yet sent: location views off by default, so the line table stays right when the linker relaxes |
 | `gcc/0026` | [`patches/series/gcc-generic-overaligned-parm`](patches/series/gcc-generic-overaligned-parm/), not yet sent: a middle-end fix, over-aligned parameters whose address is taken get an aligned copy (`gcc.dg/pr84877.c`) |
+| `gcc/0027` | [`patches/series/gcc-generic-clmul-promoted`](patches/series/gcc-generic-clmul-promoted/), not yet sent: a middle-end fix, `__builtin_clmulg` on promoted char and short variables (`c-c++-common/builtin-clmulg-1.c`) |
 | `binutils/0001` | [`patches/series/binutils-microblaze-srec-64`](patches/series/binutils-microblaze-srec-64/): `IMM`-pair relocations for `--oformat srec` and other non-ELF output |
 | `dejagnu/0002` | [`patches/series/dejagnu-spawn-split`](patches/series/dejagnu-spawn-split/), without its ChangeLog entry: DejaGnu master's `local_exec` passes the command line to `spawn` as one word, so nothing runs |
 | `qemu/0001` | a test device on `petalogix-s3adsp1800` at `0xff000000`: a write exits QEMU with that status, and reads give the exact instruction count under `-icount`. Used by `bench-moddi3`; the DejaGnu board does not need it |
@@ -210,6 +211,11 @@ failures and 312 UNSUPPORTED.
 `0026` was run after the table, with the same tools: `execute.exp` and
 `microblaze.exp` are unchanged, big- and little-endian, its test and
 `gcc.dg/pr84877.c` add 16 passes, and `compile.exp` is unchanged.
+`0027` and gcc configured `--with-headers` (so libgcov has `__gcov_exit`)
+were run the same way: `execute.exp` and `microblaze.exp` 25541 passes, no
+failures, big- and little-endian, and `builtin-clmulg-1.c`, `pr84877.c`,
+`overaligned-parm-1.c` and the `-fprofile-arcs` test `20020201-1.c` pass;
+`compile.exp` was not rerun.
 
 gcc is pinned to `df809a029` for this run (`GCC_REF=df809a029f52...`):
 gcc master `fceddda85` of 2026-11-14 does not build on macOS, because

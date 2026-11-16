@@ -1,0 +1,36 @@
+From 549b68762f656662ae52bc252505460bc177f6a1 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Mon, 16 Nov 2026 09:25:42 -0500
+Subject: [PATCH 2/5] testsuite: fold-round-1.c needs the C99 runtime
+
+The folds fold-round-1.c tests replace a conditional with a new call
+to floorf or floorl, which GCC only creates when the target's C library
+has the C99 functions.  On targets without them, such as the ELF
+targets using elfos.h (no_c99_libc_has_function), the float and long
+double functions keep their link_error calls; mips-elf, riscv32-elf,
+sparc-elf and microblaze-elf fail the same 8.  Require c99_runtime, as
+the builtins tests do.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.dg/fold-round-1.c: Require c99_runtime.
+---
+ gcc/testsuite/gcc.dg/fold-round-1.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/gcc/testsuite/gcc.dg/fold-round-1.c b/gcc/testsuite/gcc.dg/fold-round-1.c
+index 5badefe9c..3897550f4 100644
+--- a/gcc/testsuite/gcc.dg/fold-round-1.c
++++ b/gcc/testsuite/gcc.dg/fold-round-1.c
+@@ -1,5 +1,6 @@
+ /* { dg-do compile } */
+ /* { dg-options "-Ofast" } */
++/* { dg-require-effective-target c99_runtime } */
+ /* { dg-skip-if "Target lacks hardware-native quad-precision folding routines" { hppa*-*-hpux* } } */
+ 
+ extern void link_error (void);
+-- 
+2.39.5 (Apple Git-154)
+

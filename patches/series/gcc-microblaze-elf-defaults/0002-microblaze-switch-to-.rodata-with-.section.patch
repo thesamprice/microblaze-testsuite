@@ -1,0 +1,74 @@
+From 0da18fbc0b2daf25d591a7f5c75b3e53aa57a251 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Mon, 16 Nov 2026 09:24:11 -0500
+Subject: [PATCH 2/2] microblaze: switch to .rodata with .section
+
+MicroBlaze put read-only data in .rodata with gas's MicroBlaze-only
+".rodata" directive.  The generic ".section .rodata" that elfos.h uses
+gives an identical object, and the testsuite's
+scan-assembler-symbol-section, which follows .section, .text and .data
+directives, then finds such symbols: gcc.dg/array-quals-1.c,
+20021029-1.c and pr25521.c reported them in .text.  Drop the override.
+
+microblaze_asm_output_ident built its .pushsection from the section's
+assembler directive, which only worked while that was a bare section
+name; give it the section names instead.  Its output does not change.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.h (READONLY_DATA_SECTION_ASM_OP):
+	Remove.
+	* config/microblaze/microblaze.cc (microblaze_asm_output_ident):
+	Use the section names .sdata2 and .rodata in .pushsection.
+---
+ gcc/config/microblaze/microblaze.cc | 8 ++++----
+ gcc/config/microblaze/microblaze.h  | 3 ---
+ 2 files changed, 4 insertions(+), 7 deletions(-)
+
+diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
+index d8841119c..14020bcb8 100644
+--- a/gcc/config/microblaze/microblaze.cc
++++ b/gcc/config/microblaze/microblaze.cc
+@@ -3547,7 +3547,7 @@ microblaze_eh_return (rtx op0)
+ void
+ microblaze_asm_output_ident (const char *string)
+ {
+-  const char *section_asm_op;
++  const char *section_name;
+   int size;
+   char *buf;
+ 
+@@ -3556,11 +3556,11 @@ microblaze_asm_output_ident (const char *string)
+ 
+   size = strlen (string) + 1;
+   if (size <= microblaze_section_threshold)
+-    section_asm_op = SDATA2_SECTION_ASM_OP;
++    section_name = ".sdata2";
+   else
+-    section_asm_op = READONLY_DATA_SECTION_ASM_OP;
++    section_name = ".rodata";
+ 
+-  buf = ACONCAT (("\t.pushsection", section_asm_op,
++  buf = ACONCAT (("\t.pushsection\t", section_name,
+                   "\n\t.ascii \"", string, "\\0\"\n",
+                   "\t.popsection\n", NULL));
+   symtab->finalize_toplevel_asm (build_string (strlen (buf), buf));
+diff --git a/gcc/config/microblaze/microblaze.h b/gcc/config/microblaze/microblaze.h
+index 8aa8d6c6a..336db6a99 100644
+--- a/gcc/config/microblaze/microblaze.h
++++ b/gcc/config/microblaze/microblaze.h
+@@ -810,9 +810,6 @@ extern int save_volatiles;
+    yet, so this is for future use.  */
+ #define TEXT_SECTION_ASM_OP	"\t.text"
+ #define DATA_SECTION_ASM_OP	"\t.data"
+-#undef READONLY_DATA_SECTION_ASM_OP
+-#define READONLY_DATA_SECTION_ASM_OP    \
+-                                "\t.rodata"
+ #define BSS_SECTION_ASM_OP      "\t.bss"
+ #define CTORS_SECTION_ASM_OP    "\t.section\t.ctors,\"aw\""
+ #define DTORS_SECTION_ASM_OP    "\t.section\t.dtors,\"aw\""
+-- 
+2.39.5 (Apple Git-154)
+

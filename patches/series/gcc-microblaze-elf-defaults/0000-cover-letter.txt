@@ -1,0 +1,20 @@
+microblaze: two more elfos.h defaults
+
+Two settings that "microblaze: include elfos.h" kept, now replaced by
+elfos.h's.  Applies on top of that patch.
+
+1/2 MAX_OFILE_ALIGNMENT was 32768 bytes, so aligned (65536) on a
+variable was an error although gas and ld handle much larger
+alignments.  Use the ELF (1 << 28).  Fixes gcc.dg/attr-aligned-3.c.
+
+2/2 Read-only data used gas's MicroBlaze-only ".rodata" directive;
+".section .rodata" gives an identical object and lets the testsuite's
+scan-assembler-symbol-section see the section (gcc.dg/array-quals-1.c,
+20021029-1.c, pr25521.c).  microblaze_asm_output_ident built its
+.pushsection from that directive and now uses section names; its output
+is unchanged.
+
+Tested on microblaze-elf under QEMU 10.2.4 with compile.exp, execute.exp,
+dg.exp, dg-torture.exp and microblaze.exp: 29 FAILs become PASS
+(attr-aligned-3.c 7, array-quals-1.c 20, 20021029-1.c, pr25521.c), and
+no other result changes.

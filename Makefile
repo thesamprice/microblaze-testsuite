@@ -203,7 +203,9 @@ $(STAMP)/binutils: $(if $(OWN_BINUTILS_SRC),,$(STAMP)/patch-binutils)
 # newlib and libgloss are symlinked into the GCC source tree so that GCC
 # builds them: the combined tree DejaGnu's *-sim boards assume.
 # --disable-multilib: t-microblaze otherwise builds ten copies of newlib and
-# the board uses one.
+# the board uses one.  --with-headers: without target headers when gcc is
+# configured, --with-newlib defines inhibit_libc, and libgcov is built
+# without __gcov_exit, so nothing built with -fprofile-arcs links.
 $(STAMP)/gcc: $(DEP_BINUTILS) $(if $(OWN_GCC_SRC),,$(STAMP)/patch-gcc) \
 		$(if $(OWN_NEWLIB_SRC),,$(STAMP)/patch-newlib)
 	ln -sfn $(NEWLIB_SRC)/newlib $(GCC_SRC)/newlib
@@ -211,7 +213,8 @@ $(STAMP)/gcc: $(DEP_BINUTILS) $(if $(OWN_GCC_SRC),,$(STAMP)/patch-gcc) \
 	rm -rf $(GCC_BUILD) && mkdir -p $(GCC_BUILD) $(LOGS) $(STAMP)
 	cd $(GCC_BUILD) && $(GCC_SRC)/configure \
 	  --target=$(TARGET) --prefix=$(PREFIX) \
-	  --with-newlib --disable-multilib --disable-threads --disable-shared \
+	  --with-newlib --with-headers=$(NEWLIB_SRC)/newlib/libc/include \
+	  --disable-multilib --disable-threads --disable-shared \
 	  --enable-languages=c \
 	  --disable-libssp --disable-libquadmath --disable-libgomp \
 	  --disable-libatomic --disable-nls --disable-werror \

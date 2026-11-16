@@ -1,0 +1,36 @@
+From 0ad27e37b77f391a626bc0a156a142634452d4d5 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Mon, 16 Nov 2026 09:25:53 -0500
+Subject: [PATCH 3/5] testsuite: accept a $ local label prefix in pr110729.c
+
+pr110729.c checks that each __patchable_function_entries section is
+linked to its .LPFE label.  MicroBlaze's local labels start with $, so
+its output, ".section __patchable_function_entries,"awo",@progbits,$LPFE0",
+is right but does not match.  Accept either prefix.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.dg/pr110729.c: Accept $LPFE as well as .LPFE.
+---
+ gcc/testsuite/gcc.dg/pr110729.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/gcc/testsuite/gcc.dg/pr110729.c b/gcc/testsuite/gcc.dg/pr110729.c
+index 4e4c62b3f..7b8b72ea0 100644
+--- a/gcc/testsuite/gcc.dg/pr110729.c
++++ b/gcc/testsuite/gcc.dg/pr110729.c
+@@ -24,6 +24,6 @@ h ()
+   return 3;
+ }
+ 
+-/* { dg-final { scan-assembler-times {.section[\t ]*__patchable_function_entries,.*,\.LPFE0} 1 } }  */
+-/* { dg-final { scan-assembler-times {.section[\t ]*__patchable_function_entries,.*,\.LPFE1} 1 } }  */
+-/* { dg-final { scan-assembler-times {.section[\t ]*__patchable_function_entries,.*,\.LPFE2} 1 } }  */
++/* { dg-final { scan-assembler-times {.section[\t ]*__patchable_function_entries,.*,[.$]LPFE0} 1 } }  */
++/* { dg-final { scan-assembler-times {.section[\t ]*__patchable_function_entries,.*,[.$]LPFE1} 1 } }  */
++/* { dg-final { scan-assembler-times {.section[\t ]*__patchable_function_entries,.*,[.$]LPFE2} 1 } }  */
+-- 
+2.39.5 (Apple Git-154)
+

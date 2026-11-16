@@ -1,0 +1,109 @@
+From e20b8b473ced37e1c4c71f27f85bf3f04917dbcf Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Mon, 16 Nov 2026 09:25:41 -0500
+Subject: [PATCH 1/5] testsuite: ask for .loc in the hierarchical discriminator
+ tests
+
+The hierarchical-discriminator tests look for "discriminator N" in .loc
+directives, on gas targets.  A target can use gas and still have gcc
+write the line table itself (DWARF2_ASM_LINE_DEBUG_INFO 0, as on
+MicroBlaze); the discriminators are then in the table but the scans
+find nothing, and all seven fail.  Pass -gas-loc-support, the option
+that DWARF2_ASM_LINE_DEBUG_INFO only sets the default of, on gas
+targets.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.dg/hierarchical-discriminator-ch.c: Add -gas-loc-support
+	for gas targets.
+	* gcc.dg/hierarchical-discriminator-loop-version.c: Likewise.
+	* gcc.dg/hierarchical-discriminator-rtl-unroll.c: Likewise.
+	* gcc.dg/hierarchical-discriminator-tracer.c: Likewise.
+	* gcc.dg/hierarchical-discriminator-unroll-jam.c: Likewise.
+	* gcc.dg/hierarchical-discriminator-unroll.c: Likewise.
+	* gcc.dg/hierarchical-discriminator-unswitch.c: Likewise.
+---
+ gcc/testsuite/gcc.dg/hierarchical-discriminator-ch.c           | 1 +
+ gcc/testsuite/gcc.dg/hierarchical-discriminator-loop-version.c | 1 +
+ gcc/testsuite/gcc.dg/hierarchical-discriminator-rtl-unroll.c   | 1 +
+ gcc/testsuite/gcc.dg/hierarchical-discriminator-tracer.c       | 1 +
+ gcc/testsuite/gcc.dg/hierarchical-discriminator-unroll-jam.c   | 1 +
+ gcc/testsuite/gcc.dg/hierarchical-discriminator-unroll.c       | 1 +
+ gcc/testsuite/gcc.dg/hierarchical-discriminator-unswitch.c     | 1 +
+ 7 files changed, 7 insertions(+)
+
+diff --git a/gcc/testsuite/gcc.dg/hierarchical-discriminator-ch.c b/gcc/testsuite/gcc.dg/hierarchical-discriminator-ch.c
+index 2eb0d747b..b980867d3 100644
+--- a/gcc/testsuite/gcc.dg/hierarchical-discriminator-ch.c
++++ b/gcc/testsuite/gcc.dg/hierarchical-discriminator-ch.c
+@@ -21,4 +21,5 @@ test_ch (int n)
+ /* Header copying peels the exit check; the peeled copy should get a
+    non-zero hierarchical discriminator.  */
+ /* { dg-final { scan-tree-dump "Duplicating header of the loop" "ch2" } } */
++/* { dg-additional-options "-gas-loc-support" { target gas } } */
+ /* { dg-final { scan-assembler "discriminator (\[1-9\]\[0-9\]*|0x\[1-9a-fA-F\]\[0-9a-fA-F\]*)" { target gas } } } */
+diff --git a/gcc/testsuite/gcc.dg/hierarchical-discriminator-loop-version.c b/gcc/testsuite/gcc.dg/hierarchical-discriminator-loop-version.c
+index f90cb14f7..95df69fb0 100644
+--- a/gcc/testsuite/gcc.dg/hierarchical-discriminator-loop-version.c
++++ b/gcc/testsuite/gcc.dg/hierarchical-discriminator-loop-version.c
+@@ -17,4 +17,5 @@ test_loop_versioning (double *x, int stepx, int n)
+ 
+ /* Check that loop versioning occurred and discriminators are present on the loop body. */
+ /* { dg-final { scan-tree-dump "versioned this loop for when certain strides are 1" "lversion" } } */
++/* { dg-additional-options "-gas-loc-support" { target gas } } */
+ /* { dg-final { scan-assembler "\\.loc 1 (9|10) \[0-9\]+ is_stmt 0 discriminator (\[1-9\]\[0-9\]*|0x\[1-9a-fA-F\]\[0-9a-fA-F\]*)" { target gas } } } */
+diff --git a/gcc/testsuite/gcc.dg/hierarchical-discriminator-rtl-unroll.c b/gcc/testsuite/gcc.dg/hierarchical-discriminator-rtl-unroll.c
+index ff771224e..0879031c3 100644
+--- a/gcc/testsuite/gcc.dg/hierarchical-discriminator-rtl-unroll.c
++++ b/gcc/testsuite/gcc.dg/hierarchical-discriminator-rtl-unroll.c
+@@ -18,4 +18,5 @@ test_rtl_unroll (void)
+ 
+ /* RTL unroll via loop-unroll.cc should assign non-zero copyid
+    discriminators via copy_bbs.  */
++/* { dg-additional-options "-gas-loc-support" { target gas } } */
+ /* { dg-final { scan-assembler "discriminator (\[1-9\]\[0-9\]*|0x\[1-9a-fA-F\]\[0-9a-fA-F\]*)" { target gas } } } */
+diff --git a/gcc/testsuite/gcc.dg/hierarchical-discriminator-tracer.c b/gcc/testsuite/gcc.dg/hierarchical-discriminator-tracer.c
+index 84b804cd7..a6f56b274 100644
+--- a/gcc/testsuite/gcc.dg/hierarchical-discriminator-tracer.c
++++ b/gcc/testsuite/gcc.dg/hierarchical-discriminator-tracer.c
+@@ -21,4 +21,5 @@ test_tracer (void)
+ 
+ /* Superblock formation duplicates the increment of c.  */
+ /* { dg-final { scan-tree-dump "Duplicated" "tracer" } } */
++/* { dg-additional-options "-gas-loc-support" { target gas } } */
+ /* { dg-final { scan-assembler "discriminator (\[1-9\]\[0-9\]*|0x\[1-9a-fA-F\]\[0-9a-fA-F\]*)" { target gas } } } */
+diff --git a/gcc/testsuite/gcc.dg/hierarchical-discriminator-unroll-jam.c b/gcc/testsuite/gcc.dg/hierarchical-discriminator-unroll-jam.c
+index bdea95b94..cd14e6126 100644
+--- a/gcc/testsuite/gcc.dg/hierarchical-discriminator-unroll-jam.c
++++ b/gcc/testsuite/gcc.dg/hierarchical-discriminator-unroll-jam.c
+@@ -16,4 +16,5 @@ test_unroll_jam (unsigned long n, unsigned long m)
+ }
+ 
+ /* { dg-final { scan-tree-dump "applying unroll and jam" "unrolljam" } } */
++/* { dg-additional-options "-gas-loc-support" { target gas } } */
+ /* { dg-final { scan-assembler "discriminator (\[1-9\]\[0-9\]*|0x\[1-9a-fA-F\]\[0-9a-fA-F\]*)" { target gas } } } */
+diff --git a/gcc/testsuite/gcc.dg/hierarchical-discriminator-unroll.c b/gcc/testsuite/gcc.dg/hierarchical-discriminator-unroll.c
+index ed8cb0c24..38e654bae 100644
+--- a/gcc/testsuite/gcc.dg/hierarchical-discriminator-unroll.c
++++ b/gcc/testsuite/gcc.dg/hierarchical-discriminator-unroll.c
+@@ -27,4 +27,5 @@ test_unroll (void)
+    The exact values depend on what other passes have run, but all should be non-zero. */
+ 
+ /* Check that unrolled iterations have non-zero discriminators on the asm statement line. */
++/* { dg-additional-options "-gas-loc-support" { target gas } } */
+ /* { dg-final { scan-assembler "\\.loc 1 17 7 is_stmt 0 discriminator (\[1-9\]\[0-9\]*|0x\[1-9a-fA-F\]\[0-9a-fA-F\]*)" { target gas } } } */
+diff --git a/gcc/testsuite/gcc.dg/hierarchical-discriminator-unswitch.c b/gcc/testsuite/gcc.dg/hierarchical-discriminator-unswitch.c
+index 7a8b8a6a4..2096eaaa5 100644
+--- a/gcc/testsuite/gcc.dg/hierarchical-discriminator-unswitch.c
++++ b/gcc/testsuite/gcc.dg/hierarchical-discriminator-unswitch.c
+@@ -19,4 +19,5 @@ test_unswitch (int *a, int *b, int *r, int size, int order)
+ }
+ 
+ /* { dg-final { scan-tree-dump "unswitching loop" "unswitch" } } */
++/* { dg-additional-options "-gas-loc-support" { target gas } } */
+ /* { dg-final { scan-assembler "discriminator (\[1-9\]\[0-9\]*|0x\[1-9a-fA-F\]\[0-9a-fA-F\]*)" { target gas } } } */
+-- 
+2.39.5 (Apple Git-154)
+

@@ -1,0 +1,41 @@
+From 9da55d096e5b1b51fa2dfb355109f42be051bbfe Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Mon, 16 Nov 2026 09:26:17 -0500
+Subject: [PATCH 5/5] testsuite: skip strub-run3.c at -O0 on microblaze
+
+strub-run3.c checks that a non-strub function leaves a string behind
+below the stack pointer.  At -O0 on MicroBlaze the string is in an
+alloca block whose last word overlaps the word at the stack pointer
+before the alloca, which the alloca saved; restoring the stack pointer
+on return writes the saved word back over the end of the dead string,
+so the test aborts.  The strub functions are not affected: the at-calls
+and internal checks pass.  Skip the -O0 run on microblaze.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/testsuite/ChangeLog:
+
+	* c-c++-common/torture/strub-run3.c: Skip at -O0 on
+	microblaze*-*-*.
+---
+ gcc/testsuite/c-c++-common/torture/strub-run3.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/gcc/testsuite/c-c++-common/torture/strub-run3.c b/gcc/testsuite/c-c++-common/torture/strub-run3.c
+index e29055d19..cd8e000c0 100644
+--- a/gcc/testsuite/c-c++-common/torture/strub-run3.c
++++ b/gcc/testsuite/c-c++-common/torture/strub-run3.c
+@@ -1,6 +1,10 @@
+ /* { dg-do run } */
+ /* { dg-options "-fstrub=strict" } */
+ /* { dg-require-effective-target strub } */
++/* On microblaze at -O0, restoring the stack after the alloca in callable
++   copies the word saved at the old stack pointer back over the end of the
++   string that callable is expected to leave behind.  */
++/* { dg-skip-if "" { microblaze*-*-* } { "-O0" } } */
+ 
+ /* Check that a non-strub function leaves a string behind in the stack, and that
+    equivalent strub functions don't.  */
+-- 
+2.39.5 (Apple Git-154)
+

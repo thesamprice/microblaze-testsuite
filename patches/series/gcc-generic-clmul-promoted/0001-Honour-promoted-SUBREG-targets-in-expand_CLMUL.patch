@@ -1,0 +1,45 @@
+From 428dff0690a19b16883f7479b88fac757822365c Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Mon, 16 Nov 2026 09:20:26 -0500
+Subject: [PATCH] Honour promoted SUBREG targets in expand_CLMUL
+
+expand_CLMUL stored its result into the call's lhs with emit_move_insn.
+When the lhs is a variable kept in a wider register than its mode
+(PROMOTE_MODE), the target is a promoted SUBREG and the move writes
+only the low part, so the upper bits of the register, which the rest
+of the function assumes are zero- or sign-extended, are garbage.
+
+On microblaze-elf, which promotes QImode and HImode to SImode,
+c-c++-common/builtin-clmulg-1.c aborts at every optimization level.
+Store the result the way the other expanders in this file do, with
+convert_move into SUBREG_REG.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* internal-fn.cc (expand_CLMUL): Use convert_move for a promoted
+	SUBREG target.
+---
+ gcc/internal-fn.cc | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/gcc/internal-fn.cc b/gcc/internal-fn.cc
+index 5fc6c3578..e335d8591 100644
+--- a/gcc/internal-fn.cc
++++ b/gcc/internal-fn.cc
+@@ -6207,7 +6207,10 @@ expand_CLMUL (internal_fn, gcall *stmt)
+       res = expand_and (mode, res, mask, NULL_RTX);
+     }
+   rtx target = expand_expr (lhs, NULL_RTX, VOIDmode, EXPAND_WRITE);
+-  emit_move_insn (target, res);
++  if (GET_CODE (target) == SUBREG && SUBREG_PROMOTED_VAR_P (target))
++    convert_move (SUBREG_REG (target), res, SUBREG_PROMOTED_SIGN (target));
++  else
++    emit_move_insn (target, res);
+ }
+ 
+ void
+-- 
+2.39.5 (Apple Git-154)
+

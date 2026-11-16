@@ -1,0 +1,60 @@
+From 6e50893a94e97115d4e8d953b97a351aff551be9 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Mon, 16 Nov 2026 09:26:03 -0500
+Subject: [PATCH 4/5] testsuite: add microblaze to three target lists
+
+MicroBlaze has a single PIC model, so -fpic defines __PIC__ to 2, as
+on hppa; it has no conditional move, so ifcvt-4.c's multiple-set
+if-conversion cannot happen, as on riscv; and __builtin_return_address
+supports only the current frame.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.dg/pic-1.c: Skip for microblaze*-*-*.
+	* gcc.dg/ifcvt-4.c: Likewise.
+	* gcc.dg/Wno-frame-address.c: Likewise.
+---
+ gcc/testsuite/gcc.dg/Wno-frame-address.c | 2 +-
+ gcc/testsuite/gcc.dg/ifcvt-4.c           | 2 +-
+ gcc/testsuite/gcc.dg/pic-1.c             | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/gcc/testsuite/gcc.dg/Wno-frame-address.c b/gcc/testsuite/gcc.dg/Wno-frame-address.c
+index f98f7797c..c0e99d1f6 100644
+--- a/gcc/testsuite/gcc.dg/Wno-frame-address.c
++++ b/gcc/testsuite/gcc.dg/Wno-frame-address.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-skip-if "Cannot access arbitrary stack frames" { alpha*-*-* arm*-*-* amdgpu-*-* avr-*-* hppa*-*-* ia64-*-* visium-*-* csky-*-* msp430-*-* cris-*-* mmix-*-* pru-*-* } } */
++/* { dg-skip-if "Cannot access arbitrary stack frames" { alpha*-*-* arm*-*-* amdgpu-*-* avr-*-* hppa*-*-* ia64-*-* visium-*-* csky-*-* msp430-*-* cris-*-* mmix-*-* pru-*-* microblaze*-*-* } } */
+ /* { dg-options "-Werror" } */
+ /* { dg-additional-options "-mbackchain" { target { s390*-*-* } } } */
+ 
+diff --git a/gcc/testsuite/gcc.dg/ifcvt-4.c b/gcc/testsuite/gcc.dg/ifcvt-4.c
+index 0a7b1b3fb..3109db73b 100644
+--- a/gcc/testsuite/gcc.dg/ifcvt-4.c
++++ b/gcc/testsuite/gcc.dg/ifcvt-4.c
+@@ -2,7 +2,7 @@
+ /* { dg-additional-options "-misel" { target { powerpc*-*-* } } } */
+ /* { dg-additional-options "-march=z196" { target { s390x-*-* } } } */
+ /* { dg-additional-options "-mtune-ctrl=^one_if_conv_insn" { target { i?86-*-* x86_64-*-* } } } */
+-/* { dg-skip-if "Multiple set if-conversion not guaranteed on all subtargets" { "arm*-*-* avr-*-* cris-*-* hppa*64*-*-* visium-*-*" riscv*-*-* msp430-*-* pru-*-* loongarch32-*-* } }  */
++/* { dg-skip-if "Multiple set if-conversion not guaranteed on all subtargets" { "arm*-*-* avr-*-* cris-*-* hppa*64*-*-* visium-*-*" riscv*-*-* msp430-*-* pru-*-* loongarch32-*-* microblaze*-*-* } }  */
+ /* { dg-skip-if "" { { sparc*-*-* } && { ! sparc_v9 } } }  */
+ 
+ typedef int word __attribute__((mode(word)));
+diff --git a/gcc/testsuite/gcc.dg/pic-1.c b/gcc/testsuite/gcc.dg/pic-1.c
+index 4bb332ec0..0e4cafff5 100644
+--- a/gcc/testsuite/gcc.dg/pic-1.c
++++ b/gcc/testsuite/gcc.dg/pic-1.c
+@@ -1,4 +1,4 @@
+-/* { dg-do compile { target { ! { *-*-darwin* hppa*-*-* amdgcn*-*-* } } } } */
++/* { dg-do compile { target { ! { *-*-darwin* hppa*-*-* amdgcn*-*-* microblaze*-*-* } } } } */
+ /* { dg-require-effective-target fpic } */
+ /* { dg-options "-fpic" } */
+ 
+-- 
+2.39.5 (Apple Git-154)
+
