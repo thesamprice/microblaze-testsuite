@@ -1,4 +1,4 @@
-From 5d46d219044f9f4509d5da99a6fecfbe0f501ce1 Mon Sep 17 00:00:00 2001
+From daaa16af09a97164182c2ebd4f0c8a95a8ded890 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 15 Nov 2026 03:06:38 -0500
 Subject: [PATCH 2/5] microblaze: use lwr and swr for byte-reversed loads and
@@ -99,10 +99,10 @@ index acee3333b..90c532b1d 100644
  extern bool microblaze_expand_block_move (rtx, rtx, rtx, rtx);
  extern bool microblaze_expand_strlen (rtx, rtx, rtx);
 diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
-index 63c7224e5..486207ac0 100644
+index 8f0988afe..e6323cd99 100644
 --- a/gcc/config/microblaze/microblaze.cc
 +++ b/gcc/config/microblaze/microblaze.cc
-@@ -3663,6 +3663,45 @@ microblaze_adddi3_imm_length (rtx *operands)
+@@ -3711,6 +3711,45 @@ microblaze_adddi3_imm_length (rtx *operands)
    return len;
  }
  
@@ -149,10 +149,10 @@ index 63c7224e5..486207ac0 100644
     calling function can be found.  */
  rtx
 diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
-index 9801ecaa5..550911a9e 100644
+index d168c31e9..90a44b72e 100644
 --- a/gcc/config/microblaze/microblaze.md
 +++ b/gcc/config/microblaze/microblaze.md
-@@ -1233,17 +1233,30 @@
+@@ -1217,17 +1217,30 @@
    }
  )
  
@@ -194,7 +194,7 @@ index 9801ecaa5..550911a9e 100644
  ;; 32-bit floating point moves
  
 diff --git a/gcc/config/microblaze/predicates.md b/gcc/config/microblaze/predicates.md
-index accbb3cfa..18f004017 100644
+index c01d2eb81..ee7534c6e 100644
 --- a/gcc/config/microblaze/predicates.md
 +++ b/gcc/config/microblaze/predicates.md
 @@ -30,6 +30,10 @@

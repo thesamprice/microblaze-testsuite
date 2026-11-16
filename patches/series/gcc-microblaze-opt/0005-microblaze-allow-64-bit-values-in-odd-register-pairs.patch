@@ -1,4 +1,4 @@
-From 5664caf9cab1018207312fc8196755a47860658f Mon Sep 17 00:00:00 2001
+From 1e6f378088d69a6467c7afecc2a9973219b1b8c1 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 15 Nov 2026 13:43:05 -0500
 Subject: [PATCH 5/5] microblaze: allow 64-bit values in odd register pairs
@@ -25,15 +25,12 @@ check for it.  Audit of the DImode and DFmode patterns:
   adddi3_carry, subdi3_nborrow, *ashldi3_one, *<shiftrt>di3_one:
     already checked.
   negdi2: wrote the low word first.  Now goes through r18.
-  *one_cmpldi2: wrote the high word first.  Now writes first the word
-    that the other does not read.
-  not:DI split: wrote subreg 0 first.  Now writes the second register
-    first when the result starts one register above the input, as the
-    register move splits do.
+  one's complement: *one_cmpldi2 and its split are gone ("fix latent
+    pattern bugs"); the generic expansion works a word at a time.
   *movdi_internal, *movdf_internal: register moves are split after
-    reload, in the safe order; loads already check the address against
-    the first register written.  The unsplit movdi register template
-    now also orders the words, and has a third operand.
+    reload, in the safe order, and the unsplit movdi register template
+    orders the words ("fix latent pattern bugs"); loads already check
+    the address against the first register written.
   extendsidi2: reads its input only before writing.
   DImode compares and branches, zero extension and the soft-float
   DFmode operations are expanded a word at a time or are libcalls.
@@ -83,11 +80,6 @@ gcc/ChangeLog:
 	* config/microblaze/microblaze.md (adddi3): Go through r18 when
 	the low word of the result is the high word of an input.
 	(negdi2): Likewise.
-	(*one_cmpldi2): Write first the word that the other does not
-	read.
-	(not:DI split): Likewise.
-	(*movdi_internal): Likewise for register moves, and give them a
-	third operand.
 
 gcc/testsuite/ChangeLog:
 
@@ -96,20 +88,20 @@ gcc/testsuite/ChangeLog:
 	* gcc.target/microblaze/others/dword-overlap-run.c: New test.
 ---
  gcc/config/microblaze/microblaze.cc           |  25 ++-
- gcc/config/microblaze/microblaze.md           |  65 +++++-
+ gcc/config/microblaze/microblaze.md           |  36 +++-
  .../microblaze/isa/dword-odd-pair.c           |  12 ++
  .../microblaze/others/dword-abi-run.c         | 176 ++++++++++++++++
  .../microblaze/others/dword-overlap-run.c     | 193 ++++++++++++++++++
- 5 files changed, 450 insertions(+), 21 deletions(-)
+ 5 files changed, 426 insertions(+), 16 deletions(-)
  create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/dword-odd-pair.c
  create mode 100644 gcc/testsuite/gcc.target/microblaze/others/dword-abi-run.c
  create mode 100644 gcc/testsuite/gcc.target/microblaze/others/dword-overlap-run.c
 
 diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
-index e58ffc770..4db14f8f9 100644
+index 54790cc7e..61d665d8f 100644
 --- a/gcc/config/microblaze/microblaze.cc
 +++ b/gcc/config/microblaze/microblaze.cc
-@@ -2052,7 +2052,9 @@ microblaze_option_override (void)
+@@ -2067,7 +2067,9 @@ microblaze_option_override (void)
  	      ok = (ST_REG_P (regno) || GP_REG_P (regno));
  	    }
  	  else if (GP_REG_P (regno))
@@ -120,7 +112,7 @@ index e58ffc770..4db14f8f9 100644
  	  else
  	    ok = 0;
  
-@@ -2061,13 +2063,15 @@ microblaze_option_override (void)
+@@ -2076,13 +2078,15 @@ microblaze_option_override (void)
      }
  }
  
@@ -142,7 +134,7 @@ index e58ffc770..4db14f8f9 100644
  
  static bool
  microblaze_hard_regno_mode_ok (unsigned int regno, machine_mode mode)
-@@ -3689,10 +3693,9 @@ microblaze_expand_shift (rtx operands[])
+@@ -3735,10 +3739,9 @@ microblaze_expand_shift (rtx operands[])
  
  /* Return true if the high (DST_HIGH) or low word of the double-word
     register DST is the same register as the high (SRC_HIGH) or low word
@@ -157,7 +149,7 @@ index e58ffc770..4db14f8f9 100644
  microblaze_dword_overlap_p (rtx dst, bool dst_high, rtx src, bool src_high)
  {
 diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
-index 98678872b..fd9b13675 100644
+index fee5cd0c8..7150ba467 100644
 --- a/gcc/config/microblaze/microblaze.md
 +++ b/gcc/config/microblaze/microblaze.md
 @@ -498,7 +498,9 @@
@@ -202,7 +194,7 @@ index 98678872b..fd9b13675 100644
  		      (symbol_ref "microblaze_adddi3_imm_length (operands)")))])
  
  ;;----------------------------------------------------------------
-@@ -796,10 +812,20 @@
+@@ -797,10 +813,20 @@
    [(set (match_operand:DI 0 "register_operand" "=d")
  	(neg:DI (match_operand:DI 1 "register_operand" "d")))]
    ""
@@ -225,56 +217,6 @@ index 98678872b..fd9b13675 100644
  
  
  (define_insn "one_cmplsi2"
-@@ -815,7 +841,12 @@
-   [(set (match_operand:DI 0 "register_operand" "=d")
- 	(not:DI (match_operand:DI 1 "register_operand" "d")))]
-   ""
--  "nor\t%M0,r0,%M1\;nor\t%L0,r0,%L1"
-+  {
-+    /* Write first the word that the other does not read.  */
-+    if (microblaze_dword_overlap_p (operands[0], true, operands[1], false))
-+      return "nor\t%L0,r0,%L1\;nor\t%M0,r0,%M1";
-+    return "nor\t%M0,r0,%M1\;nor\t%L0,r0,%L1";
-+  }
-   [(set_attr "type"	"darith")
-   (set_attr "mode"	"DI")
-   (set_attr "length"    "8")]
-@@ -828,9 +859,19 @@
-    && GET_CODE (operands[0]) == REG && GP_REG_P (REGNO (operands[0]))
-    && GET_CODE (operands[1]) == REG && GP_REG_P (REGNO (operands[1]))"
- 
--  [(set (subreg:SI (match_dup 0) 0) (not:SI (subreg:SI (match_dup 1) 0)))
--  (set (subreg:SI (match_dup 0) 4) (not:SI (subreg:SI (match_dup 1) 4)))]
--  "")
-+  [(set (match_dup 2) (not:SI (match_dup 3)))
-+   (set (match_dup 4) (not:SI (match_dup 5)))]
-+  {
-+    /* Write first the word that the other does not read: the second
-+       register when the result starts one register above the input.  */
-+    int first = REGNO (operands[0]) == REGNO (operands[1]) + 1 ? 4 : 0;
-+    operands[2] = simplify_gen_subreg (SImode, operands[0], DImode, first);
-+    operands[3] = simplify_gen_subreg (SImode, operands[1], DImode, first);
-+    operands[4] = simplify_gen_subreg (SImode, operands[0], DImode,
-+				       4 - first);
-+    operands[5] = simplify_gen_subreg (SImode, operands[1], DImode,
-+				       4 - first);
-+  })
- 
- 
- ;;----------------------------------------------------------------
-@@ -1015,7 +1056,11 @@
-     switch (which_alternative)
-     {
-       case 0:
--        return "addk\t%0,%1\n\taddk\t%D0,%d1";
-+	/* Normally split after reload, in the order that is safe when
-+	   the registers overlap.  */
-+	if (REGNO (operands[0]) == REGNO (operands[1]) + 1)
-+	  return "addk\t%D0,%D1,r0\n\taddk\t%0,%1,r0";
-+	return "addk\t%0,%1,r0\n\taddk\t%D0,%D1,r0";
-       case 1:
- 	return "addik\t%M0,r0,%h1\n\taddik\t%L0,r0,%j1 #li => la";
-       case 2:
 diff --git a/gcc/testsuite/gcc.target/microblaze/isa/dword-odd-pair.c b/gcc/testsuite/gcc.target/microblaze/isa/dword-odd-pair.c
 new file mode 100644
 index 000000000..66e33d86f

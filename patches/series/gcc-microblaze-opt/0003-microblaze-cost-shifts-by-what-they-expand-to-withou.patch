@@ -1,4 +1,4 @@
-From 210124658950d121607fcceb7e5cf0a101a68d98 Mon Sep 17 00:00:00 2001
+From e28f725cf1e34908748b6cdb906afa0bea95b6bf Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 15 Nov 2026 06:14:57 -0500
 Subject: [PATCH 3/5] microblaze: cost shifts by what they expand to without a
@@ -68,10 +68,10 @@ gcc/testsuite/ChangeLog:
  create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/shift-cost-mul.c
 
 diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
-index 486207ac0..2415e6993 100644
+index e6323cd99..0c7e06f8b 100644
 --- a/gcc/config/microblaze/microblaze.cc
 +++ b/gcc/config/microblaze/microblaze.cc
-@@ -1451,8 +1451,29 @@ microblaze_rtx_costs (rtx x, machine_mode mode, int outer_code ATTRIBUTE_UNUSED,
+@@ -1466,8 +1466,29 @@ microblaze_rtx_costs (rtx x, machine_mode mode, int outer_code ATTRIBUTE_UNUSED,
  	    else
  	      *total = COSTS_N_INSNS (2);
  	  }
@@ -103,7 +103,7 @@ index 486207ac0..2415e6993 100644
  	else if (GET_CODE (XEXP (x, 1)) == CONST_INT)
  	  {
  	    /* Add 1 to make shift slightly more expensive than add.  */
-@@ -1465,8 +1486,9 @@ microblaze_rtx_costs (rtx x, machine_mode mode, int outer_code ATTRIBUTE_UNUSED,
+@@ -1480,8 +1501,9 @@ microblaze_rtx_costs (rtx x, machine_mode mode, int outer_code ATTRIBUTE_UNUSED,
  	  }
  	else
  	  /* Double the worst cost of shifts when there is no barrel shifter and
@@ -115,7 +115,7 @@ index 486207ac0..2415e6993 100644
  	return true;
        }
      case PLUS:
-@@ -1485,7 +1507,25 @@ microblaze_rtx_costs (rtx x, machine_mode mode, int outer_code ATTRIBUTE_UNUSED,
+@@ -1500,7 +1522,25 @@ microblaze_rtx_costs (rtx x, machine_mode mode, int outer_code ATTRIBUTE_UNUSED,
  	  }
  	else
  	  {

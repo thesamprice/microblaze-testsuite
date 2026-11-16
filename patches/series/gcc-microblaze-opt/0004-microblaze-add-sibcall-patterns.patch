@@ -1,4 +1,4 @@
-From 7793f80abbb3f9f7d0ef097363747a324f339d2a Mon Sep 17 00:00:00 2001
+From f1edeb12d6d5a64c95234e2423bb5d42dd955954 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 15 Nov 2026 12:29:46 -0500
 Subject: [PATCH 4/5] microblaze: add sibcall patterns
@@ -95,7 +95,7 @@ gcc/testsuite/ChangeLog:
 	* gcc.target/microblaze/others/sibcall-run.c: New test.
 ---
  gcc/config/microblaze/microblaze-protos.h     |   2 +-
- gcc/config/microblaze/microblaze.cc           |  81 ++++++++++--
+ gcc/config/microblaze/microblaze.cc           |  79 +++++++++--
  gcc/config/microblaze/microblaze.h            |   3 +
  gcc/config/microblaze/microblaze.md           |  86 +++++++++++-
  gcc/config/microblaze/predicates.md           |   7 +
@@ -107,7 +107,7 @@ gcc/testsuite/ChangeLog:
  .../microblaze/others/sibcall-cfi-fp.c        |  38 ++++++
  .../microblaze/others/sibcall-cfi.c           |  37 ++++++
  .../microblaze/others/sibcall-run.c           | 124 ++++++++++++++++++
- 13 files changed, 403 insertions(+), 15 deletions(-)
+ 13 files changed, 401 insertions(+), 15 deletions(-)
  create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/sibcall-pic.c
  create mode 100644 gcc/testsuite/gcc.target/microblaze/isa/sibcall.c
  create mode 100644 gcc/testsuite/gcc.target/microblaze/others/sibcall-cfi-fp.c
@@ -128,10 +128,10 @@ index 90c532b1d..828be867e 100644
  extern int microblaze_expand_shift (rtx *);
  extern bool microblaze_dword_overlap_p (rtx, bool, rtx, bool);
 diff --git a/gcc/config/microblaze/microblaze.cc b/gcc/config/microblaze/microblaze.cc
-index 2415e6993..e58ffc770 100644
+index 0c7e06f8b..54790cc7e 100644
 --- a/gcc/config/microblaze/microblaze.cc
 +++ b/gcc/config/microblaze/microblaze.cc
-@@ -2139,6 +2139,40 @@ microblaze_save_volatiles (tree func)
+@@ -2154,6 +2154,40 @@ microblaze_save_volatiles (tree func)
    return a != NULL_TREE;
  }
  
@@ -172,7 +172,7 @@ index 2415e6993..e58ffc770 100644
  /* Return whether function is tagged with 'interrupt_handler',
     'fast_interrupt' or 'break_handler' attribute.  Return true if
     function should use return from interrupt or break rather than
-@@ -2873,7 +2907,9 @@ save_restore_insns (int prologue)
+@@ -2896,7 +2930,9 @@ save_restore_insns (int prologue)
  	    }
  	  else
  	    {
@@ -183,7 +183,7 @@ index 2415e6993..e58ffc770 100644
  	    }
  
  	  gp_offset += GET_MODE_SIZE (SImode);
-@@ -3231,24 +3267,32 @@ microblaze_function_epilogue (FILE *file)
+@@ -3272,24 +3308,32 @@ microblaze_function_epilogue (FILE *file)
  /* Expand the epilogue into a bunch of separate insns.  */
  
  void
@@ -220,7 +220,7 @@ index 2415e6993..e58ffc770 100644
    if (fsiz > 0)
      {
        /* Restore SUB_RETURN_ADDR_REGNUM at first. This is to prevent the
-@@ -3265,7 +3309,9 @@ microblaze_expand_epilogue (void)
+@@ -3306,7 +3350,9 @@ microblaze_expand_epilogue (void)
  	    /* Do not optimize in flow analysis.  */
  	    MEM_VOLATILE_P (mem_rtx) = 1;
  	  reg_rtx = gen_rtx_REG (SImode, MB_ABI_SUB_RETURN_ADDR_REGNUM);
@@ -231,18 +231,17 @@ index 2415e6993..e58ffc770 100644
  	}
  
        /* It is important that this is done after we restore the return address
-@@ -3275,12 +3321,21 @@ microblaze_expand_epilogue (void)
- 	 might have been over-written since alloca allocates memory on the
- 	 current stack.  */
+@@ -3322,13 +3368,20 @@ microblaze_expand_epilogue (void)
        if (frame_pointer_needed)
--	emit_insn (gen_movsi (stack_pointer_rtx, hard_frame_pointer_rtx));
-+	{
+ 	{
+ 	  emit_insn (gen_blockage ());
+-	  emit_insn (gen_movsi (stack_pointer_rtx, hard_frame_pointer_rtx));
 +	  insn = emit_insn (gen_movsi (stack_pointer_rtx,
 +				       hard_frame_pointer_rtx));
 +	  RTX_FRAME_RELATED_P (insn) = 1;
 +	  add_reg_note (insn, REG_CFA_DEF_CFA,
 +			plus_constant (Pmode, stack_pointer_rtx, fsiz));
-+	}
+ 	}
  
        /* _restore_ registers for epilogue.  */
        save_restore_insns (0);
@@ -255,7 +254,7 @@ index 2415e6993..e58ffc770 100644
      }
  
    if (crtl->calls_eh_return)
-@@ -3289,8 +3344,11 @@ microblaze_expand_epilogue (void)
+@@ -3337,8 +3390,11 @@ microblaze_expand_epilogue (void)
                             gen_raw_REG (SImode,
  					MB_EH_STACKADJ_REGNUM)));
  
@@ -269,7 +268,7 @@ index 2415e6993..e58ffc770 100644
  }
  
  
-@@ -4201,6 +4259,9 @@ microblaze_starting_frame_offset (void)
+@@ -4250,6 +4306,9 @@ microblaze_starting_frame_offset (void)
  #undef TARGET_ATTRIBUTE_TABLE
  #define TARGET_ATTRIBUTE_TABLE          microblaze_attribute_table
  
@@ -280,10 +279,10 @@ index 2415e6993..e58ffc770 100644
  #define TARGET_IN_SMALL_DATA_P          microblaze_elf_in_small_data_p
  
 diff --git a/gcc/config/microblaze/microblaze.h b/gcc/config/microblaze/microblaze.h
-index 9cb52a20a..116fa1571 100644
+index bba729177..4b00faa70 100644
 --- a/gcc/config/microblaze/microblaze.h
 +++ b/gcc/config/microblaze/microblaze.h
-@@ -142,6 +142,9 @@ extern enum pipeline_type microblaze_pipe;
+@@ -139,6 +139,9 @@ extern enum pipeline_type microblaze_pipe;
  #define MB_ABI_GPRW_REGNUM                  13
  #define MB_ABI_INTR_RETURN_ADDR_REGNUM      14
  #define MB_ABI_SUB_RETURN_ADDR_REGNUM       15
@@ -294,10 +293,10 @@ index 9cb52a20a..116fa1571 100644
  #define MB_ABI_EXCEPTION_RETURN_ADDR_REGNUM 17
  #define MB_ABI_ASM_TEMP_REGNUM              18
 diff --git a/gcc/config/microblaze/microblaze.md b/gcc/config/microblaze/microblaze.md
-index 550911a9e..98678872b 100644
+index 90a44b72e..fee5cd0c8 100644
 --- a/gcc/config/microblaze/microblaze.md
 +++ b/gcc/config/microblaze/microblaze.md
-@@ -2137,7 +2137,16 @@
+@@ -2127,7 +2127,16 @@
    [(use (const_int 0))]
    ""
    {
@@ -315,7 +314,7 @@ index 550911a9e..98678872b 100644
        DONE;
    }
  )
-@@ -2481,6 +2490,81 @@
+@@ -2471,6 +2480,81 @@
    (set_attr "length"	"4")])
  
  
@@ -398,7 +397,7 @@ index 550911a9e..98678872b 100644
  (define_expand "untyped_call"
    [(parallel [(call (match_operand 0 "" "")
 diff --git a/gcc/config/microblaze/predicates.md b/gcc/config/microblaze/predicates.md
-index 18f004017..6eb46ad1a 100644
+index ee7534c6e..a9a11ea70 100644
 --- a/gcc/config/microblaze/predicates.md
 +++ b/gcc/config/microblaze/predicates.md
 @@ -107,6 +107,13 @@

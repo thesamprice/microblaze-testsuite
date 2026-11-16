@@ -5,59 +5,87 @@ items (adddi3 immediates, odd register pairs, lwr/swr, sibcalls, shift
 costs), so #113 is fully implemented. For: gcc-patches@gcc.gnu.org. Not
 yet sent.
 
-| patch | commit | #113 item |
+| patch | commit on `fix/gcc-opt-on-audit` | #113 item |
 |---|---|---|
-| 0001 adddi3 constants with addi/addic | `15c9d83fc` | 1 |
-| 0002 lwr/swr for byte-reversed accesses | `5d46d2190` | 3 |
-| 0003 shift costs without a barrel shifter | `210124658` | 5 |
-| 0004 sibcall patterns | `7793f80ab` | 4 |
-| 0005 64-bit values in odd register pairs | `5664caf9c` | 2 |
+| 0001 adddi3 constants with addi/addic | `88632195a` | 1 |
+| 0002 lwr/swr for byte-reversed accesses | `daaa16af0` | 3 |
+| 0003 shift costs without a barrel shifter | `e28f725cf` | 5 |
+| 0004 sibcall patterns | `f1edeb12d` | 4 |
+| 0005 64-bit values in odd register pairs | `1e6f37808` | 2 |
 
 The measurements (sizes, instruction counts under QEMU) are in each
-commit message.
+commit message. They were taken on the earlier base (below) and not
+retaken on this one.
 
 ## Base and dependencies
 
-Branch `fix/gcc-evenpair` (worktree `work/src/gcc-fix-evenpair`):
-0001-0003 are `fix/gcc-opt` (worktree `work/src/gcc-fix-opt`), 0004 is
-`fix/gcc-sibcall` (`work/src/gcc-fix-sibcall`) on top, 0005 on top of
-that. 0001-0003 are unchanged from the three-patch version of this
-folder except for the `[PATCH n/5]` numbering. All five are on
-`audit/df809a029-all` = gcc master `df809a029` plus 21 of our patches
-(`gcc-microblaze-generic-moddi3`, `-zero-fails`, `-cbranch`,
-`-libgcc-asm`, `-fixes`, `-elfos`, `-carry`, `-pcmpbf`).
+Branch `fix/gcc-opt-on-audit` (worktree `work/src/gcc-optaudit`), five
+commits on `fix/gcc-correct` (`bfd4bdd40`), i.e. on
+`../gcc-microblaze-audit-fixes/`, which sits on gcc master `df809a029`
+plus `gcc-microblaze-generic-moddi3`, `-zero-fails`, `-cbranch`,
+`-libgcc-asm`, `-fixes`, `-elfos`, `-carry` and `-pcmpbf`. Mail this
+series after audit-fixes.
 
-On top of `../gcc-microblaze-audit-fixes/` (`fix/gcc-correct`), with or
-without `../gcc-microblaze-compile-fixes/` and
-`../gcc-microblaze-locviews/` (checked by cherry-picking onto
-`fix/gcc-compile` + `fix/gcc-views`, and onto `fix/gcc-correct` alone):
-0001-0003 apply cleanly; 0004 and 0005 conflict, both times with
-audit-fixes, not with the other two series:
+Earlier version: on `audit/df809a029-all` without audit-fixes (`fix/gcc-opt`
+`210124658`, `fix/gcc-sibcall` `7793f80ab`, `fix/gcc-evenpair`
+`5664caf9c`). Rebasing onto audit-fixes, 0001-0003 applied unchanged and
+0004/0005 conflicted with audit-fixes 0003 (#83) and 0006 (#102):
 
-- 0004 in `microblaze_expand_epilogue`: audit-fixes 0003 (#83) puts a
-  blockage before `sp = fp`, where 0004 makes that move frame-related
-  with a `REG_CFA_DEF_CFA` note. Resolution: keep the blockage, then
-  0004's move. (0004's message already describes the blockage as shared
-  by both epilogues.)
-- 0005 in `microblaze.md`, two hunks: audit-fixes 0006 (#102) removes
-  `*one_cmpldi2` and its split (MicroBlaze has no `nor`), which 0005
-  rewrites for overlapping pairs, and gives the unsplit `*movdi_internal`
-  register copy the same overlap-safe order that 0005 gives it.
-  Resolution: take audit-fixes' side of both; 0005's message then
-  describes `*one_cmpldi2` and the not:DI split, which no longer exist.
+- 0004 in `microblaze_expand_epilogue`: #83 puts a blockage before
+  `sp = fp`, which 0004 makes frame-related with a `REG_CFA_DEF_CFA`
+  note. Resolved: the blockage, then 0004's move with its note. 0004's
+  message already describes the blockage as shared by both epilogues.
+- 0005 in `microblaze.md`: #102 removes `*one_cmpldi2` and its `not:DI`
+  split and gives the unsplit `*movdi_internal` register copy the
+  overlap-safe order, all of which 0005 also changed. Resolved: #102's
+  side; 0005 now only changes `adddi3` and `negdi2` in the md file. Its
+  message's audit list and ChangeLog are updated to match (the
+  complement now goes through the generic word-at-a-time expansion).
 
-The resolved stack (`fix/gcc-compile` + locviews + these five) is branch
-`scratch/pkg2-opt-on-compile-views` (`7faac3100`); it was not built.
-The series here is not changed for it.
+The resolutions were first made in `scratch/pkg2-opt-on-compile-views`
+(on the compile fixes and locviews too) and reviewed again here; the
+cherry-picks onto `fix/gcc-correct` applied without conflict. The
+compile-fixes and locviews series also cherry-pick onto this branch
+without conflict (checked, not built).
 
-It does **not** apply to the runner's stack (`df809a029` +
-`patches/gcc/`): `microblaze.cc` and `microblaze-protos.h`
-conflict with series the runner lacks (`-fixes`, `-elfos`, `-carry`,
-`-pcmpbf`). So it is not in `patches/gcc/`.
+Not in `patches/gcc/`: the runner lacks `-fixes`, `-elfos`, `-carry`
+and `-pcmpbf`, which these patches' context needs.
 
-Checks: `contrib/gcc-changelog/git_check_commit.py` OK on all five.
+Checks: `git_check_commit.py` OK on all five, `check_GNU_style.sh` clean.
 
 ## Testing
+
+### On audit-fixes (this version)
+
+`fix/gcc-correct` (base) and `fix/gcc-opt-on-audit` (with), each built
+big- and little-endian with binutils from `install-fix-correct(-le)`,
+newlib/DejaGnu/QEMU 10.2.4 from the runner, gcc configured
+`--with-headers`, board `microblaze-qemu`, `--no-relax`. Builds in
+`work/build-optaudit/`, results in `work/results-optaudit/`.
+
+| run | base | with the series |
+|---|---|---|
+| BE, compile.exp execute.exp dg.exp dg-torture.exp microblaze.exp | 105124 PASS, 122 FAIL, 8 UNRESOLVED | 105367 PASS, 118 FAIL, 8 UNRESOLVED |
+| LE, execute.exp microblaze.exp | 25772 PASS, 4 FAIL | 25913 PASS, 4 FAIL |
+| BE microblaze.exp, `-mno-xl-soft-mul` | 1205 PASS, 12 FAIL | 1336 PASS, 12 FAIL |
+| BE microblaze.exp, `-mcpu=v10.0 -mxl-barrel-shift -mno-xl-soft-mul -mxl-pattern-compare -mxl-multiply-high` | 1149 PASS, 68 FAIL | 1276 PASS, 68 FAIL |
+| BE microblaze.exp, `-mcpu=v8.50.a -mxl-reorder` | 1213 PASS, 4 FAIL | 1337 PASS, 4 FAIL |
+| BE microblaze.exp, `-mcpu=v9.6 -mno-xl-soft-mul -mxl-reorder` | 1205 PASS, 12 FAIL | 1329 PASS, 12 FAIL |
+
+No result goes from PASS to anything else and no new FAIL, UNRESOLVED or
+XPASS in any run (compared line by line, source paths normalized). The
+three `strlen-pcmpbf` `brlid r15,strlen` scans are renamed by 0004 (they
+accept `brid` too) and pass. In the full BE run the 4 FAILs that go are
+`gcc.dg/sibcall-3`, `-4`, `-9` and `-10`, and 31 tests UNSUPPORTED on
+the base (the `musttail*` tests and related PRs, which need sibling
+calls) now run and pass, 88 results. The variant runs' FAILs are the
+same set on both sides: isa scan tests whose expected instructions
+change with the forced options, plus the 4 `.file` scans fixed since
+in the elfos/pcmpbf series. The new tests skip themselves in some
+variants (1-2 new UNSUPPORTED).
+
+### On the earlier base
+
 
 Builds and scripts: `work/build-fix-opt/<name>`, results in
 `work/results-fix-opt/<tag>` (`base-be`, `base-le`, `i3-be`, `i3-le`,
@@ -101,7 +129,7 @@ sets it does not apply to, no new FAIL; with 0001-0004 3978 PASS,
 ## How to reproduce
 
 ```
-git -C work/src/gcc worktree add /tmp/g audit/df809a029-all
+git -C work/src/gcc worktree add /tmp/g fix/gcc-correct
 cd /tmp/g && git am patches/series/gcc-microblaze-opt/*.patch
 # build as the Makefile does, then
 make check-gcc RUNTESTFLAGS="--target_board=microblaze-qemu execute.exp microblaze.exp"

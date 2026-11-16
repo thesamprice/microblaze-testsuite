@@ -1,8 +1,11 @@
 microblaze: 64-bit add immediates, lwr/swr, shift costs, sibcalls, odd pairs
 
-Five MicroBlaze code-quality patches.  They apply to master df809a029
-with the other MicroBlaze series listed in NOTES.md (not without them:
-the context in microblaze.cc and microblaze-protos.h differs).
+Five MicroBlaze code-quality patches, on top of the MicroBlaze
+correctness fixes ("microblaze: test compare-and-swap equality with
+xor" and the rest of that series) and the series they
+build on; the context in microblaze.cc, microblaze.md and
+microblaze-protos.h needs them.  The instruction counts and sizes below
+were measured before rebasing onto the correctness fixes.
 
 1/5 add 64-bit constants with addi and addic
 
@@ -55,16 +58,24 @@ the context in microblaze.cc and microblaze-protos.h differs).
   pr58574.c, +456 bytes.
 
 Tested on microblaze-elf and microblazeel-elf, QEMU 10.2.4, newlib,
-execute.exp and microblaze.exp together, with no new failure on either:
+against the same tree without these five patches:
 
-  before            25474 PASS, 4 FAIL
-  with 1/5-3/5      25527 PASS, 4 FAIL
-  with 1/5-4/5      25580 PASS, 4 FAIL
-  with 1/5-5/5      25615 PASS, 4 FAIL
+  microblaze-elf, compile.exp, execute.exp, dg.exp, dg-torture.exp
+  and microblaze.exp:
+    before   105124 PASS, 122 FAIL, 8 UNRESOLVED
+    after    105367 PASS, 118 FAIL, 8 UNRESOLVED
+  microblazeel-elf, execute.exp and microblaze.exp:
+    before    25772 PASS, 4 FAIL
+    after     25913 PASS, 4 FAIL
 
-microblaze.exp was also run with four other option sets, with no new
-failure (3978 PASS, 96 FAIL with 4/5 and 4102 PASS, 96 FAIL with 5/5),
-dg.exp=sibcall* with 4/5 (18 PASS, 0 FAIL; 14 PASS, 4 FAIL before),
-and gcc.dg/torture *64* with 5/5 (892 PASS, 0 FAIL, both endians).  The
-four FAILs are scan-assembler-not tests from earlier series that
-matched the .file directive, since fixed in those series.
+Nothing that passed before fails, and nothing new fails; three
+strlen-pcmpbf scans change name because 4/5 lets them accept a tail
+call.  gcc.dg/sibcall-3, -4, -9 and -10 now pass, and the 31 tests
+that need sibling calls (the musttail tests and related PRs), which
+were UNSUPPORTED, now run and pass.  microblaze.exp was also run with
+four other option sets (-mno-xl-soft-mul; -mcpu=v10.0 with the barrel
+shifter, multiplier, pattern compare and mulh; -mcpu=v8.50.a
+-mxl-reorder; -mcpu=v9.6 -mno-xl-soft-mul -mxl-reorder), with the same
+failures before and after.  In the option-set runs the common
+failures are scan tests that expect other instructions under those
+options and four .file-matching scans fixed in an earlier series.
