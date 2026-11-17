@@ -13,6 +13,29 @@ earlier series.
   every 32-bit __sync/__atomic compare-and-swap succeeded when the
   values differed only in bit 31 (memory -1, expected 0x7fffffff).
 
+  cmp and cmpu are for ordering: their result's sign answers "is
+  rA > rB", which is what the following branch tests.  They do not
+  give a zero result exactly when the operands are equal.  The rest of
+  the port already keeps the two apart.  In microblaze.cc,
+  microblaze_expand_conditional_branch handles EQ and NE with xor ("Use
+  xor for equal/not-equal comparison"), and sends the orderings (GT, LT,
+  GE, LE and the unsigned forms) to the branch_compare pattern in
+  microblaze.md, which emits cmp or cmpu.  atomic_compare_and_swapsi in
+  sync.md was the one place that used cmp for an equality test.  The
+  patch makes it use xor, as the EQ/NE branches do.
+
+  The test, others/atomic-cas-run.c, is closest to the generic
+  gcc.dg/ia64-sync-3.c (despite its name it runs on every
+  sync_int_long target): it calls __sync_val_compare_and_swap and
+  __sync_bool_compare_and_swap on an int, once where the swap should
+  happen and once where it should not, and checks the result and the
+  memory.  gcc.dg/atomic-compare-exchange-3.c does the same for
+  __atomic_compare_exchange_n on an int.  Neither catches this bug,
+  because none of their values differ only in bit 31.  The new test
+  runs all three built-ins on such pairs, in both orders (only one
+  order of each pair compared equal), each through a noipa wrapper so
+  the values reach the instructions at run time.
+
 2/8 set up the GOT pointer for TLS accesses on every target
 
   TLS accesses call __tls_get_addr with r20 plus a GOT offset, but r20
