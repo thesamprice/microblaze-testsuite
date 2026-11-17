@@ -5,6 +5,10 @@ Each directory here is a patch series as it will be mailed upstream: a
 does not apply them. A series the build should use is also copied into
 `patches/<component>/`.
 
+The order to send the core-bug series in, and what has changed
+upstream since they were made, is in
+[`SUBMISSION-ORDER.md`](SUBMISSION-ORDER.md).
+
 | series | for | status |
 |---|---|---|
 | `binutils-microblaze-opcodes` | binutils@sourceware.org | seven patches against binutils master `1b10c36dfd4`, not yet sent. Fixes the `bslli`/`bsrai`/`bsrli` decoding, `wdc.ext.clear`, the `mbar` pseudo-instruction aliases and the zero word, comments the `mbar` forms that enter a sleep mode, removes the undocumented `pcmpbc`, and adds a test of every instruction whose expected encodings were checked against QEMU and UG984. Issues #40 to #44 in thesamprice/rtems-microblaze-linker-relaxation-bug |
