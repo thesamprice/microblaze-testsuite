@@ -1,4 +1,4 @@
-From bfd4bdd404ac6d4d41a71d631c9db18a59ed806c Mon Sep 17 00:00:00 2001
+From 1ae7b415d547e3752c65377344bbd62c411c32f9 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 15 Nov 2026 05:52:36 -0500
 Subject: [PATCH 8/8] microblaze: legitimize the small-divide table address

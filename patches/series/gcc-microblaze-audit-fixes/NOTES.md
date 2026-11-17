@@ -6,16 +6,33 @@ gcc-patches@gcc.gnu.org. Not yet sent.
 
 | patch | commit | issue |
 |---|---|---|
-| 0001 compare-and-swap with xor | `a6f44b17f` | #81 |
-| 0002 GOT pointer for TLS | `88fbc4091` | #82 |
-| 0003 blockage before sp = fp | `9731562e0` | #83 |
-| 0004 interrupt handler saves and CFI | `5c3357b82` | #86 |
-| 0005 iprefetch out of delay slots | `2441e546a` | #100 |
-| 0006 latent patterns, atomic_test_and_set | `263ca9d05` | #102 |
-| 0007 -mxl-stack-check note | `4d5d4652c` | #103 |
-| 0008 small-divide table under PIC | `bfd4bdd40` | #106 |
+| 0001 compare-and-swap with xor | `4500ed89c` | #81 |
+| 0002 GOT pointer for TLS | `1290e5c3e` | #82 |
+| 0003 blockage before sp = fp | `c716dbc9a` | #83 |
+| 0004 interrupt handler saves and CFI | `cde89ad17` | #86 |
+| 0005 iprefetch out of delay slots | `b83a756b2` | #100 |
+| 0006 latent patterns, atomic_test_and_set | `4020b3bbe` | #102 |
+| 0007 -mxl-stack-check note | `9226a555e` | #103 |
+| 0008 small-divide table under PIC | `1ae7b415d` | #106 |
 
 ## Base and dependencies
+
+2026-11-16: 0001's test (`atomic-cas-run.c`) was rewritten for review.
+The values are named `BIT31` (`(int) (1u << 31)`) and `ALL_BUT_BIT31`
+(`(int) ((1u << 31) - 1)`) instead of written in hex. The helpers are
+`bool_compare_and_swap`, `val_compare_and_swap` and
+`atomic_compare_exchange` (were `bcas`, `vcas`, `acas`), the global is
+`memory`, and `check` computes `should_swap` and `value_after` once and
+tests one property per `if`, with `__builtin_abort ()` instead of a
+declared `abort`. The test cases are the same nine. It still aborts with
+the old `cmp` loop (`work/install`, -O0 and -O2) and passes at all 7
+levels with the fix (14 PASS). The other seven are
+unchanged; rebuilding the branch gave them new hashes (table above). The
+previous branch is kept as `fix/gcc-correct-v1` (`bfd4bdd40`), which
+the compile-fixes, locviews and opt series below were built on; their
+patches do not touch this test. `patches/gcc/0013` is the new 0001;
+0014-0019 still carry the old hashes in their `From` lines, with the
+same content.
 
 Branch `fix/gcc-correct` (worktree `work/src/gcc-fix-correct`), on
 `audit/df809a029-all` = gcc master `df809a029` plus 21 of our patches:
