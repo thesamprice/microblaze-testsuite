@@ -6,14 +6,14 @@ gcc-patches@gcc.gnu.org. Not yet sent.
 
 | patch | commit | issue |
 |---|---|---|
-| 0001 compare-and-swap with xor | `b275382d6` | #81 |
-| 0002 GOT pointer for TLS | `30573a63f` | #82 |
-| 0003 blockage before sp = fp | `bf608451a` | #83 |
-| 0004 interrupt handler saves and CFI | `b48bf93dc` | #86 |
-| 0005 iprefetch out of delay slots | `e63822bdd` | #100 |
-| 0006 latent patterns, atomic_test_and_set | `4c5755108` | #102 |
-| 0007 -mxl-stack-check note | `55fd5155c` | #103 |
-| 0008 small-divide table under PIC | `70ad6e1dd` | #106 |
+| 0001 compare-and-swap with xor | `03da0a4c5` | #81 |
+| 0002 GOT pointer for TLS | `0a4d2c2e7` | #82 |
+| 0003 blockage before sp = fp | `a6a06c63f` | #83 |
+| 0004 interrupt handler saves and CFI | `dd1790cdd` | #86 |
+| 0005 iprefetch out of delay slots | `b8b238052` | #100 |
+| 0006 latent patterns, atomic_test_and_set | `c5b621069` | #102 |
+| 0007 -mxl-stack-check note | `b530eeea8` | #103 |
+| 0008 small-divide table under PIC | `c20e8fd14` | #106 |
 
 ## Base and dependencies
 
@@ -24,11 +24,11 @@ The values are named `BIT31` (`(int) (1u << 31)`) and `ALL_BUT_BIT31`
 `atomic_compare_exchange` (were `bcas`, `vcas`, `acas`), the global is
 `memory`, and `check` computes `should_swap` and `value_after` once and
 tests one property per `if`, with `__builtin_abort ()` instead of a
-declared `abort`. A comment above the helpers says where the
-`__sync`/`__atomic` built-ins are documented (the GCC manual,
-`gcc/doc/extend.texi`) and that all three expand to
-`atomic_compare_and_swapsi` in `sync.md` (checked: each wrapper's code
-has the `lwx`/`swx` loop). The test cases are the same nine. It still aborts with
+declared `abort`. Where the `__sync`/`__atomic` built-ins are
+documented (links to the GCC manual), that all three expand to
+`atomic_compare_and_swapsi` (checked: each wrapper's code has the
+`lwx`/`swx` loop) and why the wrappers are `noipa` is in 0001's commit
+message, not the test. The test cases are the same nine. It still aborts with
 the old `cmp` loop (`work/install`, -O0 and -O2) and passes at all 7
 levels with the fix (14 PASS). The other seven are
 unchanged; rebuilding the branch gave them new hashes (table above). The
