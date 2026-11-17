@@ -1,5 +1,8 @@
 # MicroBlaze toolchain testsuite
 
+> **Upstreaming:** the order to send the core-bug patch series in is in
+> [`patches/series/SUBMISSION-ORDER.md`](patches/series/SUBMISSION-ORDER.md).
+
 Builds a `microblaze-elf` cross toolchain and QEMU from upstream sources and
 runs the binutils and GCC DejaGnu testsuites against them. The GCC execute
 tests really run, under QEMU system emulation, through the `microblaze-qemu`
