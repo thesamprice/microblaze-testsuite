@@ -1,7 +1,7 @@
-From 9da55d096e5b1b51fa2dfb355109f42be051bbfe Mon Sep 17 00:00:00 2001
+From 44c21a8dd13e17bc7b4cf752cbd8d32107b955ce Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Mon, 16 Nov 2026 09:26:17 -0500
-Subject: [PATCH 5/5] testsuite: skip strub-run3.c at -O0 on microblaze
+Subject: [PATCH 4/4] testsuite: skip strub-run3.c at -O0 on microblaze
 
 strub-run3.c checks that a non-strub function leaves a string behind
 below the stack pointer.  At -O0 on MicroBlaze the string is in an

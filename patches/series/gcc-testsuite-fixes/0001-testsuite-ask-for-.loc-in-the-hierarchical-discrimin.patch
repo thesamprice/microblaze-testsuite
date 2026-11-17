@@ -1,7 +1,7 @@
-From e20b8b473ced37e1c4c71f27f85bf3f04917dbcf Mon Sep 17 00:00:00 2001
+From a746586baca4d6fd732aa15328927920b5a22258 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Mon, 16 Nov 2026 09:25:41 -0500
-Subject: [PATCH 1/5] testsuite: ask for .loc in the hierarchical discriminator
+Subject: [PATCH 1/4] testsuite: ask for .loc in the hierarchical discriminator
  tests
 
 The hierarchical-discriminator tests look for "discriminator N" in .loc

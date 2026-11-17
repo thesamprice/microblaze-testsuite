@@ -1,0 +1,85 @@
+From 5fe8262e924d8be316d40e14eb8e051817addef3 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Mon, 16 Nov 2026 17:32:57 -0500
+Subject: [PATCH 3/3] microblaze: use .L for local labels
+
+The MicroBlaze port inherited "$" as LOCAL_LABEL_PREFIX and its own
+ASM_GENERATE_INTERNAL_LABEL from the MIPS port, so internal labels
+come out as $L5, $LC0, $LFB0, $LCFI0 and so on.  Now that the port
+includes elfos.h, use the ELF convention instead: drop the private
+ASM_GENERATE_INTERNAL_LABEL so that elfos.h's applies, and set
+LOCAL_LABEL_PREFIX to "." so that the jump-table entries printed by
+ASM_OUTPUT_ADDR_VEC_ELT and ASM_OUTPUT_ADDR_DIFF_ELT match.
+
+BFD's microblaze_elf_is_local_label_name accepts both $L and .L, and
+gas's choice of relocation (R_MICROBLAZE_32_SYM_OP_SYM for differences
+against a non-local symbol) goes through the same hook, so the
+generated objects do not change apart from the names of any local
+symbols the assembler keeps.
+
+The pr110729.c scans, which expect .LPFE, now pass.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/ChangeLog:
+
+	* config/microblaze/microblaze.h (LOCAL_LABEL_PREFIX): Define
+	as ".".
+	(ASM_GENERATE_INTERNAL_LABEL): Remove.
+
+gcc/testsuite/ChangeLog:
+
+	* gcc.target/microblaze/others/strings1.c: Expect .LC rather
+	than $LC.
+---
+ gcc/config/microblaze/microblaze.h                  | 13 ++++---------
+ .../gcc.target/microblaze/others/strings1.c         |  2 +-
+ 2 files changed, 5 insertions(+), 10 deletions(-)
+
+diff --git a/gcc/config/microblaze/microblaze.h b/gcc/config/microblaze/microblaze.h
+index 336db6a99..f1d2b21b6 100644
+--- a/gcc/config/microblaze/microblaze.h
++++ b/gcc/config/microblaze/microblaze.h
+@@ -128,12 +128,11 @@ extern enum pipeline_type microblaze_pipe;
+   { "target_asm_spec", TARGET_ASM_SPEC },				\
+   SUBTARGET_EXTRA_SPECS
+ 
+-/* Local compiler-generated symbols must have a prefix that the assembler
+-   understands.   */
++/* Local compiler-generated symbols use the ELF ".L" convention, which
++   elfos.h's ASM_GENERATE_INTERNAL_LABEL follows.  */
+ 
+-#ifndef LOCAL_LABEL_PREFIX
+-#define LOCAL_LABEL_PREFIX	"$"
+-#endif
++#undef LOCAL_LABEL_PREFIX
++#define LOCAL_LABEL_PREFIX	"."
+ 
+ /* fixed registers.  */
+ #define MB_ABI_BASE_REGNUM                   0
+@@ -675,10 +674,6 @@ do {									\
+ #undef TARGET_ASM_DESTRUCTOR
+ #define TARGET_ASM_DESTRUCTOR microblaze_elf_asm_destructor
+ 
+-#undef ASM_GENERATE_INTERNAL_LABEL
+-#define ASM_GENERATE_INTERNAL_LABEL(LABEL,PREFIX,NUM)			\
+-  sprintf ((LABEL), "*%s%s%ld", (LOCAL_LABEL_PREFIX), (PREFIX), (long)(NUM))
+-
+ #define ASM_OUTPUT_ADDR_VEC_ELT(STREAM, VALUE)				\
+   fprintf (STREAM, "\t%s\t%sL%d\n",					\
+ 	   ".gpword",                                                   \
+diff --git a/gcc/testsuite/gcc.target/microblaze/others/strings1.c b/gcc/testsuite/gcc.target/microblaze/others/strings1.c
+index efaf3c660..4a7d35bd7 100644
+--- a/gcc/testsuite/gcc.target/microblaze/others/strings1.c
++++ b/gcc/testsuite/gcc.target/microblaze/others/strings1.c
+@@ -1,6 +1,6 @@
+ /* { dg-options "-O3" } */
+ /* { dg-final { scan-assembler "\.rodata*" } } */
+-/* { dg-final { scan-assembler "addik\tr(\[0-9]\|\[1-2]\[0-9]\|3\[0-1]),r(\[0-9]\|\[1-2]\[0-9]\|3\[0-1]),\\\$LC.*" } } */
++/* { dg-final { scan-assembler "addik\tr(\[0-9]\|\[1-2]\[0-9]\|3\[0-1]),r(\[0-9]\|\[1-2]\[0-9]\|3\[0-1]),\\.LC.*" } } */
+ /* { dg-final { scan-assembler "\lwi\tr(\[0-9]\|\[1-2]\[0-9]\|3\[0-1]),r(\[0-9]\|\[1-2]\[0-9]\|3\[0-1]),*" } } */
+ 
+ #include <string.h>
+-- 
+2.39.5 (Apple Git-154)
+

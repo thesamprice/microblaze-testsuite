@@ -1,35 +1,31 @@
-testsuite: five fixes for targets that differ from the tests' assumptions
+testsuite: four fixes for targets that differ from the tests' assumptions
 
-Five testsuite patches from the first run of compile.exp, dg.exp and
+Four testsuite patches from the first run of compile.exp, dg.exp and
 dg-torture.exp on microblaze-elf.  In each the compiler's output is
 right and the test assumed something the target does not do.  Two are
-generic, two widen a pattern or a target list, and one skips a single
-torture level on MicroBlaze.
+generic, one widens target lists, and one skips a single torture level
+on MicroBlaze.
 
-1/5 The hierarchical-discriminator tests look for discriminators in
+1/4 The hierarchical-discriminator tests look for discriminators in
 .loc directives on gas targets.  A gas target can still have gcc write
 the line table (DWARF2_ASM_LINE_DEBUG_INFO 0, as on MicroBlaze); pass
 -gas-loc-support on gas targets so the directives are there.
 
-2/5 fold-round-1.c's folds create calls to floorf and floorl, which
+2/4 fold-round-1.c's folds create calls to floorf and floorl, which
 GCC does not do without the C99 runtime; require c99_runtime as the
 builtins tests do.  mips-elf, riscv32-elf, sparc-elf and microblaze-elf
 fail it the same way.
 
-3/5 pr110729.c expects .LPFE labels; MicroBlaze's local labels start
-with $.
-
-4/5 MicroBlaze in pic-1.c (one PIC model, __PIC__ is 2),
+3/4 MicroBlaze in pic-1.c (one PIC model, __PIC__ is 2),
 ifcvt-4.c (no conditional move) and Wno-frame-address.c.
 
-5/5 strub-run3.c at -O0 on MicroBlaze: the stack restore after an
+4/4 strub-run3.c at -O0 on MicroBlaze: the stack restore after an
 alloca writes a saved word back over the end of the string the test
 expects a non-strub function to leave behind.  The strub checks pass.
 
 Tested on microblaze-elf under QEMU 10.2.4, with other MicroBlaze fixes
-applied: the 15 FAILs these tests had become 10 PASS (the
-seven discriminator tests and pr110729.c's three scans) and 5
-UNSUPPORTED (fold-round-1.c, pic-1.c, ifcvt-4.c, Wno-frame-address.c,
+applied: the 12 FAILs these tests had become 7 PASS (the
+seven discriminator tests) and 5 UNSUPPORTED (fold-round-1.c, pic-1.c, ifcvt-4.c, Wno-frame-address.c,
 and strub-run3.c at -O0); no other result changed.  With newlib,
 builtins-config.h does not define HAVE_C99_RUNTIME, so fold-round-1.c
 is UNSUPPORTED on the other newlib targets too.

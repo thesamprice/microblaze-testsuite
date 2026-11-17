@@ -1,7 +1,7 @@
-From 6e50893a94e97115d4e8d953b97a351aff551be9 Mon Sep 17 00:00:00 2001
+From abcfccd1eea1ccd5bca60e9aa72067ca9432406c Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Mon, 16 Nov 2026 09:26:03 -0500
-Subject: [PATCH 4/5] testsuite: add microblaze to three target lists
+Subject: [PATCH 3/4] testsuite: add microblaze to three target lists
 
 MicroBlaze has a single PIC model, so -fpic defines __PIC__ to 2, as
 on hppa; it has no conditional move, so ifcvt-4.c's multiple-set

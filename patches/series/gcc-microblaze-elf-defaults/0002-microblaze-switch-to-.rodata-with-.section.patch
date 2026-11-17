@@ -1,7 +1,7 @@
 From 0da18fbc0b2daf25d591a7f5c75b3e53aa57a251 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Mon, 16 Nov 2026 09:24:11 -0500
-Subject: [PATCH 2/2] microblaze: switch to .rodata with .section
+Subject: [PATCH 2/3] microblaze: switch to .rodata with .section
 
 MicroBlaze put read-only data in .rodata with gas's MicroBlaze-only
 ".rodata" directive.  The generic ".section .rodata" that elfos.h uses

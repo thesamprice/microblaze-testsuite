@@ -1,7 +1,7 @@
-From 549b68762f656662ae52bc252505460bc177f6a1 Mon Sep 17 00:00:00 2001
+From a44b3dfc4ec0fb644103b0dbf3473837817b5ed3 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Mon, 16 Nov 2026 09:25:42 -0500
-Subject: [PATCH 2/5] testsuite: fold-round-1.c needs the C99 runtime
+Subject: [PATCH 2/4] testsuite: fold-round-1.c needs the C99 runtime
 
 The folds fold-round-1.c tests replace a conditional with a new call
 to floorf or floorl, which GCC only creates when the target's C library
