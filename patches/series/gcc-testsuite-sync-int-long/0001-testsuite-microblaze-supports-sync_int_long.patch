@@ -1,0 +1,40 @@
+From 7465838fbaa9c77f25707e409b497337a1777775 Mon Sep 17 00:00:00 2001
+From: Samuel Price <thesamprice@gmail.com>
+Date: Mon, 16 Nov 2026 23:57:31 -0500
+Subject: [PATCH] testsuite: microblaze supports sync_int_long
+
+MicroBlaze has lwx/swx and an atomic_compare_and_swapsi pattern, so
+32-bit __sync and __atomic operations are expanded inline with no
+library calls (read-modify-write operations as lwx/swx loops).  The
+target was not in check_effective_target_sync_int_long, so the generic
+atomic tests were UNSUPPORTED.  With it, 21 more tests run and pass
+on microblaze-elf and microblazeel-elf: 19 in gcc.dg, 1 in
+gcc.dg/torture, and gcc.dg/pr86314.c through sync_int_long_stack
+(149 PASS, 0 FAIL on each).  Three stay UNSUPPORTED for other reasons:
+two are x86-only and one needs _BitInt.
+
+Assisted-by: Claude <noreply@anthropic.com>
+
+gcc/testsuite/ChangeLog:
+
+	* lib/target-supports.exp (check_effective_target_sync_int_long):
+	Add microblaze.
+---
+ gcc/testsuite/lib/target-supports.exp | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/gcc/testsuite/lib/target-supports.exp b/gcc/testsuite/lib/target-supports.exp
+index 9e69020e7..de7960dd2 100644
+--- a/gcc/testsuite/lib/target-supports.exp
++++ b/gcc/testsuite/lib/target-supports.exp
+@@ -11039,6 +11039,7 @@ proc check_effective_target_sync_int_long { } {
+ 	     || ([istarget sparc*-*-*] && [check_effective_target_sparc_v9])
+ 	     || ([istarget arc*-*-*] && [check_effective_target_arc_atomic])
+ 	     || [check_effective_target_mips_llsc]
++	     || [istarget microblaze*-*-*]
+ 	     || [istarget nvptx*-*-*]
+ 	     || ([istarget xtensa*-*-*] && [check_effective_target_xtensa_atomic])
+ 	 }}]
+-- 
+2.39.5 (Apple Git-154)
+

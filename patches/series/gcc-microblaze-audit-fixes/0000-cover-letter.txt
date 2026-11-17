@@ -13,6 +13,16 @@ earlier series.
   every 32-bit __sync/__atomic compare-and-swap succeeded when the
   values differed only in bit 31 (memory -1, expected 0x7fffffff).
 
+  This is not only a corner case.  glibc has no MicroBlaze atomics of
+  its own, so it uses these built-ins.  Its priority-inheritance mutex
+  unlock (nptl/pthread_mutex_unlock.c) swaps __lock from the owner's
+  TID to 0, and the kernel sets bit 31 of __lock (FUTEX_WAITERS,
+  0x80000000) when another thread blocks on the mutex.  With cmp,
+  memory TID | FUTEX_WAITERS compares equal to an expected TID, so the
+  unlock clears the waiters bit and the blocked thread is never woken.
+  (From reading the code and the old cmp operand order; not reproduced
+  on Linux.)
+
   cmp and cmpu are for ordering: their result's sign answers "is
   rA > rB", which is what the following branch tests.  They do not
   give a zero result exactly when the operands are equal.  The rest of

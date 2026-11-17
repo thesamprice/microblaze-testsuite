@@ -84,6 +84,7 @@ lead it. Send all eight together once `gcc-microblaze-fixes` 0002 is in
 |---|---|---|---|
 | 13 | `gcc-generic-clmul-promoted` (1) | #121 | wrong code (stale upper bits) on any target that promotes the CLMUL result's mode. Generic code: bootstrap and regtest on x86_64 (or aarch64) first |
 | 14 | `gcc-testsuite-fixes` 0001, 0003, 0004 | #120, #121 | drop 0002 (upstream as PR124262) and renumber to 3 patches |
+| 15a | `gcc-testsuite-sync-int-long` (1) | #81 | adds MicroBlaze to `sync_int_long`: 21 generic atomic tests run, 149 PASS / 0 FAIL BE and LE. After `gcc-microblaze-audit-fixes` |
 | 15 | `gcc-generic-compare-tests` (5) | #54, #56, #60, #76 | rename 0003's `gimplefe-62.c`. Tests only; no rush |
 
 ### Wave 6: our own repository and research
