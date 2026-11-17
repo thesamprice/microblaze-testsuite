@@ -8,12 +8,12 @@ gcc-patches@gcc.gnu.org. Not yet sent.
 |---|---|---|
 | 0001 compare-and-swap with xor | `03da0a4c5` | #81 |
 | 0002 GOT pointer for TLS | `0a4d2c2e7` | #82 |
-| 0003 blockage before sp = fp | `a6a06c63f` | #83 |
-| 0004 interrupt handler saves and CFI | `dd1790cdd` | #86 |
-| 0005 iprefetch out of delay slots | `b8b238052` | #100 |
-| 0006 latent patterns, atomic_test_and_set | `c5b621069` | #102 |
-| 0007 -mxl-stack-check note | `b530eeea8` | #103 |
-| 0008 small-divide table under PIC | `c20e8fd14` | #106 |
+| 0003 blockage before sp = fp | `83aefebdf` | #83 |
+| 0004 interrupt handler saves and CFI | `31bd1a70b` | #86 |
+| 0005 iprefetch out of delay slots | `81285b1db` | #100 |
+| 0006 latent patterns, atomic_test_and_set | `205f2cd5b` | #102 |
+| 0007 -mxl-stack-check note | `5a4cd1c5f` | #103 |
+| 0008 small-divide table under PIC | `696aa37c1` | #106 |
 
 ## Base and dependencies
 
@@ -37,6 +37,10 @@ the compile-fixes, locviews and opt series below were built on; their
 patches do not touch this test. `patches/gcc/0013` is the new 0001;
 0014-0019 still carry the old hashes in their `From` lines, with the
 same content.
+
+2026-11-17: 0003's commit message now traces the blockage through
+MIPS history (GCC 3.0-3.3, d9b59f5634a6, 61db64a590e5); see issue #2.
+Only the message changed, so 0004-0008 differ only in their From hashes.
 
 Branch `fix/gcc-correct` (worktree `work/src/gcc-fix-correct`), on
 `audit/df809a029-all` = gcc master `df809a029` plus 21 of our patches:

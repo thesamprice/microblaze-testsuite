@@ -57,7 +57,9 @@ earlier series.
 
   The scheduler could move the last accesses to an alloca or VLA area
   after the epilogue's sp = fp, where an interrupt can overwrite them.
-  A blockage, as on MIPS.
+  A full blockage, which is what MIPS settled on in 61db64a590e5
+  ("MIPS: Frame barrier fix") after its frame-memory clobber turned
+  out not to cover accesses through a copy of sp.
 
 4/8 do not save sp in interrupt handlers, and give their CFI r14
 

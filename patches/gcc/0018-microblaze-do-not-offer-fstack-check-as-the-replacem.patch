@@ -1,4 +1,4 @@
-From 4d5d4652ca41fe2d54f400f06cc5bc39f6e24bee Mon Sep 17 00:00:00 2001
+From 5a4cd1c5fa8e00de9b1db9aa45cdcec2f37d9bb0 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 15 Nov 2026 05:52:35 -0500
 Subject: [PATCH 7/8] microblaze: do not offer -fstack-check as the replacement

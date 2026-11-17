@@ -1,4 +1,4 @@
-From a6a06c63f98437ee9058b763a266690e738485f2 Mon Sep 17 00:00:00 2001
+From 83aefebdf0f1801ac0dcadffd5fc54b3836eb0be Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 15 Nov 2026 05:52:29 -0500
 Subject: [PATCH 3/8] microblaze: keep the dynamic area's accesses before sp is
@@ -8,8 +8,15 @@ When a frame pointer is used, the epilogue sets sp from it, which
 releases the area that alloca, VLAs and -fstack-check's dynamic
 allocations use.  Nothing kept the scheduler from moving the last loads
 and stores of that area after the move, where an interrupt, or anything
-else pushing onto the stack, can overwrite them first.  MIPS, from
-which this epilogue comes, puts a barrier before it.
+else pushing onto the stack, can overwrite them first.
+
+This epilogue comes from the GCC 3 MIPS one, which emitted a blockage
+right before the same move; the copy left it out.  MIPS itself lost
+that blockage when its epilogue was rewritten for GCC 3.4, put a
+barrier back with r179432 (d9b59f5634a6, "mips.c (mips_frame_barrier):
+New function."), and, because that barrier was only a clobber of the
+frame and did not stop accesses through a copy of sp, made it a full
+blockage with 61db64a590e5 ("MIPS: Frame barrier fix").
 
 Emit a blockage before setting sp from the frame pointer.
 
