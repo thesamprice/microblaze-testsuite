@@ -1,4 +1,4 @@
-From 4500ed89cf5f33ed4023a3828f440b2396f2f91b Mon Sep 17 00:00:00 2001
+From b275382d6e374dabc63e9eebbeeeb4b3e6a82d3e Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 15 Nov 2026 05:52:26 -0500
 Subject: [PATCH 1/8] microblaze: test compare-and-swap equality with xor, not
@@ -24,9 +24,9 @@ gcc/testsuite/ChangeLog:
 
 	* gcc.target/microblaze/others/atomic-cas-run.c: New test.
 ---
- gcc/config/microblaze/sync.md                 |  2 +-
- .../microblaze/others/atomic-cas-run.c        | 95 +++++++++++++++++++
- 2 files changed, 96 insertions(+), 1 deletion(-)
+ gcc/config/microblaze/sync.md                 |   2 +-
+ .../microblaze/others/atomic-cas-run.c        | 105 ++++++++++++++++++
+ 2 files changed, 106 insertions(+), 1 deletion(-)
  create mode 100644 gcc/testsuite/gcc.target/microblaze/others/atomic-cas-run.c
 
 diff --git a/gcc/config/microblaze/sync.md b/gcc/config/microblaze/sync.md
@@ -44,10 +44,10 @@ index cc094df95..777b9b1de 100644
        "addic\t%8,r0,0\n\t"
 diff --git a/gcc/testsuite/gcc.target/microblaze/others/atomic-cas-run.c b/gcc/testsuite/gcc.target/microblaze/others/atomic-cas-run.c
 new file mode 100644
-index 000000000..992c43aec
+index 000000000..237ba8742
 --- /dev/null
 +++ b/gcc/testsuite/gcc.target/microblaze/others/atomic-cas-run.c
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,105 @@
 +/* { dg-do run } */
 +
 +/* The compare-and-swap loop used cmp for its equality test.  cmp replaces
@@ -64,6 +64,16 @@ index 000000000..992c43aec
 +#define NEW_VALUE 5
 +
 +int memory;
++
++/* The __sync_* and __atomic_* functions are GCC built-ins, not library
++   calls.  They are documented in the GCC manual under "Legacy __sync
++   Built-in Functions for Atomic Memory Access" and "Built-in Functions
++   for Memory Model Aware Atomic Operations" (gcc/doc/extend.texi).  On
++   MicroBlaze all three expand to the atomic_compare_and_swapsi pattern
++   in gcc/config/microblaze/sync.md, the code under test.
++
++   noipa keeps each wrapper a real call, so the compare-and-swap is not
++   folded away with the constant arguments of check's callers.  */
 +
 +__attribute__ ((noipa)) int
 +bool_compare_and_swap (int *ptr, int expected, int desired)
