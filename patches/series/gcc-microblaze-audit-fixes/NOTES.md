@@ -8,12 +8,12 @@ gcc-patches@gcc.gnu.org. Not yet sent.
 |---|---|---|
 | 0001 compare-and-swap with xor | `03da0a4c5` | #81 |
 | 0002 GOT pointer for TLS | `0a4d2c2e7` | #82 |
-| 0003 blockage before sp = fp | `83aefebdf` | #83 |
-| 0004 interrupt handler saves and CFI | `31bd1a70b` | #86 |
-| 0005 iprefetch out of delay slots | `81285b1db` | #100 |
-| 0006 latent patterns, atomic_test_and_set | `205f2cd5b` | #102 |
-| 0007 -mxl-stack-check note | `5a4cd1c5f` | #103 |
-| 0008 small-divide table under PIC | `696aa37c1` | #106 |
+| 0003 blockage before sp = fp | `6eadaeae8` | #83 |
+| 0004 interrupt handler saves and CFI | `e8d0d705d` | #86 |
+| 0005 iprefetch out of delay slots | `011fdc375` | #100 |
+| 0006 latent patterns, atomic_test_and_set | `371406bd3` | #102 |
+| 0007 -mxl-stack-check note | `3656cc953` | #103 |
+| 0008 small-divide table under PIC | `1a53dd708` | #106 |
 
 ## Base and dependencies
 
@@ -41,6 +41,13 @@ same content.
 2026-11-17: 0003's commit message now traces the blockage through
 MIPS history (GCC 3.0-3.3, d9b59f5634a6, 61db64a590e5); see issue #2.
 Only the message changed, so 0004-0008 differ only in their From hashes.
+Its test, `epilogue-alloca.c`, was then rewritten after MIPS's
+`gcc.target/mips/frame-barrier-1.c`: the same alloca function, with
+`-fdump-rtl-final` and `scan-rtl-dump-times "unspec_volatile" 2`
+(MicroBlaze's blockage is an unnamed `unspec_volatile`).  14 PASS on
+big-endian (-O0 to -Os and both LTO variants); the unfixed compiler
+has one blockage at every level, and at -O2, -O3 and -Os its code
+resets sp before the last load from the alloca area.
 
 Branch `fix/gcc-correct` (worktree `work/src/gcc-fix-correct`), on
 `audit/df809a029-all` = gcc master `df809a029` plus 21 of our patches:

@@ -1,4 +1,4 @@
-From 81285b1db2ad931eafb9099b5f554e01bc4ce6a1 Mon Sep 17 00:00:00 2001
+From 011fdc3756f9ebf08270a32c78ab75163dec2774 Mon Sep 17 00:00:00 2001
 From: Samuel Price <thesamprice@gmail.com>
 Date: Sun, 15 Nov 2026 05:52:32 -0500
 Subject: [PATCH 5/8] microblaze: keep iprefetch out of delay slots
